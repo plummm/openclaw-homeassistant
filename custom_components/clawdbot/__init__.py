@@ -133,6 +133,12 @@ PANEL_HTML = """<!doctype html>
     </div>
 
     <div class=\"card\">
+      <h2>Suggested core signals (read-only)</h2>
+      <div class=\"muted\">Heuristic suggestions from current entity ids/names/units. You'll be able to confirm & save in a later milestone.</div>
+      <div class=\"kv\" id=\"suggestions\" style=\"margin-top:10px\"></div>
+    </div>
+
+    <div class=\"card\">
       <h2>Chat</h2>
       <div class=\"muted\">Calls HA service <code>clawdbot.send_chat</code>.</div>
       <div class=\"row\" style=\"margin-top:8px\">
@@ -202,6 +208,70 @@ PANEL_HTML = """<!doctype html>
     qs('#statusDetail').textContent = detail || '';
   }
 
+
+
+  function scoreEntity(meta, rules){
+    const id=(meta.entity_id||'').toLowerCase();
+    const name=(meta.name||'').toLowerCase();
+    const unit=(meta.unit||'').toLowerCase();
+    let s=0;
+    for (const kw of (rules.keywords||[])){
+      if (id.includes(kw) || name.includes(kw)) s += 3;
+    }
+    for (const kw of (rules.weak||[])){
+      if (id.includes(kw) || name.includes(kw)) s += 1;
+    }
+    if (rules.units && rules.units.includes(unit)) s += 2;
+    // Penalize obviously irrelevant domains
+    if (id.startsWith('automation.') || id.startsWith('update.')) s -= 2;
+    return s;
+  }
+
+  function topCandidates(hass, rules, limit){
+    const out=[];
+    const states=(hass && hass.states) ? hass.states : {};
+    for (const [entity_id, st] of Object.entries(states)){
+      const meta={
+        entity_id,
+        name: (st.attributes && (st.attributes.friendly_name || st.attributes.device_class || '')) || '',
+        unit: (st.attributes && st.attributes.unit_of_measurement) || '',
+        state: st.state,
+      };
+      const score=scoreEntity(meta, rules);
+      if (score > 0) out.push({score, ...meta});
+    }
+    out.sort((a,b)=>b.score-a.score);
+    return out.slice(0, limit||3);
+  }
+
+  function renderSuggestions(hass){
+    const root = qs('#suggestions');
+    if (!root) return;
+    root.innerHTML='';
+
+    const rules={
+      soc: { label:'Battery SOC (%)', keywords:['soc','state_of_charge','battery_soc'], units:['%'], weak:['battery'] },
+      batt_v: { label:'Battery Voltage (V)', keywords:['voltage','battery_voltage','batt_v'], units:['v'], weak:['battery'] },
+      solar_w: { label:'Solar Input Power (W)', keywords:['solar','pv','photovoltaic','panel'], units:['w'], weak:['input','power'] },
+      load_w: { label:'Total Consumption / Load (W)', keywords:['load','consumption','house_power','ac_load','power'], units:['w'], weak:['total','sum'] },
+    };
+
+    const items=[];
+    for (const key of Object.keys(rules)){
+      const r=rules[key];
+      const cands=topCandidates(hass, r, 3);
+      const lines=cands.map(c=>`${c.entity_id} (${c.state}${c.unit?(' '+c.unit):''}) [score ${c.score}]`).join('
+') || '(no candidates found)';
+      items.push({label:r.label, lines});
+    }
+
+    for (const it of items){
+      const d=document.createElement('div');
+      d.style.minWidth='320px';
+      d.innerHTML = `<div class="muted">${it.label}</div><pre style="margin:6px 0 0 0;white-space:pre-wrap">${it.lines}</pre>`;
+      root.appendChild(d);
+    }
+  }
   async function callService(domain, service, data){
     const { conn } = await getHass();
     return conn.callService(domain, service, data || {});
@@ -309,7 +379,7 @@ PANEL_HTML = """<!doctype html>
       }
     };
 
-    try{ await getHass(); setStatus(true,'connected',''); } catch(e){ setStatus(false,'error', String(e)); }
+    try{ const { hass } = await getHass(); setStatus(true,'connected',''); renderSuggestions(hass); } catch(e){ setStatus(false,'error', String(e)); }
   }
 
   init();
