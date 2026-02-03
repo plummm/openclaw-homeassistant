@@ -26,6 +26,7 @@ from typing import Any
 import aiohttp
 
 from homeassistant.components.http import HomeAssistantView
+from homeassistant.helpers.storage import Store
 
 DOMAIN = "clawdbot"
 _LOGGER = logging.getLogger(__name__)
@@ -78,6 +79,9 @@ def _derive_gateway_origin(panel_url: str) -> str:
         pass
     return panel_url
 
+
+MAPPING_STORE_KEY = "clawdbot_mapping"
+MAPPING_STORE_VERSION = 1
 
 PANEL_HTML = """<!doctype html>
 <html>
@@ -399,7 +403,6 @@ class ClawdbotPanelView(HomeAssistantView):
 
     async def get(self, request):
         from aiohttp import web
-
         from json import dumps
 
         cfg = request.app["hass"].data.get(DOMAIN, {})
@@ -407,9 +410,57 @@ class ClawdbotPanelView(HomeAssistantView):
             "gateway_url": cfg.get("gateway_url") or cfg.get("gateway_origin"),
             "has_token": bool(cfg.get("has_token")),
             "target": cfg.get("target"),
+            "mapping": cfg.get("mapping", {}),
         }
         html = PANEL_HTML.replace("__CONFIG_JSON__", dumps(safe_cfg))
         return web.Response(text=html, content_type="text/html")
+
+
+class ClawdbotMappingApiView(HomeAssistantView):
+    """Authenticated API for reading/writing core-signal mappings.
+
+    This is for headless verification and future UI; not used by the iframe directly.
+    """
+
+    url = "/api/clawdbot/mapping"
+    name = "api:clawdbot:mapping"
+    requires_auth = True
+
+    async def get(self, request):
+        from aiohttp import web
+
+        cfg = request.app["hass"].data.get(DOMAIN, {})
+        return web.json_response({"ok": True, "mapping": cfg.get("mapping", {})})
+
+    async def post(self, request):
+        from aiohttp import web
+
+        hass = request.app["hass"]
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("store")
+        if store is None:
+            return web.json_response({"ok": False, "error": "store not initialized"}, status=500)
+
+        body = await request.json()
+        mapping = body.get("mapping")
+        if not isinstance(mapping, dict):
+            return web.json_response({"ok": False, "error": "mapping must be an object"}, status=400)
+
+        allowed_keys = {"soc", "voltage", "solar", "load"}
+        cleaned = {}
+        for k, v in mapping.items():
+            if k not in allowed_keys:
+                continue
+            if v is None or v == "":
+                cleaned[k] = None
+                continue
+            if not isinstance(v, str):
+                return web.json_response({"ok": False, "error": f"mapping.{k} must be a string"}, status=400)
+            cleaned[k] = v
+
+        await store.async_save(cleaned)
+        cfg["mapping"] = cleaned
+        return web.json_response({"ok": True, "mapping": cleaned})
 
 
 async def async_setup(hass, config):
@@ -430,21 +481,32 @@ async def async_setup(hass, config):
 
     # Store sanitized config for the panel (never expose the token).
     hass.data.setdefault(DOMAIN, {})
+
+    # Load persisted mappings
+    store = Store(hass, MAPPING_STORE_VERSION, MAPPING_STORE_KEY)
+    mapping = await store.async_load() or {}
+    if not isinstance(mapping, dict):
+        mapping = {}
+
     hass.data[DOMAIN].update(
         {
             "gateway_origin": gateway_origin,
             "gateway_url": conf.get(CONF_GATEWAY_URL, None),
             "has_token": bool(token),
             "target": session_key,
+            "store": store,
+            "mapping": mapping,
         }
     )
 
     # HTTP view (served by HA)
     try:
         hass.http.register_view(ClawdbotPanelView)
+        hass.http.register_view(ClawdbotMappingApiView)
         _LOGGER.info("Registered Clawdbot panel view → %s", PANEL_PATH)
+        _LOGGER.info("Registered Clawdbot mapping API → %s", ClawdbotMappingApiView.url)
     except Exception:
-        _LOGGER.exception("Failed to register Clawdbot panel view")
+        _LOGGER.exception("Failed to register Clawdbot HTTP views")
 
     # Panel (iframe)
     try:
