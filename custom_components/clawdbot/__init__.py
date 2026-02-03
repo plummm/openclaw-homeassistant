@@ -115,6 +115,7 @@ PANEL_HTML = """<!doctype html>
     .pill.ok{border-color:#86efac;background:#dcfce7;color:#166534;}
     .pill.bad{border-color:#fecaca;background:#fee2e2;color:#991b1b;}
     .entities{max-height:420px;overflow:auto;border:1px solid #eee;border-radius:8px;padding:8px;}
+    .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
     .ent{display:flex;gap:10px;align-items:center;justify-content:space-between;border-bottom:1px solid #f0f0f0;padding:6px 0;}
     .ent:last-child{border-bottom:none;}
     .ent-id{font-weight:600;}
@@ -178,7 +179,7 @@ PANEL_HTML = """<!doctype html>
       <div class=\"card\">
       <h2>Recommendations (preview)</h2>
       <div class=\"muted\">Informational only (no alerts). Based on your mapped signals + house memory.</div>
-      <div id=\"recs\" style=\"margin-top:10px\"></div>
+      <div id=\"recs\" style=\"margin-top:10px\"><div class=\"muted\">No recommendations yet.</div></div>
       <div class=\"muted\" id=\"recsText\" style=\"display:none\">Finish mapping core signals</div>
     </div>
 
@@ -190,7 +191,7 @@ PANEL_HTML = """<!doctype html>
     <div class=\"card\">
       <h2>Core signals (mapped)</h2>
       <div class=\"muted\">Shows values for the configured entity mapping (or “unmapped”).</div>
-      <div class=\"kv\" id=\"mappedValues\" style=\"margin-top:10px\"></div>
+      <div class=\"kv\" id=\"mappedValues\" class=\"grid2\" style=\"margin-top:10px\"></div>
     </div>
 
     <div class=\"card\" id=\"statusCard\">
@@ -335,7 +336,7 @@ PANEL_HTML = """<!doctype html>
       const present = obj && obj.present;
       const conf = obj && (obj.confidence ?? 0);
       const li = document.createElement('li');
-      li.innerHTML = `<b>${label}:</b> ${present ? 'present' : 'not detected'} <span class=\"muted\">(confidence ${conf})</span>`;
+      li.innerHTML = `<b>${label}:</b> ${present ? 'present' : 'not detected'} <span class=\"muted\">(confidence ${Math.round((conf||0)*100)}%}</span>`;
       ul.appendChild(li);
     }
     el.appendChild(ul);
@@ -525,7 +526,7 @@ PANEL_HTML = """<!doctype html>
       qs('#tabSetup').classList.remove('active');
       setHidden(qs('#viewSetup'), true);
       setHidden(qs('#viewCockpit'), false);
-      try{ await refreshEntities(); } catch(e){}
+      try{ const { hass } = await getHass(); await refreshEntities(); renderMappedValues(hass); renderHouseMemory(); renderRecommendations(hass); } catch(e){}
     };
 
     qs('#refreshBtn').onclick = refreshEntities;
