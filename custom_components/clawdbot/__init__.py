@@ -631,9 +631,13 @@ PANEL_HTML = """<!doctype html>
     const hints = { soc:'battery', voltage:'voltage', solar:'solar', load:'power' };
     const ids = { soc:'mapSoc', voltage:'mapVoltage', solar:'mapSolar', load:'mapLoad' };
 
-    // Pre-fill the entity list filter (visible under Cockpit), so when they return it’s ready.
+    // Pre-fill + focus the entity list filter (Cockpit). Even after switching tabs, the value remains.
     const f = qs('#filter');
-    if (f){ f.value = hints[key] || ''; }
+    if (f){
+      f.value = hints[key] || '';
+      try{ f.focus(); }catch(e){}
+      try{ f.scrollIntoView({behavior:'smooth', block:'center'}); }catch(e){}
+    }
 
     // Switch to Setup tab
     try{ qs('#tabSetup').click(); }catch(e){}
