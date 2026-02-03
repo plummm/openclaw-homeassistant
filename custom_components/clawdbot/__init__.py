@@ -94,20 +94,39 @@ PANEL_HTML = """<!doctype html>
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>
   <title>Clawdbot</title>
   <style>
-    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;padding:16px;max-width:980px;margin:0 auto;background:var(--primary-background-color);color:var(--primary-text-color);}
+    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;padding:16px;max-width:980px;margin:0 auto;
+      background:linear-gradient(180deg,
+        color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 6%, var(--primary-background-color)) 0%,
+        var(--primary-background-color) 180px);
+      color:var(--primary-text-color);
+    }
     input,button,textarea{font:inherit;}
+    input,textarea{
+      width:100%;
+      padding:12px 14px;
+      border-radius:12px;
+      border:1px solid var(--divider-color);
+      background:var(--ha-card-background, var(--card-background-color));
+      color:var(--primary-text-color);
+      outline:none;
+    }
+    input:focus,textarea:focus{
+      border-color:var(--mdc-theme-primary, var(--primary-color));
+      box-shadow:0 0 0 3px color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 22%, transparent);
+    }
     code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;}
     .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
     .card{border:1px solid var(--divider-color);border-radius:12px;padding:14px;margin:14px 0;background:var(--ha-card-background, var(--card-background-color));box-shadow:var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,.04));}
     .muted{color:var(--secondary-text-color);font-size:13px;}
     .ok{color:#0a7a2f;}
     .bad{color:#a00000;}
-    .btn{padding:7px 12px;border:1px solid var(--divider-color);border-radius:10px;background:var(--secondary-background-color);cursor:pointer;}
+    .btn{height:44px;padding:0 14px;border:1px solid var(--divider-color);border-radius:12px;background:var(--secondary-background-color);color:var(--primary-text-color);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;}
     .btn:hover{filter:brightness(0.98);}
-    .btn.primary{border-color:var(--mdc-theme-primary, var(--primary-color));background:color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 14%, transparent);}
-    .tabs{display:flex;gap:8px;margin-top:10px;margin-bottom:8px;}
-    .tab{padding:7px 12px;border:1px solid var(--divider-color);border-radius:999px;background:var(--secondary-background-color);color:var(--secondary-text-color);cursor:pointer;}
-    .tab.active{background:color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 18%, transparent);border-color:var(--mdc-theme-primary, var(--primary-color));color:var(--primary-text-color);font-weight:600;}
+    .btn.primary{border-color:var(--mdc-theme-primary, var(--primary-color));background:var(--mdc-theme-primary, var(--primary-color));color:var(--text-primary-color, #fff);}
+    .btn.primary:hover{filter:brightness(0.95);}
+    .tabs{display:flex;gap:10px;margin-top:10px;margin-bottom:12px;}
+    .tab{height:40px;padding:0 14px;border:1px solid var(--divider-color);border-radius:999px;background:var(--secondary-background-color);color:var(--secondary-text-color);cursor:pointer;display:inline-flex;align-items:center;}
+    .tab.active{background:var(--mdc-theme-primary, var(--primary-color));border-color:var(--mdc-theme-primary, var(--primary-color));color:var(--text-primary-color, #fff);font-weight:600;}
     .hidden{display:none;}
     .kv{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;}
     .kv > div{background:var(--secondary-background-color);border:1px solid var(--divider-color);border-radius:10px;padding:8px 10px;}
@@ -115,7 +134,9 @@ PANEL_HTML = """<!doctype html>
     .pill.ok{border-color:var(--success-color, #2e7d32);background:color-mix(in srgb, var(--success-color, #2e7d32) 15%, transparent);color:var(--success-color, #2e7d32);}
     .pill.bad{border-color:var(--error-color, #b00020);background:color-mix(in srgb, var(--error-color, #b00020) 15%, transparent);color:var(--error-color, #b00020);}
     .entities{max-height:420px;overflow:auto;border:1px solid var(--divider-color);border-radius:8px;padding:8px;}
-    .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+    .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+    .setup-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start;}
+    @media (max-width: 860px){ .setup-grid{grid-template-columns:1fr;} }
     .ent{display:flex;gap:10px;align-items:center;justify-content:space-between;border-bottom:1px solid #f0f0f0;padding:6px 0;}
     .ent:last-child{border-bottom:none;}
     .ent-id{font-weight:600;}
@@ -139,6 +160,7 @@ PANEL_HTML = """<!doctype html>
   </div>
 
   <div id=\"viewSetup\" class=\"hidden\">
+    <div class=\"setup-grid\">
     <div class=\"card\">
       <h2>Commissioning</h2>
       <div class=\"muted\">Verify configuration and connectivity before using the cockpit.</div>
@@ -173,11 +195,11 @@ PANEL_HTML = """<!doctype html>
       </div>
       <div class=\"muted\" id=\"chatResult\" style=\"margin-top:8px\"></div>
     </div>
+    </div>
   </div>
 
   <div id=\"viewCockpit\">
     <div class=\"card\">
-      <div class=\"card\">
       <h2>Recommendations (preview)</h2>
       <div class=\"muted\">Informational only (no alerts). Based on your mapped signals + house memory.</div>
       <div id=\"recs\" style=\"margin-top:10px\"><div class=\"muted\">No recommendations yet.</div></div>
