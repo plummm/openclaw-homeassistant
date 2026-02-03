@@ -30,7 +30,9 @@ _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_TITLE = "Clawdbot"
 DEFAULT_ICON = "mdi:robot"
-DEFAULT_URL = "http://host.docker.internal:7773/__clawdbot__/canvas/ha-panel/"
+# NOTE: panel_url must be reachable from the *browser viewing Home Assistant*.
+# Do NOT default to host.docker.internal (only works from inside Docker).
+DEFAULT_URL = "http://127.0.0.1:7773/__clawdbot__/canvas/ha-panel/"
 DEFAULT_SESSION_KEY = "main"
 
 CONF_URL = "url"

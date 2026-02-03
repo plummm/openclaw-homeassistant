@@ -2,7 +2,8 @@
 
 clawdbot:
   # Browser access to OpenClaw panel
-  url: "http://<OPENCLAW_HOST>:7773/__clawdbot__/canvas/ha-panel/"
+  # MUST be reachable from your browser (the machine viewing HA)
+  url: "http://<OPENCLAW_PUBLIC_HOST>:7773/__clawdbot__/canvas/ha-panel/"
 
   # HA backend access to OpenClaw Gateway
   gateway_url: "http://<OPENCLAW_HOST>:7773"
