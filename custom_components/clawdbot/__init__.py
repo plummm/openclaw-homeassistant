@@ -468,6 +468,34 @@ PANEL_HTML = """<!doctype html>
       });
     }
 
+    // Weather-based preview (v0, informational only)
+    try{
+      let weatherId = null;
+      if (hass && hass.states) {
+        for (const id of Object.keys(hass.states)) {
+          if (id.startsWith('weather.')) { weatherId = id; break; }
+        }
+      }
+      if (!weatherId) {
+        items.push({
+          title: 'Weather (preview)',
+          body: 'Not configured: add any Home Assistant weather integration (entity weather.*) to unlock cloud/rain-aware battery guidance.'
+        });
+      } else {
+        const st = hass.states[weatherId];
+        const temp = (st && st.attributes) ? (st.attributes.temperature ?? st.attributes.temp) : null;
+        const tempUnit = (st && st.attributes) ? (st.attributes.temperature_unit ?? '°') : '';
+        const condition = st ? st.state : 'unknown';
+        let body = `Current: ${condition}`;
+        if (temp !== null && temp !== undefined) body += `, ${temp}${tempUnit}`;
+        body += ` (${weatherId}).`;
+        if (solarPresent && batteryPresent) {
+          body += ' If heavy clouds/rain are forecast, plan for reduced solar harvest.';
+        }
+        items.push({ title: 'Weather (preview)', body });
+      }
+    } catch(e){}
+
     // If SOC mapped, show quick status line
     try{
       if (mapping.soc && hass && hass.states && hass.states[mapping.soc]){
