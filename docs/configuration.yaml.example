@@ -9,7 +9,9 @@ clawdbot:
   # url: "http://<OPENCLAW_PUBLIC_HOST>:7773/__clawdbot__/canvas/ha-panel/"
 
   # HA backend access to OpenClaw Gateway
-  gateway_url: "http://<OPENCLAW_HOST>:7773"
+  # If HA runs in Docker on Linux, the host gateway is typically available at 172.17.0.1
+  # (Alternatively, add extra_hosts host.docker.internal:host-gateway and use host.docker.internal)
+  gateway_url: "http://172.17.0.1:7773"
 
   # OpenClaw Gateway token (gateway.auth.token)
   token: "<OPENCLAW_GATEWAY_TOKEN>"
