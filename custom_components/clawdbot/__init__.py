@@ -52,6 +52,7 @@ SERVICE_SEND_CHAT = "send_chat"
 SERVICE_TOOLS_INVOKE = "tools_invoke"
 SERVICE_HA_GET_STATES = "ha_get_states"
 SERVICE_HA_CALL_SERVICE = "ha_call_service"
+SERVICE_GATEWAY_TEST = "gateway_test"
 
 
 async def _gw_post(session: aiohttp.ClientSession, url: str, token: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -83,7 +84,7 @@ PANEL_HTML = """<!doctype html>
 <head>
   <meta charset=\"utf-8\"/>
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>
-  <title>Clawdbot (HA Panel)</title>
+  <title>Clawdbot</title>
   <style>
     body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;padding:16px;}
     input,button,textarea{font:inherit;}
@@ -93,51 +94,95 @@ PANEL_HTML = """<!doctype html>
     .muted{color:#666;font-size:13px;}
     .ok{color:#0a7a2f;}
     .bad{color:#a00000;}
+    .btn{padding:6px 10px;border:1px solid #ccc;border-radius:8px;background:#fff;cursor:pointer;}
+    .btn:hover{background:#fafafa;}
+    .btn.primary{border-color:#3b82f6;}
+    .tabs{display:flex;gap:8px;margin-top:12px;}
+    .tab{padding:6px 10px;border:1px solid #ccc;border-radius:999px;background:#fff;cursor:pointer;}
+    .tab.active{border-color:#3b82f6;}
+    .hidden{display:none;}
+    .kv{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;}
+    .kv > div{background:#fafafa;border:1px solid #eee;border-radius:10px;padding:8px 10px;}
     .entities{max-height:420px;overflow:auto;border:1px solid #eee;border-radius:8px;padding:8px;}
     .ent{display:flex;gap:10px;align-items:center;justify-content:space-between;border-bottom:1px solid #f0f0f0;padding:6px 0;}
     .ent:last-child{border-bottom:none;}
     .ent-id{font-weight:600;}
     .ent-state{color:#444;}
-    .btn{padding:6px 10px;border:1px solid #ccc;border-radius:8px;background:#fff;cursor:pointer;}
-    .btn:hover{background:#fafafa;}
-    .btn.primary{border-color:#3b82f6;}
   </style>
 </head>
 <body>
-  <h1>Clawdbot (Home Assistant Panel)</h1>
-  <div class=\"muted\">Served by Home Assistant. Uses HA frontend auth to call HA services (which relay to OpenClaw gateway).</div>
+  <h1>Clawdbot</h1>
+  <div class=\"muted\">Home Assistant panel (served by HA). Uses HA auth to call HA services which relay to OpenClaw.</div>
 
-  <div class=\"card\" id=\"statusCard\">
-    <div class=\"row\">
-      <div><b>Status:</b> <span id=\"status\">checking…</span></div>
-      <button class=\"btn\" id=\"refreshBtn\">Refresh entities</button>
-    </div>
-    <div class=\"muted\" id=\"statusDetail\"></div>
+  <script>window.__CLAWDBOT_CONFIG__ = __CONFIG_JSON__;</script>
+
+  <div class=\"tabs\">
+    <button class=\"tab active\" id=\"tabSetup\">Setup</button>
+    <button class=\"tab\" id=\"tabCockpit\">Cockpit</button>
   </div>
 
-  <div class=\"card\">
-    <h2>Chat (MVP)</h2>
-    <div class=\"muted\">Calls HA service <code>clawdbot.send_chat</code>.</div>
-    <div class=\"row\" style=\"margin-top:8px\">
-      <input id=\"chatInput\" style=\"flex:1;min-width:240px\" placeholder=\"Type message…\"/>
-      <button class=\"btn primary\" id=\"chatSend\">Send</button>
+  <div id=\"viewSetup\">
+    <div class=\"card\">
+      <h2>Commissioning</h2>
+      <div class=\"muted\">Verify configuration and connectivity before using the cockpit.</div>
+      <div class=\"kv\" id=\"cfgSummary\"></div>
+      <div class=\"row\" style=\"margin-top:10px\"> 
+        <button class=\"btn primary\" id=\"btnGatewayTest\">Test gateway</button>
+        <span class=\"muted\" id=\"gwTestResult\"></span>
+      </div>
     </div>
-    <div class=\"muted\" id=\"chatResult\" style=\"margin-top:8px\"></div>
+
+    <div class=\"card\">
+      <h2>Chat</h2>
+      <div class=\"muted\">Calls HA service <code>clawdbot.send_chat</code>.</div>
+      <div class=\"row\" style=\"margin-top:8px\">
+        <input id=\"chatInput\" style=\"flex:1;min-width:240px\" placeholder=\"Type message…\"/>
+        <button class=\"btn primary\" id=\"chatSend\">Send</button>
+      </div>
+      <div class=\"muted\" id=\"chatResult\" style=\"margin-top:8px\"></div>
+    </div>
   </div>
 
-  <div class=\"card\">
-    <h2>Entities (local HA)</h2>
-    <div class=\"muted\">Lists entities from HA frontend state; controls call <code>clawdbot.ha_call_service</code>.</div>
-    <div class=\"row\" style=\"margin-top:8px\">
-      <input id=\"filter\" style=\"flex:1;min-width:240px\" placeholder=\"Filter (e.g. input_boolean, switch., light.kitchen)…\"/>
-      <button class=\"btn\" id=\"clearFilter\">Clear</button>
+  <div id=\"viewCockpit\" class=\"hidden\">
+    <div class=\"card\" id=\"statusCard\">
+      <div class=\"row\">
+        <div><b>Status:</b> <span id=\"status\">checking…</span></div>
+        <button class=\"btn\" id=\"refreshBtn\">Refresh entities</button>
+      </div>
+      <div class=\"muted\" id=\"statusDetail\"></div>
     </div>
-    <div class=\"entities\" id=\"entities\" style=\"margin-top:10px\"></div>
+
+    <div class=\"card\">
+      <h2>Entities (local HA)</h2>
+      <div class=\"muted\">Lists entities from HA frontend state; controls call <code>clawdbot.ha_call_service</code>.</div>
+      <div class=\"row\" style=\"margin-top:8px\">
+        <input id=\"filter\" style=\"flex:1;min-width:240px\" placeholder=\"Filter (e.g. input_boolean, switch., light.kitchen)…\"/>
+        <button class=\"btn\" id=\"clearFilter\">Clear</button>
+      </div>
+      <div class=\"entities\" id=\"entities\" style=\"margin-top:10px\"></div>
+    </div>
   </div>
 
 <script>
 (function(){
   function qs(sel){ return document.querySelector(sel); }
+  function setHidden(el, hidden){ el.classList.toggle('hidden', !!hidden); }
+
+  function renderConfigSummary(){
+    const cfg = (window.__CLAWDBOT_CONFIG__ || {});
+    const root = qs('#cfgSummary');
+    const items = [
+      ['gateway_url', cfg.gateway_url || '(missing)'],
+      ['token', cfg.has_token ? 'present' : 'missing'],
+      ['target', cfg.target || '(missing)'],
+    ];
+    root.innerHTML = '';
+    for (const [k,v] of items){
+      const d = document.createElement('div');
+      d.innerHTML = `<div class="muted">${k}</div><div><b>${String(v)}</b></div>`;
+      root.appendChild(d);
+    }
+  }
 
   async function getHass(){
     const parent = window.parent;
@@ -221,31 +266,51 @@ PANEL_HTML = """<!doctype html>
   }
 
   async function init(){
-    try{
-      await getHass();
-      setStatus(true,'connected','');
-      await refreshEntities();
-    } catch(e){
-      setStatus(false,'error', String(e));
-    }
+    renderConfigSummary();
+
+    qs('#tabSetup').onclick = () => {
+      qs('#tabSetup').classList.add('active');
+      qs('#tabCockpit').classList.remove('active');
+      setHidden(qs('#viewSetup'), false);
+      setHidden(qs('#viewCockpit'), true);
+    };
+    qs('#tabCockpit').onclick = async () => {
+      qs('#tabCockpit').classList.add('active');
+      qs('#tabSetup').classList.remove('active');
+      setHidden(qs('#viewSetup'), true);
+      setHidden(qs('#viewCockpit'), false);
+      try{ await refreshEntities(); } catch(e){}
+    };
+
+    qs('#refreshBtn').onclick = refreshEntities;
+    qs('#clearFilter').onclick = () => { qs('#filter').value=''; getHass().then(({hass})=>renderEntities(hass,'')); };
+    qs('#filter').oninput = async () => { try{ const { hass } = await getHass(); renderEntities(hass, qs('#filter').value); } catch(e){} };
+
+    qs('#btnGatewayTest').onclick = async () => {
+      qs('#gwTestResult').textContent = 'running…';
+      try{
+        await callService('clawdbot','gateway_test',{});
+        qs('#gwTestResult').textContent = 'triggered (see persistent notification for result)';
+      } catch(e){
+        qs('#gwTestResult').textContent = 'error: ' + String(e);
+      }
+    };
+
+    qs('#chatSend').onclick = async () => {
+      const msg = qs('#chatInput').value.trim();
+      if (!msg) return;
+      qs('#chatResult').textContent = 'sending…';
+      try{
+        await callService('clawdbot','send_chat',{message: msg});
+        qs('#chatResult').textContent = 'sent';
+        qs('#chatInput').value = '';
+      } catch(e){
+        qs('#chatResult').textContent = 'error: ' + String(e);
+      }
+    };
+
+    try{ await getHass(); setStatus(true,'connected',''); } catch(e){ setStatus(false,'error', String(e)); }
   }
-
-  qs('#refreshBtn').onclick = refreshEntities;
-  qs('#clearFilter').onclick = () => { qs('#filter').value=''; getHass().then(({hass})=>renderEntities(hass,'')); };
-  qs('#filter').oninput = async () => { try{ const { hass } = await getHass(); renderEntities(hass, qs('#filter').value); } catch(e){} };
-
-  qs('#chatSend').onclick = async () => {
-    const msg = qs('#chatInput').value.trim();
-    if (!msg) return;
-    qs('#chatResult').textContent = 'sending…';
-    try{
-      await callService('clawdbot','send_chat',{message: msg});
-      qs('#chatResult').textContent = 'sent';
-      qs('#chatInput').value = '';
-    } catch(e){
-      qs('#chatResult').textContent = 'error: ' + String(e);
-    }
-  };
 
   init();
 })();
@@ -265,7 +330,16 @@ class ClawdbotPanelView(HomeAssistantView):
     async def get(self, request):
         from aiohttp import web
 
-        return web.Response(text=PANEL_HTML, content_type="text/html")
+        from json import dumps
+
+        cfg = request.app["hass"].data.get(DOMAIN, {})
+        safe_cfg = {
+            "gateway_url": cfg.get("gateway_url") or cfg.get("gateway_origin"),
+            "has_token": bool(cfg.get("has_token")),
+            "target": cfg.get("target"),
+        }
+        html = PANEL_HTML.replace("__CONFIG_JSON__", dumps(safe_cfg))
+        return web.Response(text=html, content_type="text/html")
 
 
 async def async_setup(hass, config):
@@ -274,7 +348,6 @@ async def async_setup(hass, config):
     # This avoids OpenClaw Control UI auth/device-identity and makes the iframe same-origin.
     panel_url = PANEL_PATH
 
-    # (Future) If we re-enable external panel overrides, validate here.
     title = conf.get("title", DEFAULT_TITLE)
     icon = conf.get("icon", DEFAULT_ICON)
 
@@ -284,6 +357,17 @@ async def async_setup(hass, config):
     # Panel URL is for the browser iframe. Gateway URL is for HA->Clawdbot service calls.
     gateway_origin = str(conf.get(CONF_GATEWAY_URL, _derive_gateway_origin(panel_url))).rstrip("/")
     session = aiohttp.ClientSession()
+
+    # Store sanitized config for the panel (never expose the token).
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN].update(
+        {
+            "gateway_origin": gateway_origin,
+            "gateway_url": conf.get(CONF_GATEWAY_URL, None),
+            "has_token": bool(token),
+            "target": session_key,
+        }
+    )
 
     # HTTP view (served by HA)
     try:
@@ -348,6 +432,18 @@ async def async_setup(hass, config):
         res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
         await _notify("Clawdbot: send_chat", str(res))
 
+    async def handle_gateway_test(call):
+        if not token:
+            raise RuntimeError("clawdbot.token is required to use services")
+        # Lightweight ping via listing sessions (no side effects)
+        payload = {"tool": "sessions_list", "args": {"limit": 1}}
+        try:
+            res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
+            await _notify("Clawdbot: gateway_test", __import__("json").dumps(res, indent=2)[:4000])
+        except Exception as e:
+            await _notify("Clawdbot: gateway_test", f"ERROR: {e}")
+            raise
+
     async def handle_tools_invoke(call):
         if not token:
             raise RuntimeError("clawdbot.token is required to use services")
@@ -404,6 +500,7 @@ async def async_setup(hass, config):
         await _notify("Clawdbot: ha_call_service", f"Called {domain}.{service_name} target={target} data={service_data}")
 
     hass.services.async_register(DOMAIN, SERVICE_SEND_CHAT, handle_send_chat)
+    hass.services.async_register(DOMAIN, SERVICE_GATEWAY_TEST, handle_gateway_test)
     hass.services.async_register(DOMAIN, SERVICE_TOOLS_INVOKE, handle_tools_invoke)
     hass.services.async_register(DOMAIN, SERVICE_HA_GET_STATES, handle_ha_get_states)
     hass.services.async_register(DOMAIN, SERVICE_HA_CALL_SERVICE, handle_ha_call_service)
