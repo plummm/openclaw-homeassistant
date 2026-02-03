@@ -111,6 +111,9 @@ PANEL_HTML = """<!doctype html>
     .hidden{display:none;}
     .kv{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;}
     .kv > div{background:#fafafa;border:1px solid #eee;border-radius:10px;padding:8px 10px;}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid #e5e7eb;background:#f9fafb;color:#374151;}
+    .pill.ok{border-color:#86efac;background:#dcfce7;color:#166534;}
+    .pill.bad{border-color:#fecaca;background:#fee2e2;color:#991b1b;}
     .entities{max-height:420px;overflow:auto;border:1px solid #eee;border-radius:8px;padding:8px;}
     .ent{display:flex;gap:10px;align-items:center;justify-content:space-between;border-bottom:1px solid #f0f0f0;padding:6px 0;}
     .ent:last-child{border-bottom:none;}
@@ -180,7 +183,7 @@ PANEL_HTML = """<!doctype html>
 
       <h2>House memory (MVP)</h2>
       <div class=\"muted\">Derived from entities (heuristics). Read-only for now.</div>
-      <pre id=\"houseMemory\" style=\"margin-top:10px;white-space:pre-wrap\"></pre>
+      <div id=\"houseMemory\" style=\"margin-top:10px\"></div>
     </div>
 
     <div class=\"card\">
@@ -191,7 +194,7 @@ PANEL_HTML = """<!doctype html>
 
     <div class=\"card\" id=\"statusCard\">
       <div class=\"row\">
-        <div><b>Status:</b> <span id=\"status\">checking…</span></div>
+        <div class=\"row\"><div><b>Status:</b> <span id=\"status\">checking…</span></div><span id=\"connPill\" class=\"pill\">…</span></div>
         <button class=\"btn\" id=\"refreshBtn\">Refresh entities</button>
       </div>
       <div class=\"muted\" id=\"statusDetail\"></div>
@@ -286,6 +289,15 @@ PANEL_HTML = """<!doctype html>
       });
     }
 
+    // If SOC mapped, show quick status line
+    try{
+      if (mapping.soc && hass && hass.states && hass.states[mapping.soc]){
+        const st=hass.states[mapping.soc];
+        const unit=(st.attributes && st.attributes.unit_of_measurement) ? (' '+st.attributes.unit_of_measurement) : '';
+        items.push({title:'Current battery SOC', body: `${st.state}${unit} (${mapping.soc})`});
+      }
+    } catch(e){}
+
     if (!items.length) {
       items.push({title:'No recommendations yet', body:'Add mappings (SOC/solar/load) to unlock insights.'});
     }
@@ -306,7 +318,26 @@ PANEL_HTML = """<!doctype html>
     if (!el) return;
     const cfg = (window.__CLAWDBOT_CONFIG__ || {});
     const mem = cfg.house_memory || {};
-    el.textContent = JSON.stringify(mem, null, 2);
+
+    const rows = [
+      ['Solar', mem.solar],
+      ['Battery', mem.battery],
+      ['Grid', mem.grid],
+      ['Generator', mem.generator],
+    ];
+
+    el.innerHTML = '';
+    const ul = document.createElement('ul');
+    ul.style.margin = '0';
+    ul.style.paddingLeft = '18px';
+    for (const [label, obj] of rows){
+      const present = obj && obj.present;
+      const conf = obj && (obj.confidence ?? 0);
+      const li = document.createElement('li');
+      li.innerHTML = `<b>${label}:</b> ${present ? 'present' : 'not detected'} <span class=\"muted\">(confidence ${conf})</span>`;
+      ul.appendChild(li);
+    }
+    el.appendChild(ul);
   }
   function renderMappedValues(hass){
     const root = qs('#mappedValues');
@@ -345,6 +376,8 @@ PANEL_HTML = """<!doctype html>
     const el = qs('#status');
     el.textContent = text;
     el.className = ok ? 'ok' : 'bad';
+    const pill = document.getElementById('connPill');
+    if (pill){ pill.textContent = ok ? 'connected' : 'error'; pill.className = 'pill ' + (ok ? 'ok' : 'bad'); }
     qs('#statusDetail').textContent = detail || '';
   }
 
