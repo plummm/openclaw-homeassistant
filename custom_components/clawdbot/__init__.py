@@ -129,9 +129,9 @@ PANEL_HTML = """<!doctype html>
       box-shadow:0 8px 30px rgba(0,0,0,.06);
     }
     .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
-    .card{border:1px solid var(--divider-color);border-radius:16px;padding:16px;margin:14px 0;
+    .card{border:1px solid color-mix(in srgb, var(--divider-color) 95%, transparent);border-radius:16px;padding:16px;margin:14px 0;
       background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent);
-      box-shadow:var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,.04));
+      box-shadow:0 6px 18px rgba(0,0,0,.06);
       backdrop-filter:saturate(1.1);
     }
     .muted{color:var(--secondary-text-color);font-size:13px;}
@@ -142,11 +142,12 @@ PANEL_HTML = """<!doctype html>
     .btn.primary{border-color:var(--mdc-theme-primary, var(--primary-color));background:var(--mdc-theme-primary, var(--primary-color));color:var(--text-primary-color, #fff);}
     .btn.primary:hover{filter:brightness(0.95);}
     .tabs{display:flex;gap:10px;margin-top:10px;margin-bottom:12px;}
-    .tab{height:40px;padding:0 14px;border:1px solid color-mix(in srgb, var(--divider-color) 75%, transparent);border-radius:999px;
-      background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 55%, transparent);
-      color:var(--secondary-text-color);cursor:pointer;display:inline-flex;align-items:center;}
-    .tab.active{background:var(--mdc-theme-primary, var(--primary-color));border-color:var(--mdc-theme-primary, var(--primary-color));color:#fff;font-weight:700;
-      box-shadow:0 6px 18px color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 28%, transparent);}
+    .tab{height:40px;padding:0 14px;border:1px solid color-mix(in srgb, var(--divider-color) 95%, transparent);border-radius:999px;
+      background:transparent;
+      color:var(--primary-text-color);opacity:0.92;cursor:pointer;display:inline-flex;align-items:center;}
+    .tab:hover{background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 55%, transparent);}
+    .tab.active{opacity:1;background:var(--mdc-theme-primary, var(--primary-color));border-color:var(--mdc-theme-primary, var(--primary-color));color:#fff;font-weight:800;
+      box-shadow:0 8px 22px color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 30%, transparent);}
     .hidden{display:none;}
     .kv{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;}
     .kv > div{background:var(--secondary-background-color);border:1px solid var(--divider-color);border-radius:10px;padding:8px 10px;}
