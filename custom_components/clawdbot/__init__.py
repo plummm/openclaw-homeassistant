@@ -195,6 +195,24 @@ PANEL_HTML = """<!doctype html>
         <button class=\"btn primary\" id=\"btnGatewayTest\">Test gateway</button>
         <span class=\"muted\" id=\"gwTestResult\"></span>
       </div>
+
+      <div style=\"margin-top:14px\">
+        <div class=\"muted\" style=\"margin-bottom:8px\">Send test inbound event (calls <code>clawdbot.notify_event</code>):</div>
+        <div class=\"row\">
+          <input id=\"evtType\" placeholder=\"event_type\" value=\"clawdbot.test\"/>
+          <select id=\"evtSeverity\" style=\"height:44px;border-radius:12px;padding:0 12px;border:1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 70%, transparent);color:var(--primary-text-color);\">
+            <option value=\"info\" selected>info</option>
+            <option value=\"warning\">warning</option>
+            <option value=\"critical\">critical</option>
+          </select>
+          <input id=\"evtSource\" placeholder=\"source\" value=\"panel\"/>
+        </div>
+        <textarea id=\"evtAttrs\" style=\"margin-top:8px\" rows=\"3\" placeholder=\"attributes JSON (optional)\"></textarea>
+        <div class=\"row\" style=\"margin-top:8px\">
+          <button class=\"btn\" id=\"btnSendEvent\">Send test event</button>
+          <span class=\"muted\" id=\"evtResult\"></span>
+        </div>
+      </div>
     </div>
 
     <div class=\"card\">
@@ -913,6 +931,33 @@ PANEL_HTML = """<!doctype html>
         qs('#gwTestResult').textContent = 'triggered';
       } catch(e){
         qs('#gwTestResult').textContent = 'error: ' + String(e);
+      }
+    };
+
+    const parseJsonSafe = (txt) => {
+      const t = String(txt || '').trim();
+      if (!t) return {};
+      try{ return JSON.parse(t); }catch(e){ return null; }
+    };
+
+    const btnSend = qs('#btnSendEvent');
+    if (btnSend) btnSend.onclick = async () => {
+      const resultEl = qs('#evtResult');
+      if (resultEl) resultEl.textContent = 'sending…';
+      const event_type = (qs('#evtType') ? qs('#evtType').value.trim() : 'clawdbot.test');
+      const severity = (qs('#evtSeverity') ? qs('#evtSeverity').value : 'info');
+      const source = (qs('#evtSource') ? qs('#evtSource').value.trim() : 'panel');
+      const attrsTxt = (qs('#evtAttrs') ? qs('#evtAttrs').value : '');
+      const attrs = parseJsonSafe(attrsTxt);
+      if (attrs === null) {
+        if (resultEl) resultEl.textContent = 'attributes JSON is invalid';
+        return;
+      }
+      try{
+        await callService('clawdbot','notify_event',{ event_type, severity, source, attributes: attrs });
+        if (resultEl) resultEl.textContent = 'sent';
+      } catch(e){
+        if (resultEl) resultEl.textContent = 'error: ' + String(e);
       }
     };
 
