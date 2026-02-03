@@ -27,6 +27,7 @@ import aiohttp
 
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.helpers.storage import Store
+from homeassistant.exceptions import HomeAssistantError
 
 DOMAIN = "clawdbot"
 _LOGGER = logging.getLogger(__name__)
@@ -1553,18 +1554,24 @@ async def async_setup(hass, config):
         }
         key = (str(domain), str(service_name))
         if key not in allowed:
-            raise RuntimeError(f"Service not allowed: {domain}.{service_name}")
+            # HomeAssistantError propagates cleanly to websocket service calls (panel/UI will see it).
+            raise HomeAssistantError(f"Service not allowed: {domain}.{service_name}")
 
         target = None
         if entity_id:
             target = {"entity_id": entity_id}
 
+        ctx = getattr(call, "context", None)
+        ctx_id = getattr(ctx, "id", None)
+        ctx_user = getattr(ctx, "user_id", None)
         _LOGGER.info(
-            "Clawdbot outbound HA call: %s.%s target=%s data=%s",
+            "Clawdbot outbound HA call: %s.%s target=%s data=%s context_id=%s user_id=%s",
             domain,
             service_name,
             target,
             service_data,
+            ctx_id,
+            ctx_user,
         )
 
         await hass.services.async_call(
