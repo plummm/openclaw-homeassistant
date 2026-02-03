@@ -1166,7 +1166,7 @@ def _compute_house_memory_from_states(states: dict, mapping: dict | None = None)
 
     m = mapping or {}
 
-    def pack(evidence, mapped_ids=None, base_if_mapped=0.75):
+    def pack(evidence, mapped_ids=None, base_if_mapped=0.75, require_hits: int = 1):
         mapped_ids = [x for x in (mapped_ids or []) if x]
         # Inject mapped ids as strong evidence (dedupe, preserve order)
         seen=set()
@@ -1181,6 +1181,10 @@ def _compute_house_memory_from_states(states: dict, mapping: dict | None = None)
         if n==0:
             return {"present": False, "confidence": 0.0, "evidence": []}
 
+        # For things like grid/generator, avoid "guessing" from a single weak keyword hit.
+        if not mapped_ids and n < require_hits:
+            return {"present": False, "confidence": 0.0, "evidence": combined[:10]}
+
         # Confidence:
         # - If user mapped a relevant entity, we assume stronger confidence.
         # - Otherwise ramp based on number of keyword hits.
@@ -1190,10 +1194,12 @@ def _compute_house_memory_from_states(states: dict, mapping: dict | None = None)
         return {"present": True, "confidence": round(conf, 2), "evidence": combined[:10]}
 
     return {
-        "solar": pack(solar_ev, mapped_ids=[m.get("solar")], base_if_mapped=0.8),
-        "battery": pack(batt_ev, mapped_ids=[m.get("soc"), m.get("voltage")], base_if_mapped=0.85),
-        "grid": pack(grid_ev, mapped_ids=[], base_if_mapped=0.75),
-        "generator": pack(gen_ev, mapped_ids=[], base_if_mapped=0.75),
+        # Solar: if the user mapped a solar sensor, treat as strong evidence.
+        "solar": pack(solar_ev, mapped_ids=[m.get("solar")], base_if_mapped=0.8, require_hits=1),
+        "battery": pack(batt_ev, mapped_ids=[m.get("soc"), m.get("voltage")], base_if_mapped=0.85, require_hits=1),
+        # Grid/generator: keep 0 unless we have stronger keyword evidence (>=2 hits).
+        "grid": pack(grid_ev, mapped_ids=[], base_if_mapped=0.75, require_hits=2),
+        "generator": pack(gen_ev, mapped_ids=[], base_if_mapped=0.75, require_hits=2),
     }
 async def async_setup(hass, config):
     conf = config.get(DOMAIN, {})
