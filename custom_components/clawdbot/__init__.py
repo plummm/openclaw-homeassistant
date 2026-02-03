@@ -55,6 +55,7 @@ SERVICE_HA_GET_STATES = "ha_get_states"
 SERVICE_HA_CALL_SERVICE = "ha_call_service"
 SERVICE_GATEWAY_TEST = "gateway_test"
 SERVICE_SET_MAPPING = "set_mapping"
+SERVICE_REFRESH_HOUSE_MEMORY = "refresh_house_memory"
 
 
 async def _gw_post(session: aiohttp.ClientSession, url: str, token: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -83,6 +84,8 @@ def _derive_gateway_origin(panel_url: str) -> str:
 
 MAPPING_STORE_KEY = "clawdbot_mapping"
 MAPPING_STORE_VERSION = 1
+HOUSEMEM_STORE_KEY = "clawdbot_house_memory"
+HOUSEMEM_STORE_VERSION = 1
 
 PANEL_HTML = """<!doctype html>
 <html>
@@ -169,6 +172,12 @@ PANEL_HTML = """<!doctype html>
 
   <div id=\"viewCockpit\" class=\"hidden\">
     <div class=\"card\">
+      <h2>House memory (MVP)</h2>
+      <div class=\"muted\">Derived from entities (heuristics). Read-only for now.</div>
+      <pre id=\"houseMemory\" style=\"margin-top:10px;white-space:pre-wrap\"></pre>
+    </div>
+
+    <div class=\"card\">
       <h2>Core signals (mapped)</h2>
       <div class=\"muted\">Shows values for the configured entity mapping (or “unmapped”).</div>
       <div class=\"kv\" id=\"mappedValues\" style=\"margin-top:10px\"></div>
@@ -231,6 +240,15 @@ PANEL_HTML = """<!doctype html>
     set('mapLoad', m.load);
   }
 
+
+
+  function renderHouseMemory(){
+    const el = document.getElementById('houseMemory');
+    if (!el) return;
+    const cfg = (window.__CLAWDBOT_CONFIG__ || {});
+    const mem = cfg.house_memory || {};
+    el.textContent = JSON.stringify(mem, null, 2);
+  }
   function renderMappedValues(hass){
     const root = qs('#mappedValues');
     if (!root) return;
@@ -401,6 +419,7 @@ PANEL_HTML = """<!doctype html>
   async function init(){
     renderConfigSummary();
     fillMappingInputs();
+    renderHouseMemory();
 
     qs('#tabSetup').onclick = () => {
       qs('#tabSetup').classList.add('active');
@@ -487,6 +506,7 @@ class ClawdbotPanelView(HomeAssistantView):
             "has_token": bool(cfg.get("has_token")),
             "target": cfg.get("target"),
             "mapping": cfg.get("mapping", {}),
+            "house_memory": cfg.get("house_memory", {}),
         }
         html = PANEL_HTML.replace("__CONFIG_JSON__", dumps(safe_cfg))
         return web.Response(text=html, content_type="text/html")
@@ -539,6 +559,75 @@ class ClawdbotMappingApiView(HomeAssistantView):
         return web.json_response({"ok": True, "mapping": cleaned})
 
 
+class ClawdbotHouseMemoryApiView(HomeAssistantView):
+    """Authenticated API for reading the derived 'house memory' summary."""
+
+    url = "/api/clawdbot/house_memory"
+    name = "api:clawdbot:house_memory"
+    requires_auth = True
+
+    async def get(self, request):
+        from aiohttp import web
+
+        cfg = request.app["hass"].data.get(DOMAIN, {})
+        return web.json_response({"ok": True, "house_memory": cfg.get("house_memory", {})})
+
+
+
+
+def _compute_house_memory_from_states(states: dict) -> dict:
+    """Heuristic summary derived from HA entity ids/names.
+
+    Output format:
+      { solar: {present, confidence, evidence:[...]}, ... }
+    """
+
+    def _scan(keywords):
+        evidence=[]
+        for ent_id, st in states.items():
+            name=''
+            try:
+                name=str(st.attributes.get('friendly_name') or '')
+            except Exception:
+                pass
+            hay=(ent_id+' '+name).lower()
+            if any(k in hay for k in keywords):
+                evidence.append(ent_id)
+        return evidence
+
+    # keyword sets (MVP)
+    solar_kw=[
+        'solar','pv','photovoltaic','panel','mppt','victron','cerbo','smartsolar','renogy','charge_controller'
+    ]
+    battery_kw=[
+        'battery','batt','soc','state_of_charge','shunt','bms','lifepo','voltage','current','amp'
+    ]
+    grid_kw=[
+        'grid','mains','utility','import','export','shore','ac_in','ac input','ac_input'
+    ]
+    gen_kw=[
+        'generator','gen','genset','start','run','running'
+    ]
+
+    solar_ev=_scan(solar_kw)
+    batt_ev=_scan(battery_kw)
+    grid_ev=_scan(grid_kw)
+    gen_ev=_scan(gen_kw)
+
+    def pack(evidence):
+        n=len(evidence)
+        if n==0:
+            return {"present": False, "confidence": 0.0, "evidence": []}
+        # simple confidence ramp
+        conf=min(1.0, 0.3 + 0.15*n)
+        return {"present": True, "confidence": round(conf, 2), "evidence": evidence[:10]}
+
+    return {
+        "solar": pack(solar_ev),
+        "battery": pack(batt_ev),
+        "grid": pack(grid_ev),
+        "generator": pack(gen_ev),
+    }
 async def async_setup(hass, config):
     conf = config.get(DOMAIN, {})
     # For MVP: always serve panel content from HA itself.
@@ -560,6 +649,21 @@ async def async_setup(hass, config):
 
     # Load persisted mappings
     store = Store(hass, MAPPING_STORE_VERSION, MAPPING_STORE_KEY)
+
+    # Load / compute house memory summary
+    house_store = Store(hass, HOUSEMEM_STORE_VERSION, HOUSEMEM_STORE_KEY)
+    house_memory = await house_store.async_load() or {}
+    if not isinstance(house_memory, dict):
+        house_memory = {}
+    # Always compute a fresh snapshot from current states (MVP)
+    try:
+        states = {s.entity_id: s for s in hass.states.async_all()}
+        computed = _compute_house_memory_from_states(states)
+        house_memory = computed
+        await house_store.async_save(house_memory)
+    except Exception:
+        _LOGGER.exception('Failed to compute house memory')
+
     mapping = await store.async_load() or {}
     if not isinstance(mapping, dict):
         mapping = {}
@@ -572,6 +676,8 @@ async def async_setup(hass, config):
             "target": session_key,
             "store": store,
             "mapping": mapping,
+            "house_store": house_store,
+            "house_memory": house_memory,
         }
     )
 
@@ -579,6 +685,7 @@ async def async_setup(hass, config):
     try:
         hass.http.register_view(ClawdbotPanelView)
         hass.http.register_view(ClawdbotMappingApiView)
+        hass.http.register_view(ClawdbotHouseMemoryApiView)
         _LOGGER.info("Registered Clawdbot panel view → %s", PANEL_PATH)
         _LOGGER.info("Registered Clawdbot mapping API → %s", ClawdbotMappingApiView.url)
     except Exception:
@@ -666,6 +773,17 @@ async def async_setup(hass, config):
         cfg["mapping"] = cleaned
         await _notify("Clawdbot: set_mapping", __import__("json").dumps(cleaned, indent=2)[:4000])
 
+    async def handle_refresh_house_memory(call):
+        hass = call.hass
+        cfg = hass.data.get(DOMAIN, {})
+        house_store: Store = cfg.get('house_store')
+        if house_store is None:
+            raise RuntimeError('house memory store not initialized')
+        states = {s.entity_id: s for s in hass.states.async_all()}
+        computed = _compute_house_memory_from_states(states)
+        cfg['house_memory'] = computed
+        await house_store.async_save(computed)
+        await _notify('Clawdbot: house_memory', __import__('json').dumps(computed, indent=2)[:4000])
     async def handle_gateway_test(call):
         if not token:
             raise RuntimeError("clawdbot.token is required to use services")
@@ -736,6 +854,7 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, SERVICE_SEND_CHAT, handle_send_chat)
     hass.services.async_register(DOMAIN, SERVICE_GATEWAY_TEST, handle_gateway_test)
     hass.services.async_register(DOMAIN, SERVICE_SET_MAPPING, handle_set_mapping)
+    hass.services.async_register(DOMAIN, SERVICE_REFRESH_HOUSE_MEMORY, handle_refresh_house_memory)
     hass.services.async_register(DOMAIN, SERVICE_TOOLS_INVOKE, handle_tools_invoke)
     hass.services.async_register(DOMAIN, SERVICE_HA_GET_STATES, handle_ha_get_states)
     hass.services.async_register(DOMAIN, SERVICE_HA_CALL_SERVICE, handle_ha_call_service)
