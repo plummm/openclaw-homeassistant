@@ -104,20 +104,36 @@ PANEL_HTML = """<!doctype html>
     input,button,textarea{font:inherit;}
     input,textarea{
       width:100%;
-      padding:12px 14px;
+      height:44px;
+      padding:0 14px;
       border-radius:12px;
-      border:1px solid var(--divider-color);
-      background:var(--ha-card-background, var(--card-background-color));
+      border:1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);
+      background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 70%, transparent);
       color:var(--primary-text-color);
       outline:none;
     }
+    textarea{height:auto;padding:12px 14px;}
     input:focus,textarea:focus{
       border-color:var(--mdc-theme-primary, var(--primary-color));
       box-shadow:0 0 0 3px color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 22%, transparent);
     }
     code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;}
-    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
-    .card{border:1px solid var(--divider-color);border-radius:12px;padding:14px;margin:14px 0;background:var(--ha-card-background, var(--card-background-color));box-shadow:var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,.04));}
+    .surface{
+      background:linear-gradient(180deg,
+        color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 16%, var(--primary-background-color)) 0%,
+        color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 6%, var(--primary-background-color)) 220px,
+        var(--primary-background-color) 520px);
+      border-radius:16px;
+      padding:18px;
+      border:1px solid var(--divider-color);
+      box-shadow:0 8px 30px rgba(0,0,0,.06);
+    }
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+    .card{border:1px solid var(--divider-color);border-radius:16px;padding:16px;margin:14px 0;
+      background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent);
+      box-shadow:var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,.04));
+      backdrop-filter:saturate(1.1);
+    }
     .muted{color:var(--secondary-text-color);font-size:13px;}
     .ok{color:#0a7a2f;}
     .bad{color:#a00000;}
@@ -126,8 +142,11 @@ PANEL_HTML = """<!doctype html>
     .btn.primary{border-color:var(--mdc-theme-primary, var(--primary-color));background:var(--mdc-theme-primary, var(--primary-color));color:var(--text-primary-color, #fff);}
     .btn.primary:hover{filter:brightness(0.95);}
     .tabs{display:flex;gap:10px;margin-top:10px;margin-bottom:12px;}
-    .tab{height:40px;padding:0 14px;border:1px solid var(--divider-color);border-radius:999px;background:var(--secondary-background-color);color:var(--secondary-text-color);cursor:pointer;display:inline-flex;align-items:center;}
-    .tab.active{background:var(--mdc-theme-primary, var(--primary-color));border-color:var(--mdc-theme-primary, var(--primary-color));color:#fff;font-weight:700;box-shadow:0 1px 0 rgba(0,0,0,.06);}
+    .tab{height:40px;padding:0 14px;border:1px solid color-mix(in srgb, var(--divider-color) 75%, transparent);border-radius:999px;
+      background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 55%, transparent);
+      color:var(--secondary-text-color);cursor:pointer;display:inline-flex;align-items:center;}
+    .tab.active{background:var(--mdc-theme-primary, var(--primary-color));border-color:var(--mdc-theme-primary, var(--primary-color));color:#fff;font-weight:700;
+      box-shadow:0 6px 18px color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 28%, transparent);}
     .hidden{display:none;}
     .kv{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;}
     .kv > div{background:var(--secondary-background-color);border:1px solid var(--divider-color);border-radius:10px;padding:8px 10px;}
@@ -150,6 +169,7 @@ PANEL_HTML = """<!doctype html>
   </style>
 </head>
 <body>
+  <div class=\"surface\">
   <h1 style=\"margin:0 0 4px 0;\">Clawdbot</h1>
   <div class=\"muted\" style=\"margin:0 0 10px 0;\">Home Assistant panel (served by HA). Uses HA auth to call HA services which relay to OpenClaw.</div>
 
@@ -242,6 +262,7 @@ PANEL_HTML = """<!doctype html>
       </div>
       <div class=\"entities\" id=\"entities\" style=\"margin-top:10px\"></div>
     </div>
+  </div>
   </div>
 
 <script>
