@@ -102,12 +102,12 @@ PANEL_HTML = """<!doctype html>
     .muted{color:var(--secondary-text-color);font-size:13px;}
     .ok{color:#0a7a2f;}
     .bad{color:#a00000;}
-    .btn{padding:6px 10px;border:1px solid var(--divider-color);border-radius:8px;background:#fff;cursor:pointer;}
-    .btn:hover{background:var(--secondary-background-color);}
-    .btn.primary{border-color:var(--mdc-theme-primary, var(--primary-color));}
-    .tabs{display:flex;gap:8px;margin-top:12px;}
-    .tab{padding:6px 10px;border:1px solid var(--divider-color);border-radius:999px;background:#fff;cursor:pointer;}
-    .tab.active{border-color:var(--mdc-theme-primary, var(--primary-color));}
+    .btn{padding:7px 12px;border:1px solid var(--divider-color);border-radius:10px;background:var(--secondary-background-color);cursor:pointer;}
+    .btn:hover{filter:brightness(0.98);}
+    .btn.primary{border-color:var(--mdc-theme-primary, var(--primary-color));background:color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 14%, transparent);}
+    .tabs{display:flex;gap:8px;margin-top:10px;margin-bottom:8px;}
+    .tab{padding:7px 12px;border:1px solid var(--divider-color);border-radius:999px;background:var(--secondary-background-color);color:var(--secondary-text-color);cursor:pointer;}
+    .tab.active{background:color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 18%, transparent);border-color:var(--mdc-theme-primary, var(--primary-color));color:var(--primary-text-color);font-weight:600;}
     .hidden{display:none;}
     .kv{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;}
     .kv > div{background:var(--secondary-background-color);border:1px solid var(--divider-color);border-radius:10px;padding:8px 10px;}
@@ -128,8 +128,8 @@ PANEL_HTML = """<!doctype html>
   </style>
 </head>
 <body>
-  <h1>Clawdbot</h1>
-  <div class=\"muted\">Home Assistant panel (served by HA). Uses HA auth to call HA services which relay to OpenClaw.</div>
+  <h1 style=\"margin:0 0 4px 0;\">Clawdbot</h1>
+  <div class=\"muted\" style=\"margin:0 0 10px 0;\">Home Assistant panel (served by HA). Uses HA auth to call HA services which relay to OpenClaw.</div>
 
   <script>window.__CLAWDBOT_CONFIG__ = __CONFIG_JSON__;</script>
 
@@ -378,9 +378,13 @@ PANEL_HTML = """<!doctype html>
         try{
           const socSt = hass && hass.states ? hass.states[mapping.soc] : null;
           const loadSt = hass && hass.states ? hass.states[mapping.load] : null;
-          const socRaw = socSt ? socSt.state : null;
-          const loadRaw = loadSt ? loadSt.state : null;
-          body += ` (soc=${socRaw}, load=${loadRaw})`;
+          // keep raw values behind a debug flag (user-facing UI should stay clean)
+          const DEBUG = false;
+          if (DEBUG) {
+            const socRaw = socSt ? socSt.state : null;
+            const loadRaw = loadSt ? loadSt.state : null;
+            body += ` (soc=${socRaw}, load=${loadRaw})`;
+          }
         } catch(e){}
       }
       if (usedPlaceholder) {
