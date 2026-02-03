@@ -192,7 +192,7 @@ PANEL_HTML = """<!doctype html>
       <h2>Commissioning</h2>
       <div class=\"muted\">Verify configuration and connectivity before using the cockpit.</div>
       <div class=\"kv\" id=\"cfgSummary\"></div>
-      <div class=\"row\" style=\"margin-top:10px\"> 
+      <div class=\"row\" style=\"margin-top:10px\">
         <button class=\"btn primary\" id=\"btnGatewayTest\">Test gateway</button>
         <span class=\"muted\" id=\"gwTestResult\"></span>
       </div>
@@ -1366,7 +1366,7 @@ async def async_setup(hass, config):
         # STRATEGY SHIFT: Use native 'message' tool directly.
         # This bypasses session routing and sends directly to the configured channel.
         # session_key is repurposed as the target channel ID for this mode.
-        target_channel = session_key 
+        target_channel = session_key
 
         payload = {
             "tool": "message",
