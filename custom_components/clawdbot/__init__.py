@@ -483,15 +483,34 @@ PANEL_HTML = """<!doctype html>
         });
       } else {
         const st = hass.states[weatherId];
-        const temp = (st && st.attributes) ? (st.attributes.temperature ?? st.attributes.temp) : null;
-        const tempUnit = (st && st.attributes) ? (st.attributes.temperature_unit ?? '°') : '';
+        const attrs = (st && st.attributes) ? st.attributes : {};
+        const temp = (attrs.temperature ?? attrs.temp ?? null);
+        const tempUnit = (attrs.temperature_unit ?? '°');
         const condition = st ? st.state : 'unknown';
+
+        // Forecast timestamp (best-effort): HA weather integrations typically expose attrs.forecast[]
+        // with a datetime field (datetime/time).
+        let forecastAt = null;
+        try{
+          const fc = attrs.forecast;
+          if (Array.isArray(fc) && fc.length){
+            const first = fc[0] || {};
+            forecastAt = first.datetime || first.time || null;
+          }
+        } catch(e){}
+
+        const cond = String(condition || '').toLowerCase();
+        const isBad = (cond.includes('rain') || cond.includes('pour') || cond.includes('storm') || cond.includes('snow') || cond.includes('sleet') || cond.includes('hail') || cond.includes('cloud') || cond.includes('fog'));
+        const isGood = (cond.includes('clear') || cond.includes('sun') || cond.includes('partly') || cond.includes('fair'));
+        let hint = '';
+        if (isBad) hint = 'Expect reduced solar harvest; consider conserving load.';
+        else if (isGood) hint = 'Good solar window; consider charging/deferrable loads.';
+
         let body = `Current: ${condition}`;
         if (temp !== null && temp !== undefined) body += `, ${temp}${tempUnit}`;
+        if (forecastAt) body += `. Forecast @ ${forecastAt}`;
         body += ` (${weatherId}).`;
-        if (solarPresent && batteryPresent) {
-          body += ' If heavy clouds/rain are forecast, plan for reduced solar harvest.';
-        }
+        if (hint) body += ` ${hint}`;
         items.push({ title: 'Weather (preview)', body });
       }
     } catch(e){}
