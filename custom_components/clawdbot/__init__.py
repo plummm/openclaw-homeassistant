@@ -120,6 +120,11 @@ PANEL_HTML = """<!doctype html>
     .ent:last-child{border-bottom:none;}
     .ent-id{font-weight:600;}
     .ent-state{color:#444;}
+    .suggest-card{border:1px solid #eef2f7;border-radius:12px;padding:10px;background:#fafafa;}
+    .choice{display:flex;gap:8px;align-items:flex-start;padding:4px 0;}
+    .choice input{margin-top:3px;}
+    .choice-main{font-size:13px;}
+    .choice-meta{font-size:12px;color:#6b7280;}
   </style>
 </head>
 <body>
@@ -145,9 +150,9 @@ PANEL_HTML = """<!doctype html>
     </div>
 
     <div class=\"card\">
-      <h2>Suggested core signals (read-only)</h2>
-      <div class=\"muted\">Heuristic suggestions from current entity ids/names/units. You'll be able to confirm & save in a later milestone.</div>
-      <div class=\"kv\" id=\"suggestions\" style=\"margin-top:10px\"></div>
+      <h2>Core signal mapping</h2>
+      <div class=\"muted\">Select a suggestion per signal and confirm to save. Manual overrides remain available below.</div>
+      <div class=\"grid2\" id=\"suggestions\" style=\"margin-top:10px\"></div>
       <div class=\"muted\" style=\"margin-top:10px\">Manual override (entity_id):</div>
       <div class=\"row\" style=\"margin-top:8px\">
         <input id=\"mapSoc\" style=\"flex:1;min-width:220px\" placeholder=\"soc entity_id (e.g. sensor.battery_soc)\"/>
@@ -156,10 +161,6 @@ PANEL_HTML = """<!doctype html>
       <div class=\"row\" style=\"margin-top:8px\">
         <input id=\"mapSolar\" style=\"flex:1;min-width:220px\" placeholder=\"solar power entity_id\"/>
         <input id=\"mapLoad\" style=\"flex:1;min-width:220px\" placeholder=\"load/consumption entity_id\"/>
-      </div>
-      <div class=\"row\" style=\"margin-top:10px\">
-        <button class=\"btn primary\" id=\"btnSaveMapping\">Save mapping</button>
-        <span class=\"muted\" id=\"saveMappingResult\"></span>
       </div>
     </div>
 
@@ -258,6 +259,55 @@ PANEL_HTML = """<!doctype html>
     set('mapLoad', m.load);
   }
 
+  function setConfigMapping(next){
+    if (!window.__CLAWDBOT_CONFIG__) window.__CLAWDBOT_CONFIG__ = {};
+    window.__CLAWDBOT_CONFIG__.mapping = next || {};
+  }
+
+  function mappingWithDefaults(){
+    const m = getMapping();
+    return {
+      soc: m.soc || null,
+      voltage: m.voltage || null,
+      solar: m.solar || null,
+      load: m.load || null,
+    };
+  }
+
+  function manualInputValue(field){
+    const ids = {
+      soc: 'mapSoc',
+      voltage: 'mapVoltage',
+      solar: 'mapSolar',
+      load: 'mapLoad',
+    };
+    const el = document.getElementById(ids[field]);
+    return el ? el.value.trim() : '';
+  }
+
+  async function confirmFieldMapping(field){
+    const picked = document.querySelector(`input[name="sugg-${field}"]:checked`);
+    const manual = manualInputValue(field);
+    let value = null;
+    if (picked && picked.value && picked.value !== '__manual__') {
+      value = picked.value;
+    } else if (manual) {
+      value = manual;
+    }
+    const mapping = mappingWithDefaults();
+    mapping[field] = value;
+    const resultEl = document.getElementById(`confirm-${field}`);
+    if (resultEl) resultEl.textContent = 'saving…';
+    try{
+      await callService('clawdbot','set_mapping',{mapping});
+      setConfigMapping(mapping);
+      fillMappingInputs();
+      if (resultEl) resultEl.textContent = value ? 'saved' : 'cleared';
+      try{ const { hass } = await getHass(); renderMappedValues(hass); renderRecommendations(hass); } catch(e){}
+    } catch(e){
+      if (resultEl) resultEl.textContent = 'error: ' + String(e);
+    }
+  }
 
 
 
@@ -270,6 +320,67 @@ PANEL_HTML = """<!doctype html>
     const mapping = cfg.mapping || {};
 
     const items=[];
+
+    const toNumber = (val) => {
+      if (val === null || val === undefined) return null;
+      const n = Number.parseFloat(String(val));
+      return Number.isFinite(n) ? n : null;
+    };
+    const powerToWatts = (val, unit) => {
+      if (val === null) return null;
+      const u = (unit || '').toLowerCase();
+      if (u === 'kw' || u === 'kilowatt' || u === 'kilowatts') return val * 1000;
+      if (u === 'w' || u === 'watt' || u === 'watts') return val;
+      return val;
+    };
+
+    // Estimate hours remaining (v0)
+    if (mapping.soc && mapping.load) {
+      let socPct = null;
+      let loadW = null;
+      let solarW = null;
+      try{
+        const socSt = hass && hass.states ? hass.states[mapping.soc] : null;
+        const loadSt = hass && hass.states ? hass.states[mapping.load] : null;
+        const solarSt = mapping.solar && hass && hass.states ? hass.states[mapping.solar] : null;
+        socPct = toNumber(socSt ? socSt.state : null);
+        if (socPct !== null && socPct <= 1) socPct = socPct * 100;
+        socPct = socPct !== null ? Math.max(0, Math.min(100, socPct)) : null;
+        const loadUnit = loadSt && loadSt.attributes ? loadSt.attributes.unit_of_measurement : '';
+        loadW = powerToWatts(toNumber(loadSt ? loadSt.state : null), loadUnit);
+        const solarUnit = solarSt && solarSt.attributes ? solarSt.attributes.unit_of_measurement : '';
+        solarW = powerToWatts(toNumber(solarSt ? solarSt.state : null), solarUnit);
+      } catch(e){}
+
+      let capacityKwh = null;
+      if (mem.battery && typeof mem.battery.capacity_kwh === 'number') {
+        capacityKwh = mem.battery.capacity_kwh;
+      } else if (mem.battery && typeof mem.battery.capacity_wh === 'number') {
+        capacityKwh = mem.battery.capacity_wh / 1000;
+      }
+      const usedPlaceholder = !capacityKwh;
+      if (!capacityKwh) capacityKwh = 10;
+
+      let body = 'Estimate unavailable (waiting for numeric SOC/load values).';
+      if (socPct !== null && loadW !== null && loadW > 0) {
+        const availableKwh = capacityKwh * (socPct / 100);
+        const hours = (availableKwh * 1000) / loadW;
+        const hoursText = hours >= 1 ? `${hours.toFixed(1)} h` : `${Math.max(0, hours * 60).toFixed(0)} min`;
+        body = `Estimated runtime remaining (conservative): ~${hoursText}.`;
+        if (mapping.solar && solarW !== null) {
+          body += ' Solar is mapped but not counted in this estimate.';
+        }
+      } else if (loadW !== null && loadW <= 0) {
+        body = 'Estimate unavailable (load is 0 or negative).';
+      }
+      if (usedPlaceholder) {
+        body += ' Assuming 10 kWh battery capacity (placeholder).';
+      }
+      items.push({
+        title: 'Estimate: Battery hours remaining',
+        body,
+      });
+    }
 
     // Basic commissioning reminder
     const missing = [];
@@ -433,25 +544,92 @@ PANEL_HTML = """<!doctype html>
 
     const rules={
       soc: { label:'Battery SOC (%)', keywords:['soc','state_of_charge','battery_soc'], units:['%'], weak:['battery'] },
-      batt_v: { label:'Battery Voltage (V)', keywords:['voltage','battery_voltage','batt_v'], units:['v'], weak:['battery'] },
-      solar_w: { label:'Solar Input Power (W)', keywords:['solar','pv','photovoltaic','panel'], units:['w'], weak:['input','power'] },
-      load_w: { label:'Total Consumption / Load (W)', keywords:['load','consumption','house_power','ac_load','power'], units:['w'], weak:['total','sum'] },
+      voltage: { label:'Battery Voltage (V)', keywords:['voltage','battery_voltage','batt_v'], units:['v'], weak:['battery'] },
+      solar: { label:'Solar Input Power (W)', keywords:['solar','pv','photovoltaic','panel'], units:['w'], weak:['input','power'] },
+      load: { label:'Total Consumption / Load (W)', keywords:['load','consumption','house_power','ac_load','power'], units:['w'], weak:['total','sum'] },
     };
 
-    const items=[];
-    for (const key of Object.keys(rules)){
-      const r=rules[key];
-      const cands=topCandidates(hass, r, 3);
-      const lines=cands.map(c=>`${c.entity_id} (${c.state}${c.unit?(' '+c.unit):''}) [score ${c.score}]`).join('
-') || '(no candidates found)';
-      items.push({label:r.label, lines});
-    }
+    const mapping = getMapping();
+    const fields = ['soc','voltage','solar','load'];
 
-    for (const it of items){
-      const d=document.createElement('div');
-      d.style.minWidth='320px';
-      d.innerHTML = `<div class="muted">${it.label}</div><pre style="margin:6px 0 0 0;white-space:pre-wrap">${it.lines}</pre>`;
-      root.appendChild(d);
+    for (const key of fields){
+      const r = rules[key];
+      const cands = topCandidates(hass, r, 3);
+      const card = document.createElement('div');
+      card.className = 'suggest-card';
+
+      const title = document.createElement('div');
+      title.className = 'muted';
+      title.textContent = r.label;
+      card.appendChild(title);
+
+      const list = document.createElement('div');
+      if (cands.length) {
+        cands.forEach((c, idx) => {
+          const row = document.createElement('label');
+          row.className = 'choice';
+          const id = `sugg-${key}-${idx}`;
+          const input = document.createElement('input');
+          input.type = 'radio';
+          input.name = `sugg-${key}`;
+          input.id = id;
+          input.value = c.entity_id;
+          if (mapping[key] && mapping[key] === c.entity_id) input.checked = true;
+          const main = document.createElement('div');
+          main.className = 'choice-main';
+          main.textContent = c.entity_id;
+          const meta = document.createElement('div');
+          meta.className = 'choice-meta';
+          meta.textContent = `${c.state}${c.unit ? (' ' + c.unit) : ''} · score ${c.score}`;
+          const wrap = document.createElement('div');
+          wrap.appendChild(main);
+          wrap.appendChild(meta);
+          row.appendChild(input);
+          row.appendChild(wrap);
+          list.appendChild(row);
+        });
+      } else {
+        const empty = document.createElement('div');
+        empty.className = 'muted';
+        empty.textContent = '(no candidates found)';
+        empty.style.marginTop = '6px';
+        list.appendChild(empty);
+      }
+
+      const manualRow = document.createElement('label');
+      manualRow.className = 'choice';
+      const manualInput = document.createElement('input');
+      manualInput.type = 'radio';
+      manualInput.name = `sugg-${key}`;
+      manualInput.value = '__manual__';
+      if (!cands.find(c => c.entity_id === mapping[key])) {
+        manualInput.checked = true;
+      }
+      const manualText = document.createElement('div');
+      manualText.className = 'choice-main';
+      manualText.textContent = 'Use manual input below';
+      manualRow.appendChild(manualInput);
+      manualRow.appendChild(manualText);
+      list.appendChild(manualRow);
+
+      list.style.marginTop = '6px';
+      card.appendChild(list);
+
+      const actions = document.createElement('div');
+      actions.className = 'row';
+      actions.style.marginTop = '8px';
+      const btn = document.createElement('button');
+      btn.className = 'btn primary';
+      btn.textContent = 'Confirm';
+      btn.onclick = () => confirmFieldMapping(key);
+      const status = document.createElement('span');
+      status.className = 'muted';
+      status.id = `confirm-${key}`;
+      actions.appendChild(btn);
+      actions.appendChild(status);
+      card.appendChild(actions);
+
+      root.appendChild(card);
     }
   }
   async function callService(domain, service, data){
@@ -521,6 +699,8 @@ PANEL_HTML = """<!doctype html>
     renderConfigSummary();
     fillMappingInputs();
     renderHouseMemory();
+    renderMappedValues(null);
+    renderSuggestions(null);
 
     qs('#tabSetup').onclick = () => {
       qs('#tabSetup').classList.add('active');
@@ -540,27 +720,11 @@ PANEL_HTML = """<!doctype html>
     qs('#clearFilter').onclick = () => { qs('#filter').value=''; getHass().then(({hass})=>renderEntities(hass,'')); };
     qs('#filter').oninput = async () => { try{ const { hass } = await getHass(); renderEntities(hass, qs('#filter').value); } catch(e){} };
 
-    qs('#btnSaveMapping').onclick = async () => {
-      qs('#saveMappingResult').textContent = 'saving…';
-      const mapping = {
-        soc: qs('#mapSoc').value.trim() || null,
-        voltage: qs('#mapVoltage').value.trim() || null,
-        solar: qs('#mapSolar').value.trim() || null,
-        load: qs('#mapLoad').value.trim() || null,
-      };
-      try{
-        await callService('clawdbot','set_mapping',{mapping});
-        qs('#saveMappingResult').textContent = 'saved';
-      } catch(e){
-        qs('#saveMappingResult').textContent = 'error: ' + String(e);
-      }
-    };
-
     qs('#btnGatewayTest').onclick = async () => {
       qs('#gwTestResult').textContent = 'running…';
       try{
         await callService('clawdbot','gateway_test',{});
-        qs('#gwTestResult').textContent = 'triggered (see persistent notification for result)';
+        qs('#gwTestResult').textContent = 'triggered';
       } catch(e){
         qs('#gwTestResult').textContent = 'error: ' + String(e);
       }
