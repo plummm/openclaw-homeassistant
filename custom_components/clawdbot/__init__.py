@@ -54,6 +54,7 @@ SERVICE_TOOLS_INVOKE = "tools_invoke"
 SERVICE_HA_GET_STATES = "ha_get_states"
 SERVICE_HA_CALL_SERVICE = "ha_call_service"
 SERVICE_GATEWAY_TEST = "gateway_test"
+SERVICE_SET_MAPPING = "set_mapping"
 
 
 async def _gw_post(session: aiohttp.ClientSession, url: str, token: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -140,6 +141,19 @@ PANEL_HTML = """<!doctype html>
       <h2>Suggested core signals (read-only)</h2>
       <div class=\"muted\">Heuristic suggestions from current entity ids/names/units. You'll be able to confirm & save in a later milestone.</div>
       <div class=\"kv\" id=\"suggestions\" style=\"margin-top:10px\"></div>
+      <div class=\"muted\" style=\"margin-top:10px\">Manual override (entity_id):</div>
+      <div class=\"row\" style=\"margin-top:8px\">
+        <input id=\"mapSoc\" style=\"flex:1;min-width:220px\" placeholder=\"soc entity_id (e.g. sensor.battery_soc)\"/>
+        <input id=\"mapVoltage\" style=\"flex:1;min-width:220px\" placeholder=\"voltage entity_id\"/>
+      </div>
+      <div class=\"row\" style=\"margin-top:8px\">
+        <input id=\"mapSolar\" style=\"flex:1;min-width:220px\" placeholder=\"solar power entity_id\"/>
+        <input id=\"mapLoad\" style=\"flex:1;min-width:220px\" placeholder=\"load/consumption entity_id\"/>
+      </div>
+      <div class=\"row\" style=\"margin-top:10px\">
+        <button class=\"btn primary\" id=\"btnSaveMapping\">Save mapping</button>
+        <span class=\"muted\" id=\"saveMappingResult\"></span>
+      </div>
     </div>
 
     <div class=\"card\">
@@ -154,6 +168,12 @@ PANEL_HTML = """<!doctype html>
   </div>
 
   <div id=\"viewCockpit\" class=\"hidden\">
+    <div class=\"card\">
+      <h2>Core signals (mapped)</h2>
+      <div class=\"muted\">Shows values for the configured entity mapping (or “unmapped”).</div>
+      <div class=\"kv\" id=\"mappedValues\" style=\"margin-top:10px\"></div>
+    </div>
+
     <div class=\"card\" id=\"statusCard\">
       <div class=\"row\">
         <div><b>Status:</b> <span id=\"status\">checking…</span></div>
@@ -194,6 +214,45 @@ PANEL_HTML = """<!doctype html>
     }
   }
 
+
+
+  function getMapping(){
+    const cfg = (window.__CLAWDBOT_CONFIG__ || {});
+    return cfg.mapping || {};
+  }
+
+  function fillMappingInputs(){
+    const m = getMapping();
+    const byId = (id)=>document.getElementById(id);
+    const set = (id, val)=>{ const el=byId(id); if (el) el.value = (val || ''); };
+    set('mapSoc', m.soc);
+    set('mapVoltage', m.voltage);
+    set('mapSolar', m.solar);
+    set('mapLoad', m.load);
+  }
+
+  function renderMappedValues(hass){
+    const root = qs('#mappedValues');
+    if (!root) return;
+    root.innerHTML='';
+
+    const m = getMapping();
+    const rows = [
+      ['Battery SOC', m.soc],
+      ['Battery Voltage', m.voltage],
+      ['Solar Power', m.solar],
+      ['Load Power', m.load],
+    ];
+
+    for (const [label, entity_id] of rows){
+      const d=document.createElement('div');
+      const st = entity_id && hass && hass.states ? hass.states[entity_id] : null;
+      const unit = st && st.attributes ? (st.attributes.unit_of_measurement || '') : '';
+      const val = (entity_id ? (st ? (st.state + (unit ? (' '+unit) : '')) : 'not found') : 'unmapped');
+      d.innerHTML = `<div class="muted">${label}</div><div><b>${val}</b></div><div class="muted" style="margin-top:4px">${entity_id || ''}</div>`;
+      root.appendChild(d);
+    }
+  }
   async function getHass(){
     const parent = window.parent;
     if (!parent) throw new Error('No parent window');
@@ -341,6 +400,7 @@ PANEL_HTML = """<!doctype html>
 
   async function init(){
     renderConfigSummary();
+    fillMappingInputs();
 
     qs('#tabSetup').onclick = () => {
       qs('#tabSetup').classList.add('active');
@@ -359,6 +419,22 @@ PANEL_HTML = """<!doctype html>
     qs('#refreshBtn').onclick = refreshEntities;
     qs('#clearFilter').onclick = () => { qs('#filter').value=''; getHass().then(({hass})=>renderEntities(hass,'')); };
     qs('#filter').oninput = async () => { try{ const { hass } = await getHass(); renderEntities(hass, qs('#filter').value); } catch(e){} };
+
+    qs('#btnSaveMapping').onclick = async () => {
+      qs('#saveMappingResult').textContent = 'saving…';
+      const mapping = {
+        soc: qs('#mapSoc').value.trim() || null,
+        voltage: qs('#mapVoltage').value.trim() || null,
+        solar: qs('#mapSolar').value.trim() || null,
+        load: qs('#mapLoad').value.trim() || null,
+      };
+      try{
+        await callService('clawdbot','set_mapping',{mapping});
+        qs('#saveMappingResult').textContent = 'saved';
+      } catch(e){
+        qs('#saveMappingResult').textContent = 'error: ' + String(e);
+      }
+    };
 
     qs('#btnGatewayTest').onclick = async () => {
       qs('#gwTestResult').textContent = 'running…';
@@ -383,7 +459,7 @@ PANEL_HTML = """<!doctype html>
       }
     };
 
-    try{ const { hass } = await getHass(); setStatus(true,'connected',''); renderSuggestions(hass); } catch(e){ setStatus(false,'error', String(e)); }
+    try{ const { hass } = await getHass(); setStatus(true,'connected',''); renderSuggestions(hass); renderMappedValues(hass); } catch(e){ setStatus(false,'error', String(e)); }
   }
 
   init();
@@ -564,6 +640,32 @@ async def async_setup(hass, config):
         res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
         await _notify("Clawdbot: send_chat", str(res))
 
+    async def handle_set_mapping(call):
+        hass = call.hass
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("store")
+        if store is None:
+            raise RuntimeError("mapping store not initialized")
+
+        mapping = call.data.get("mapping")
+        if not isinstance(mapping, dict):
+            raise RuntimeError("mapping must be an object")
+
+        allowed_keys = {"soc", "voltage", "solar", "load"}
+        cleaned = {}
+        for k in allowed_keys:
+            v = mapping.get(k, None)
+            if v is None or v == "":
+                cleaned[k] = None
+            elif not isinstance(v, str):
+                raise RuntimeError(f"mapping.{k} must be a string")
+            else:
+                cleaned[k] = v
+
+        await store.async_save(cleaned)
+        cfg["mapping"] = cleaned
+        await _notify("Clawdbot: set_mapping", __import__("json").dumps(cleaned, indent=2)[:4000])
+
     async def handle_gateway_test(call):
         if not token:
             raise RuntimeError("clawdbot.token is required to use services")
@@ -633,6 +735,7 @@ async def async_setup(hass, config):
 
     hass.services.async_register(DOMAIN, SERVICE_SEND_CHAT, handle_send_chat)
     hass.services.async_register(DOMAIN, SERVICE_GATEWAY_TEST, handle_gateway_test)
+    hass.services.async_register(DOMAIN, SERVICE_SET_MAPPING, handle_set_mapping)
     hass.services.async_register(DOMAIN, SERVICE_TOOLS_INVOKE, handle_tools_invoke)
     hass.services.async_register(DOMAIN, SERVICE_HA_GET_STATES, handle_ha_get_states)
     hass.services.async_register(DOMAIN, SERVICE_HA_CALL_SERVICE, handle_ha_call_service)
