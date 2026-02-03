@@ -1,0 +1,13 @@
+{
+  "domain": "home_assistant_agent",
+  "name": "Home Assistant Agent",
+  "version": "0.1.0",
+  "documentation": "https://github.com/plummm/home-assistant-agent",
+  "config_flow": true,
+  "dependencies": ["panel_custom"],
+  "after_dependencies": ["conversation"],
+  "integration_type": "hub",
+  "requirements": [],
+  "codeowners": [],
+  "iot_class": "local_polling"
+}
