@@ -56,6 +56,7 @@ SERVICE_HA_CALL_SERVICE = "ha_call_service"
 SERVICE_GATEWAY_TEST = "gateway_test"
 SERVICE_SET_MAPPING = "set_mapping"
 SERVICE_REFRESH_HOUSE_MEMORY = "refresh_house_memory"
+SERVICE_NOTIFY_EVENT = "notify_event"
 
 
 async def _gw_post(session: aiohttp.ClientSession, url: str, token: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1370,6 +1371,75 @@ async def async_setup(hass, config):
         cfg['house_memory'] = computed
         await house_store.async_save(computed)
         await _notify('Clawdbot: house_memory', __import__('json').dumps(computed, indent=2)[:4000])
+    async def handle_notify_event(call):
+        """Send a structured HA event into OpenClaw (inbound signal).
+
+        Schema:
+          event_type: str (must start with 'clawdbot.')
+          severity: 'info'|'warning'|'critical'
+          source: str
+          entity_id: optional str
+          attributes: optional dict
+        """
+        if not token:
+            raise RuntimeError("clawdbot.token is required to use services")
+
+        event_type = call.data.get("event_type")
+        severity = (call.data.get("severity") or "info").lower()
+        source = call.data.get("source")
+        entity_id = call.data.get("entity_id")
+        attributes = call.data.get("attributes") or {}
+
+        if not isinstance(event_type, str) or not event_type:
+            raise RuntimeError("event_type is required")
+        if not event_type.startswith("clawdbot."):
+            raise RuntimeError("event_type must start with 'clawdbot.'")
+        if severity not in {"info", "warning", "critical"}:
+            raise RuntimeError("severity must be one of: info, warning, critical")
+        if not isinstance(source, str) or not source:
+            raise RuntimeError("source is required")
+        if entity_id is not None and entity_id != "" and not isinstance(entity_id, str):
+            raise RuntimeError("entity_id must be a string")
+        if not isinstance(attributes, dict):
+            raise RuntimeError("attributes must be an object")
+
+        payload_obj = {
+            "event_type": event_type,
+            "severity": severity,
+            "source": source,
+            "entity_id": entity_id or None,
+            "attributes": attributes,
+        }
+
+        # Log locally (logger + logbook best-effort)
+        _LOGGER.info("Clawdbot inbound event: %s", payload_obj)
+        try:
+            await hass.services.async_call(
+                "logbook",
+                "log",
+                {
+                    "name": "Clawdbot",
+                    "message": f"{severity.upper()} {event_type} from {source}",
+                    "entity_id": entity_id or None,
+                },
+                blocking=False,
+            )
+        except Exception:
+            # logbook may not be loaded; ignore
+            pass
+
+        # Send into OpenClaw session as a message (strict prefix schema prevents abuse)
+        # NOTE: Using sessions_send (in-session message) so OpenClaw agent can act on it.
+        payload = {
+            "tool": "sessions_send",
+            "args": {
+                "sessionKey": session_key,
+                "message": "[Home Assistant event] " + __import__("json").dumps(payload_obj, sort_keys=True),
+            },
+        }
+        res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
+        await _notify("Clawdbot: notify_event", str(res))
+
     async def handle_gateway_test(call):
         if not token:
             raise RuntimeError("clawdbot.token is required to use services")
@@ -1438,6 +1508,7 @@ async def async_setup(hass, config):
         await _notify("Clawdbot: ha_call_service", f"Called {domain}.{service_name} target={target} data={service_data}")
 
     hass.services.async_register(DOMAIN, SERVICE_SEND_CHAT, handle_send_chat)
+    hass.services.async_register(DOMAIN, SERVICE_NOTIFY_EVENT, handle_notify_event)
     hass.services.async_register(DOMAIN, SERVICE_GATEWAY_TEST, handle_gateway_test)
     hass.services.async_register(DOMAIN, SERVICE_SET_MAPPING, handle_set_mapping)
     hass.services.async_register(DOMAIN, SERVICE_REFRESH_HOUSE_MEMORY, handle_refresh_house_memory)
