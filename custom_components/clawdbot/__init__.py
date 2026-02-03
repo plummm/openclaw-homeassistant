@@ -94,12 +94,12 @@ PANEL_HTML = """<!doctype html>
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>
   <title>Clawdbot</title>
   <style>
-    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;padding:16px;}
+    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;padding:16px;max-width:980px;margin:0 auto;}
     input,button,textarea{font:inherit;}
     code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;}
     .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
-    .card{border:1px solid #ddd;border-radius:10px;padding:12px;margin:12px 0;}
-    .muted{color:#666;font-size:13px;}
+    .card{border:1px solid #e5e7eb;border-radius:12px;padding:14px;margin:14px 0;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.04);}
+    .muted{color:#6b7280;font-size:13px;}
     .ok{color:#0a7a2f;}
     .bad{color:#a00000;}
     .btn{padding:6px 10px;border:1px solid #ccc;border-radius:8px;background:#fff;cursor:pointer;}
@@ -172,6 +172,12 @@ PANEL_HTML = """<!doctype html>
 
   <div id=\"viewCockpit\" class=\"hidden\">
     <div class=\"card\">
+      <div class=\"card\">
+      <h2>Recommendations (preview)</h2>
+      <div class=\"muted\">Informational only (no alerts). Based on your mapped signals + house memory.</div>
+      <div id=\"recs\" style=\"margin-top:10px\"></div>
+    </div>
+
       <h2>House memory (MVP)</h2>
       <div class=\"muted\">Derived from entities (heuristics). Read-only for now.</div>
       <pre id=\"houseMemory\" style=\"margin-top:10px;white-space:pre-wrap\"></pre>
@@ -242,6 +248,59 @@ PANEL_HTML = """<!doctype html>
 
 
 
+
+
+  function renderRecommendations(hass){
+    const el = document.getElementById('recs');
+    if (!el) return;
+    const cfg = (window.__CLAWDBOT_CONFIG__ || {});
+    const mem = cfg.house_memory || {};
+    const mapping = cfg.mapping || {};
+
+    const items=[];
+
+    // Basic commissioning reminder
+    const missing = [];
+    if (!mapping.soc) missing.push('battery SOC');
+    if (!mapping.solar) missing.push('solar power');
+    if (!mapping.load) missing.push('load power');
+    if (missing.length) {
+      items.push({
+        title: 'Finish mapping core signals',
+        body: `To enable better insights, map: ${missing.join(', ')}.`
+      });
+    }
+
+    // Off-grid risk heuristic (placeholder)
+    const solarPresent = mem.solar && mem.solar.present;
+    const batteryPresent = mem.battery && mem.battery.present;
+    if (batteryPresent && solarPresent) {
+      items.push({
+        title: 'Off-grid reserve check (preview)',
+        body: 'If you are fully off-grid, watch battery SOC especially during cloudy periods. (Weather integration coming later.)'
+      });
+    } else if (batteryPresent && !solarPresent) {
+      items.push({
+        title: 'Battery present, no solar detected',
+        body: 'If this is unexpected, check entity naming or map a solar/pv sensor. Otherwise plan charging accordingly.'
+      });
+    }
+
+    if (!items.length) {
+      items.push({title:'No recommendations yet', body:'Add mappings (SOC/solar/load) to unlock insights.'});
+    }
+
+    el.innerHTML = '';
+    for (const it of items){
+      const d=document.createElement('div');
+      d.style.border='1px solid #f1f5f9';
+      d.style.borderRadius='10px';
+      d.style.padding='10px 12px';
+      d.style.margin='8px 0';
+      d.innerHTML = `<div style="font-weight:600">${it.title}</div><div class="muted" style="margin-top:4px">${it.body}</div>`;
+      el.appendChild(d);
+    }
+  }
   function renderHouseMemory(){
     const el = document.getElementById('houseMemory');
     if (!el) return;
@@ -478,7 +537,7 @@ PANEL_HTML = """<!doctype html>
       }
     };
 
-    try{ const { hass } = await getHass(); setStatus(true,'connected',''); renderSuggestions(hass); renderMappedValues(hass); } catch(e){ setStatus(false,'error', String(e)); }
+    try{ const { hass } = await getHass(); setStatus(true,'connected',''); renderSuggestions(hass); renderMappedValues(hass); renderRecommendations(hass); } catch(e){ setStatus(false,'error', String(e)); }
   }
 
   init();
