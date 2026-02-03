@@ -92,6 +92,9 @@ PANEL_HTML = """<!doctype html>
 <head>
   <meta charset=\"utf-8\"/>
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>
+  <meta http-equiv=\"Cache-Control\" content=\"no-store\"/>
+  <meta http-equiv=\"Pragma\" content=\"no-cache\"/>
+  <meta http-equiv=\"Expires\" content=\"0\"/>
   <title>Clawdbot</title>
   <style>
     html{background:var(--primary-background-color);}
@@ -945,7 +948,15 @@ class ClawdbotPanelView(HomeAssistantView):
             "house_memory": cfg.get("house_memory", {}),
         }
         html = PANEL_HTML.replace("__CONFIG_JSON__", dumps(safe_cfg))
-        return web.Response(text=html, content_type="text/html")
+        return web.Response(
+            text=html,
+            content_type="text/html",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
 
 class ClawdbotMappingApiView(HomeAssistantView):
