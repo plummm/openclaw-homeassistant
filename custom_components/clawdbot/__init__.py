@@ -575,10 +575,10 @@ PANEL_HTML = """<!doctype html>
 
     const m = getMapping();
     const rows = [
-      { key:'soc', label:'Battery SOC', entity_id: m.soc, hint:'battery' },
-      { key:'voltage', label:'Battery Voltage', entity_id: m.voltage, hint:'voltage' },
-      { key:'solar', label:'Solar Power', entity_id: m.solar, hint:'solar' },
-      { key:'load', label:'Load Power', entity_id: m.load, hint:'load' },
+      { key:'soc', label:'Battery SOC (%)', entity_id: m.soc, hint:'battery' },
+      { key:'voltage', label:'Battery Voltage (V)', entity_id: m.voltage, hint:'voltage' },
+      { key:'solar', label:'Solar Power (W)', entity_id: m.solar, hint:'solar' },
+      { key:'load', label:'Load Power (W)', entity_id: m.load, hint:'power' },
     ];
 
     const toNum = (x)=>{ const n=Number.parseFloat(String(x)); return Number.isFinite(n)?n:null; };
