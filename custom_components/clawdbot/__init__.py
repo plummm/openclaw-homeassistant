@@ -94,10 +94,11 @@ PANEL_HTML = """<!doctype html>
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>
   <title>Clawdbot</title>
   <style>
+    html{background:var(--primary-background-color);}
     body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;padding:16px;max-width:980px;margin:0 auto;
       background:linear-gradient(180deg,
-        color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 6%, var(--primary-background-color)) 0%,
-        var(--primary-background-color) 180px);
+        color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 14%, var(--primary-background-color)) 0%,
+        var(--primary-background-color) 220px);
       color:var(--primary-text-color);
     }
     input,button,textarea{font:inherit;}
@@ -126,7 +127,7 @@ PANEL_HTML = """<!doctype html>
     .btn.primary:hover{filter:brightness(0.95);}
     .tabs{display:flex;gap:10px;margin-top:10px;margin-bottom:12px;}
     .tab{height:40px;padding:0 14px;border:1px solid var(--divider-color);border-radius:999px;background:var(--secondary-background-color);color:var(--secondary-text-color);cursor:pointer;display:inline-flex;align-items:center;}
-    .tab.active{background:var(--mdc-theme-primary, var(--primary-color));border-color:var(--mdc-theme-primary, var(--primary-color));color:var(--text-primary-color, #fff);font-weight:600;}
+    .tab.active{background:var(--mdc-theme-primary, var(--primary-color));border-color:var(--mdc-theme-primary, var(--primary-color));color:#fff;font-weight:700;box-shadow:0 1px 0 rgba(0,0,0,.06);}
     .hidden{display:none;}
     .kv{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;}
     .kv > div{background:var(--secondary-background-color);border:1px solid var(--divider-color);border-radius:10px;padding:8px 10px;}
