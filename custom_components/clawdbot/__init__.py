@@ -479,7 +479,8 @@ PANEL_HTML = """<!doctype html>
       if (!weatherId) {
         items.push({
           title: 'Weather (preview)',
-          body: 'Not configured: add any Home Assistant weather integration (entity weather.*) to unlock cloud/rain-aware battery guidance.'
+          body: 'Not configured: add any Home Assistant weather integration (entity weather.*) to unlock cloud/rain-aware battery guidance.',
+          cta: { label: 'Configure weather', href: '/config/integrations' }
         });
       } else {
         const st = hass.states[weatherId];
@@ -511,7 +512,7 @@ PANEL_HTML = """<!doctype html>
         if (forecastAt) body += `. Forecast @ ${forecastAt}`;
         body += ` (${weatherId}).`;
         if (hint) body += ` ${hint}`;
-        items.push({ title: 'Weather (preview)', body });
+        items.push({ title: 'Weather (preview)', body, meta: weatherId });
       }
     } catch(e){}
 
@@ -535,7 +536,9 @@ PANEL_HTML = """<!doctype html>
       d.style.borderRadius='10px';
       d.style.padding='10px 12px';
       d.style.margin='8px 0';
-      d.innerHTML = `<div style="font-weight:600">${it.title}</div><div class="muted" style="margin-top:4px">${it.body}</div>`;
+      const meta = it.meta ? `<div class="muted" style="margin-top:4px">${it.meta}</div>` : '';
+      const cta = it.cta ? `<div style="margin-top:8px"><a class="btn" href="${it.cta.href}" target="_parent">${it.cta.label}</a></div>` : '';
+      d.innerHTML = `<div style="font-weight:600">${it.title}</div><div class="muted" style="margin-top:4px">${it.body}</div>${meta}${cta}`;
       el.appendChild(d);
     }
   }
