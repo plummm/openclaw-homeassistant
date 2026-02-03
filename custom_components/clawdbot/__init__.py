@@ -826,6 +826,103 @@ class ClawdbotMappingApiView(HomeAssistantView):
         return web.json_response({"ok": True, "mapping": cleaned})
 
 
+
+
+class ClawdbotPanelSelfTestApiView(HomeAssistantView):
+    """Authenticated API that returns computed panel runtime-like diagnostics.
+
+    This is for headless verification (no browser automation): it reports how many
+    suggestion candidates would render, how many confirm buttons exist (fixed=4),
+    and whether a recommendations v0 estimate would be shown.
+    """
+
+    url = "/api/clawdbot/panel_self_test"
+    name = "api:clawdbot:panel_self_test"
+    requires_auth = True
+
+    async def get(self, request):
+        from aiohttp import web
+
+        hass = request.app["hass"]
+        cfg = hass.data.get(DOMAIN, {})
+        mapping = cfg.get("mapping", {}) or {}
+
+        # Build a cheap states dict
+        states = {s.entity_id: s for s in hass.states.async_all()}
+
+        # Mirror the JS heuristic keyword rules
+        rules = {
+            "soc": {"keywords": ["soc", "state_of_charge", "battery_soc"], "units": ["%"], "weak": ["battery"]},
+            "voltage": {"keywords": ["voltage", "battery_voltage", "batt_v"], "units": ["v"], "weak": ["battery"]},
+            "solar": {"keywords": ["solar", "pv", "photovoltaic", "panel"], "units": ["w"], "weak": ["input", "power"]},
+            "load": {"keywords": ["load", "consumption", "house_power", "ac_load", "power"], "units": ["w"], "weak": ["total", "sum"]},
+        }
+
+        def score(ent_id: str, st, rule) -> int:
+            name = ""
+            unit = ""
+            try:
+                name = str(st.attributes.get("friendly_name") or st.attributes.get("device_class") or "")
+                unit = str(st.attributes.get("unit_of_measurement") or "")
+            except Exception:
+                pass
+            hay = (ent_id + " " + name).lower()
+            u = unit.lower()
+            s = 0
+            for kw in rule.get("keywords", []):
+                if kw in hay:
+                    s += 3
+            for kw in rule.get("weak", []):
+                if kw in hay:
+                    s += 1
+            if rule.get("units") and u in rule["units"]:
+                s += 2
+            if ent_id.startswith(("automation.", "update.")):
+                s -= 2
+            return s
+
+        suggestion_counts = {}
+        for k, rule in rules.items():
+            scored = []
+            for ent_id, st in states.items():
+                s = score(ent_id, st, rule)
+                if s > 0:
+                    scored.append((s, ent_id))
+            scored.sort(reverse=True)
+            suggestion_counts[k] = len(scored[:3])
+
+        # Recommendations v0 visible if soc+load mapped and both numeric
+        def to_float(val):
+            try:
+                return float(str(val))
+            except Exception:
+                return None
+
+        rec_visible = False
+        rec_reason = ""
+        if mapping.get("soc") and mapping.get("load"):
+            soc_st = states.get(mapping.get("soc"))
+            load_st = states.get(mapping.get("load"))
+            soc = to_float(soc_st.state) if soc_st else None
+            load = to_float(load_st.state) if load_st else None
+            if soc is not None and load is not None:
+                rec_visible = True
+                rec_reason = "soc+load numeric"
+            else:
+                rec_reason = "soc/load not numeric or not found"
+        else:
+            rec_reason = "soc/load not mapped"
+
+        out = {
+            "ok": True,
+            "panel": {
+                "confirm_buttons": 4,
+                "suggestion_counts_top3": suggestion_counts,
+                "recommendations_v0_visible": rec_visible,
+                "recommendations_v0_reason": rec_reason,
+            },
+        }
+        return web.json_response(out)
 class ClawdbotHouseMemoryApiView(HomeAssistantView):
     """Authenticated API for reading the derived 'house memory' summary."""
 
@@ -952,6 +1049,7 @@ async def async_setup(hass, config):
     try:
         hass.http.register_view(ClawdbotPanelView)
         hass.http.register_view(ClawdbotMappingApiView)
+        hass.http.register_view(ClawdbotPanelSelfTestApiView)
         hass.http.register_view(ClawdbotHouseMemoryApiView)
         _LOGGER.info("Registered Clawdbot panel view → %s", PANEL_PATH)
         _LOGGER.info("Registered Clawdbot mapping API → %s", ClawdbotMappingApiView.url)
