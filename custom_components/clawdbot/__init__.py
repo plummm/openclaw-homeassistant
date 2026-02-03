@@ -210,7 +210,7 @@ PANEL_HTML = """<!doctype html>
         <textarea id=\"evtAttrs\" style=\"margin-top:8px\" rows=\"3\" placeholder=\"attributes JSON (optional)\"></textarea>
         <div class=\"row\" style=\"margin-top:8px\">
           <button class=\"btn\" id=\"btnSendEvent\">Send test event</button>
-          <span class=\"muted\" id=\"evtResult\"></span>
+          <span class=\"muted\" id=\"evtResult\" style=\"min-width:180px;display:inline-block\"></span>
         </div>
       </div>
     </div>
@@ -943,7 +943,7 @@ PANEL_HTML = """<!doctype html>
     const btnSend = qs('#btnSendEvent');
     if (btnSend) btnSend.onclick = async () => {
       const resultEl = qs('#evtResult');
-      if (resultEl) resultEl.textContent = 'sending…';
+      if (resultEl) resultEl.textContent = 'Sending…';
       const event_type = (qs('#evtType') ? qs('#evtType').value.trim() : 'clawdbot.test');
       const severity = (qs('#evtSeverity') ? qs('#evtSeverity').value : 'info');
       const source = (qs('#evtSource') ? qs('#evtSource').value.trim() : 'panel');
@@ -955,9 +955,9 @@ PANEL_HTML = """<!doctype html>
       }
       try{
         await callService('clawdbot','notify_event',{ event_type, severity, source, attributes: attrs });
-        if (resultEl) resultEl.textContent = 'sent';
+        if (resultEl) resultEl.textContent = 'Sent (ok)';
       } catch(e){
-        if (resultEl) resultEl.textContent = 'error: ' + String(e);
+        if (resultEl) resultEl.textContent = 'Error: ' + String(e);
       }
     };
 
@@ -1529,7 +1529,7 @@ async def async_setup(hass, config):
         await _notify("Clawdbot: ha_get_states", __import__("json").dumps(items, indent=2))
 
     async def handle_ha_call_service(call):
-        """Call a HA service locally."""
+        """Call a HA service locally (guardrailed)."""
         domain = call.data.get("domain")
         service_name = call.data.get("service")
         entity_id = call.data.get("entity_id")
@@ -1539,9 +1539,33 @@ async def async_setup(hass, config):
         if service_data and not isinstance(service_data, dict):
             raise RuntimeError("service_data must be an object")
 
+        # Conservative allowlist for outbound actions (expand later).
+        allowed: set[tuple[str, str]] = {
+            ("light", "turn_on"),
+            ("light", "turn_off"),
+            ("switch", "turn_on"),
+            ("switch", "turn_off"),
+            ("input_boolean", "turn_on"),
+            ("input_boolean", "turn_off"),
+            ("script", "turn_on"),
+            ("automation", "trigger"),
+            ("persistent_notification", "create"),
+        }
+        key = (str(domain), str(service_name))
+        if key not in allowed:
+            raise RuntimeError(f"Service not allowed: {domain}.{service_name}")
+
         target = None
         if entity_id:
             target = {"entity_id": entity_id}
+
+        _LOGGER.info(
+            "Clawdbot outbound HA call: %s.%s target=%s data=%s",
+            domain,
+            service_name,
+            target,
+            service_data,
+        )
 
         await hass.services.async_call(
             str(domain),
