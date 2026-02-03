@@ -1,0 +1,47 @@
+send_chat:
+  name: Send message to Xiaochen (via Clawdbot)
+  description: MVP path. Uses Clawdbot Gateway /tools/invoke + message.send (Telegram).
+  fields:
+    message:
+      required: true
+      selector:
+        text:
+
+tools_invoke:
+  name: Invoke a Clawdbot tool via Gateway
+  description: Call a single tool via the Clawdbot Gateway /tools/invoke endpoint.
+  fields:
+    tool:
+      required: true
+      selector:
+        text:
+    args:
+      required: false
+      selector:
+        object:
+
+ha_get_states:
+  name: List Home Assistant entity states
+  description: Lists states locally inside Home Assistant and shows them in a persistent notification.
+  fields: {}
+
+ha_call_service:
+  name: Call a Home Assistant service
+  description: Calls a HA service locally (domain/service/optional entity_id + service_data).
+  fields:
+    domain:
+      required: true
+      selector:
+        text:
+    service:
+      required: true
+      selector:
+        text:
+    entity_id:
+      required: false
+      selector:
+        text:
+    service_data:
+      required: false
+      selector:
+        object:

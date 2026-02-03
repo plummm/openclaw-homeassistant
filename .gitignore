@@ -1,0 +1,17 @@
+# HA local dev state (DO NOT COMMIT)
+ha-config/
+
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Node/build
+node_modules/
+dist/
+
+# Secrets
+secrets*
+*.env

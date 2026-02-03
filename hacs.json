@@ -1,0 +1,6 @@
+{
+  "name": "OpenClaw Home Assistant Integration",
+  "render_readme": true,
+  "domains": ["clawdbot"],
+  "homeassistant": "2024.1.0"
+}

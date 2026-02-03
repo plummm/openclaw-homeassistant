@@ -1,0 +1,18 @@
+# Example Home Assistant configuration
+
+clawdbot:
+  # Browser access to OpenClaw panel
+  url: "http://<OPENCLAW_HOST>:7773/__clawdbot__/canvas/ha-panel/"
+
+  # HA backend access to OpenClaw Gateway
+  gateway_url: "http://<OPENCLAW_HOST>:7773"
+
+  # OpenClaw Gateway token (gateway.auth.token)
+  token: "<OPENCLAW_GATEWAY_TOKEN>"
+
+  # MVP: Discord channel id to post into
+  # (We will likely rename this field in a future release.)
+  session_key: "<DISCORD_CHANNEL_ID>"
+
+  title: "OpenClaw"
+  icon: "mdi:robot"

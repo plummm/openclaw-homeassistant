@@ -1,0 +1,16 @@
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: ha-clawdbot
+    restart: unless-stopped
+    # For safety: bind only to localhost.
+    ports:
+      # Expose only on WARP interface IP (NOT 0.0.0.0)
+      - "100.96.0.2:8123:8123"
+    volumes:
+      - ./ha-config:/config
+      - ./custom_components:/config/custom_components
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - TZ=America/Los_Angeles
