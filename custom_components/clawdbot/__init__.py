@@ -615,7 +615,8 @@ PANEL_HTML = """<!doctype html>
         }
       }
 
-      const mapNow = (!r.entity_id) ? `<button class="btn" data-mapnow="${r.key}" style="margin-top:10px">Map now</button>` : '';
+      const keyLabel = ({soc:'SOC', voltage:'voltage', solar:'solar', load:'load'}[r.key] || r.key);
+      const mapNow = (!r.entity_id) ? `<button class="btn" data-mapnow="${r.key}" style="margin-top:10px">Map ${keyLabel}</button>` : '';
       d.innerHTML = `<div class="muted">${r.label}</div><div style="margin-top:2px"><b>${valText}</b></div><div class="muted" style="margin-top:4px">${r.entity_id || 'unmapped'}</div>${mapNow}`;
       root.appendChild(d);
     }
