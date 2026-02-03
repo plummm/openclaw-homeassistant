@@ -21,6 +21,7 @@ Notes:
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import aiohttp
@@ -88,6 +89,8 @@ MAPPING_STORE_KEY = "clawdbot_mapping"
 MAPPING_STORE_VERSION = 1
 HOUSEMEM_STORE_KEY = "clawdbot_house_memory"
 HOUSEMEM_STORE_VERSION = 1
+CHAT_STORE_KEY = "clawdbot_chat_history"
+CHAT_STORE_VERSION = 1
 
 PANEL_HTML = """<!doctype html>
 <html>
@@ -318,11 +321,7 @@ PANEL_HTML = """<!doctype html>
   function qs(sel){ return document.querySelector(sel); }
   function setHidden(el, hidden){ el.classList.toggle('hidden', !!hidden); }
 
-  const demoChat = [
-    { role: 'agent', text: 'Hello! I can help interpret your energy system.', ts: '09:12' },
-    { role: 'user', text: 'Show me a quick status summary.', ts: '09:13' },
-    { role: 'agent', text: 'Battery at 68%, solar producing 2.1 kW. Example code:\\n\\n```py\\nstatus = {\"soc\": 68, \"solar_w\": 2100}\\n```', ts: '09:13' },
-  ];
+  let chatItems = [];
 
   function escapeHtml(txt){
     return String(txt)
@@ -335,7 +334,7 @@ PANEL_HTML = """<!doctype html>
     const list = qs('#chatList');
     if (!list) return;
     list.innerHTML = '';
-    for (const msg of demoChat){
+    for (const msg of chatItems){
       const row = document.createElement('div');
       row.className = `chat-row ${msg.role === 'user' ? 'user' : 'agent'}`;
       const bubble = document.createElement('div');
@@ -375,6 +374,18 @@ PANEL_HTML = """<!doctype html>
       d.innerHTML = `<div class="muted">${k}</div><div><b>${String(v)}</b></div>`;
       root.appendChild(d);
     }
+  }
+
+  function loadChatFromConfig(){
+    const cfg = (window.__CLAWDBOT_CONFIG__ || {});
+    const items = Array.isArray(cfg.chat_history) ? cfg.chat_history : [];
+    chatItems = items.map((it) => ({
+      id: it.id,
+      ts: it.ts,
+      role: it.role,
+      session_key: it.session_key,
+      text: it.text,
+    }));
   }
 
 
@@ -998,6 +1009,7 @@ PANEL_HTML = """<!doctype html>
       setHidden(qs('#viewSetup'), true);
       setHidden(qs('#viewCockpit'), true);
       setHidden(qs('#viewChat'), false);
+      loadChatFromConfig();
       renderChat();
     };
 
@@ -1055,16 +1067,20 @@ PANEL_HTML = """<!doctype html>
       }
     };
 
-    qs('#chatComposerSend').onclick = () => {
+    qs('#chatComposerSend').onclick = async () => {
       const input = qs('#chatComposer');
       const text = input.value.trim();
       if (!text) return;
-      const now = new Date();
-      const ts = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-      demoChat.push({ role: 'user', text, ts });
-      demoChat.push({ role: 'agent', text: 'Got it. (Demo response — backend coming next slice.)', ts });
-      input.value = '';
-      renderChat();
+      try{
+        await callService('clawdbot','chat_append',{ role:'user', text });
+        const now = new Date();
+        const ts = now.toISOString();
+        chatItems.push({ role: 'user', text, ts });
+        input.value = '';
+        renderChat();
+      } catch(e){
+        console.warn('chat_append failed', e);
+      }
     };
     qs('#chatComposer').addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter') {
@@ -1098,12 +1114,17 @@ class ClawdbotPanelView(HomeAssistantView):
         from json import dumps
 
         cfg = request.app["hass"].data.get(DOMAIN, {})
+        chat_history = cfg.get("chat_history", []) or []
+        if not isinstance(chat_history, list):
+            chat_history = []
+        chat_history = chat_history[-50:]
         safe_cfg = {
             "gateway_url": cfg.get("gateway_url") or cfg.get("gateway_origin"),
             "has_token": bool(cfg.get("has_token")),
             "target": cfg.get("target"),
             "mapping": cfg.get("mapping", {}),
             "house_memory": cfg.get("house_memory", {}),
+            "chat_history": chat_history,
         }
         html = PANEL_HTML.replace("__CONFIG_JSON__", dumps(safe_cfg))
         return web.Response(
@@ -1277,6 +1298,41 @@ class ClawdbotHouseMemoryApiView(HomeAssistantView):
         return web.json_response({"ok": True, "house_memory": cfg.get("house_memory", {})})
 
 
+class ClawdbotChatHistoryApiView(HomeAssistantView):
+    """Authenticated API for reading chat history."""
+
+    url = "/api/clawdbot/chat_history"
+    name = "api:clawdbot:chat_history"
+    requires_auth = True
+
+    async def get(self, request):
+        from aiohttp import web
+
+        hass = request.app["hass"]
+        cfg = hass.data.get(DOMAIN, {})
+        items = cfg.get("chat_history", []) or []
+        if not isinstance(items, list):
+            items = []
+
+        limit = 50
+        try:
+            limit = int(request.query.get("limit", 50))
+        except Exception:
+            limit = 50
+        if limit < 1:
+            limit = 1
+        if limit > 500:
+            limit = 500
+
+        session_key = request.query.get("session_key")
+        if session_key:
+            filtered = [it for it in items if isinstance(it, dict) and it.get("session_key") == session_key]
+        else:
+            filtered = items
+
+        return web.json_response({"ok": True, "items": (filtered[-limit:])})
+
+
 
 
 def _compute_house_memory_from_states(states: dict, mapping: dict | None = None) -> dict:
@@ -1411,12 +1467,25 @@ async def async_setup(hass, config):
         }
     )
 
+    # Load chat history
+    chat_store = Store(hass, CHAT_STORE_VERSION, CHAT_STORE_KEY)
+    chat_history = await chat_store.async_load() or []
+    if not isinstance(chat_history, list):
+        chat_history = []
+    hass.data[DOMAIN].update(
+        {
+            "chat_store": chat_store,
+            "chat_history": chat_history[-500:],
+        }
+    )
+
     # HTTP view (served by HA)
     try:
         hass.http.register_view(ClawdbotPanelView)
         hass.http.register_view(ClawdbotMappingApiView)
         hass.http.register_view(ClawdbotPanelSelfTestApiView)
         hass.http.register_view(ClawdbotHouseMemoryApiView)
+        hass.http.register_view(ClawdbotChatHistoryApiView)
         _LOGGER.info("Registered Clawdbot panel view → %s", PANEL_PATH)
         _LOGGER.info("Registered Clawdbot mapping API → %s", ClawdbotMappingApiView.url)
     except Exception:
@@ -1584,6 +1653,42 @@ async def async_setup(hass, config):
         res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
         await _notify("Clawdbot: notify_event", str(res))
 
+    async def handle_chat_append(call):
+        hass = call.hass
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("chat_store")
+        if store is None:
+            raise RuntimeError("chat history store not initialized")
+
+        role = call.data.get("role")
+        text = call.data.get("text")
+        session = call.data.get("session_key") or cfg.get("target") or DEFAULT_SESSION_KEY
+
+        if role not in {"user", "agent"}:
+            raise RuntimeError("role must be one of: user, agent")
+        if not isinstance(text, str) or not text.strip():
+            raise RuntimeError("text is required")
+        if not isinstance(session, str) or not session:
+            session = DEFAULT_SESSION_KEY
+
+        item = {
+            "id": str(time.time_ns()),
+            "ts": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+            "role": role,
+            "session_key": session,
+            "text": text,
+        }
+
+        items = cfg.get("chat_history", []) or []
+        if not isinstance(items, list):
+            items = []
+        items.append(item)
+        if len(items) > 500:
+            items = items[-500:]
+
+        await store.async_save(items)
+        cfg["chat_history"] = items
+
     async def handle_gateway_test(call):
         if not token:
             raise RuntimeError("clawdbot.token is required to use services")
@@ -1694,6 +1799,7 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, SERVICE_TOOLS_INVOKE, handle_tools_invoke)
     hass.services.async_register(DOMAIN, SERVICE_HA_GET_STATES, handle_ha_get_states)
     hass.services.async_register(DOMAIN, SERVICE_HA_CALL_SERVICE, handle_ha_call_service)
+    hass.services.async_register(DOMAIN, "chat_append", handle_chat_append)
 
     _LOGGER.info(
         "Clawdbot services registered (%s.%s, %s.%s, %s.%s, %s.%s)",
