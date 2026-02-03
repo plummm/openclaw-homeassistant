@@ -362,7 +362,7 @@ PANEL_HTML = """<!doctype html>
       if (!capacityKwh) capacityKwh = 10;
 
       // Default: still show an informational message, even if values are not numeric yet.
-      let body = 'Estimate unavailable: SOC/load values are missing or non-numeric.';
+      let body = 'Cannot estimate yet: mapped SOC/load values are missing or non-numeric.';
       if (socPct !== null && loadW !== null && loadW > 0) {
         const availableKwh = capacityKwh * (socPct / 100);
         const hours = (availableKwh * 1000) / loadW;
@@ -372,7 +372,7 @@ PANEL_HTML = """<!doctype html>
           body += ' Solar is mapped but not counted in this estimate.';
         }
       } else if (loadW !== null && loadW <= 0) {
-        body = 'Estimate unavailable: load is 0 or negative.';
+        body = 'Cannot estimate yet: load is 0 or negative.';
       } else {
         // Give a clearer reason if entities are mapped but not numeric.
         try{
@@ -387,7 +387,7 @@ PANEL_HTML = """<!doctype html>
         body += ' Assuming 10 kWh battery capacity (placeholder).';
       }
       items.push({
-        title: 'Estimate: Battery hours remaining',
+        title: 'Estimate (preview): Battery hours remaining',
         body,
       });
     }
