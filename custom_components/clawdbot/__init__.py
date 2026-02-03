@@ -172,6 +172,19 @@ PANEL_HTML = """<!doctype html>
     .choice input{margin-top:3px;}
     .choice-main{font-size:13px;}
     .choice-meta{font-size:12px;color:var(--secondary-text-color);}
+    .chat-shell{display:flex;flex-direction:column;height:min(68vh,720px);border:1px solid var(--divider-color);border-radius:16px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent);box-shadow:0 6px 18px rgba(0,0,0,.06);overflow:hidden;}
+    .chat-list{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:12px;background:linear-gradient(180deg, color-mix(in srgb, var(--secondary-background-color) 90%, transparent) 0%, transparent 65%);}
+    .chat-row{display:flex;align-items:flex-end;gap:10px;}
+    .chat-row.user{justify-content:flex-end;}
+    .chat-row.agent{justify-content:flex-start;}
+    .chat-bubble{max-width:72%;padding:12px 14px;border-radius:16px;border:1px solid color-mix(in srgb, var(--divider-color) 75%, transparent);background:var(--secondary-background-color);box-shadow:0 6px 14px rgba(0,0,0,.04);white-space:pre-wrap;}
+    .chat-row.user .chat-bubble{background:color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 14%, var(--ha-card-background, var(--card-background-color)));border-color:color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 35%, transparent);}
+    .chat-meta{font-size:12px;color:var(--secondary-text-color);margin-top:6px;display:flex;gap:8px;align-items:center;justify-content:space-between;}
+    .chat-input{display:flex;gap:10px;padding:12px;border-top:1px solid var(--divider-color);background:color-mix(in srgb, var(--secondary-background-color) 85%, transparent);}
+    .chat-input input{flex:1;min-width:220px;height:46px;}
+    .chat-bubble pre{margin:8px 0 0 0;padding:10px 12px;border-radius:12px;background:color-mix(in srgb, var(--primary-background-color) 65%, transparent);border:1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);overflow:auto;}
+    .chat-bubble code{background:color-mix(in srgb, var(--primary-background-color) 70%, transparent);padding:2px 6px;border-radius:8px;}
+    @media (max-width: 680px){ .chat-bubble{max-width:90%;} .chat-shell{height:72vh;} }
   </style>
 </head>
 <body>
@@ -184,6 +197,7 @@ PANEL_HTML = """<!doctype html>
   <div class=\"tabs\">
     <button class=\"tab\" id=\"tabSetup\">Setup</button>
     <button class=\"tab active\" id=\"tabCockpit\">Cockpit</button>
+    <button class=\"tab\" id=\"tabChat\">Chat</button>
   </div>
 
   <div id=\"viewSetup\" class=\"hidden\">
@@ -287,12 +301,65 @@ PANEL_HTML = """<!doctype html>
       <div class=\"entities\" id=\"entities\" style=\"margin-top:10px\"></div>
     </div>
   </div>
+
+  <div id=\"viewChat\" class=\"hidden\">
+    <div class=\"chat-shell\">
+      <div id=\"chatList\" class=\"chat-list\"></div>
+      <div class=\"chat-input\">
+        <input id=\"chatComposer\" placeholder=\"Ask Clawdbot…\"/>
+        <button class=\"btn primary\" id=\"chatComposerSend\">Send</button>
+      </div>
+    </div>
+  </div>
   </div>
 
 <script>
 (function(){
   function qs(sel){ return document.querySelector(sel); }
   function setHidden(el, hidden){ el.classList.toggle('hidden', !!hidden); }
+
+  const demoChat = [
+    { role: 'agent', text: 'Hello! I can help interpret your energy system.', ts: '09:12' },
+    { role: 'user', text: 'Show me a quick status summary.', ts: '09:13' },
+    { role: 'agent', text: 'Battery at 68%, solar producing 2.1 kW. Example code:\\n\\n```py\\nstatus = {\"soc\": 68, \"solar_w\": 2100}\\n```', ts: '09:13' },
+  ];
+
+  function escapeHtml(txt){
+    return String(txt)
+      .replaceAll('&','&amp;')
+      .replaceAll('<','&lt;')
+      .replaceAll('>','&gt;');
+  }
+
+  function renderChat(){
+    const list = qs('#chatList');
+    if (!list) return;
+    list.innerHTML = '';
+    for (const msg of demoChat){
+      const row = document.createElement('div');
+      row.className = `chat-row ${msg.role === 'user' ? 'user' : 'agent'}`;
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-bubble';
+      const parts = String(msg.text || '').split('```');
+      let html = '';
+      for (let i = 0; i < parts.length; i++){
+        const seg = escapeHtml(parts[i]);
+        if (i % 2 === 0){
+          html += seg.replaceAll('\\n', '<br/>');
+        } else {
+          html += `<pre><code>${seg}</code></pre>`;
+        }
+      }
+      bubble.innerHTML = html;
+      const meta = document.createElement('div');
+      meta.className = 'chat-meta';
+      meta.innerHTML = `<span>${msg.role === 'user' ? 'You' : 'Clawdbot'}</span><span>${msg.ts || ''}</span>`;
+      bubble.appendChild(meta);
+      row.appendChild(bubble);
+      list.appendChild(row);
+    }
+    list.scrollTop = list.scrollHeight;
+  }
 
   function renderConfigSummary(){
     const cfg = (window.__CLAWDBOT_CONFIG__ || {});
@@ -910,15 +977,28 @@ PANEL_HTML = """<!doctype html>
     qs('#tabSetup').onclick = () => {
       qs('#tabSetup').classList.add('active');
       qs('#tabCockpit').classList.remove('active');
+      qs('#tabChat').classList.remove('active');
       setHidden(qs('#viewSetup'), false);
       setHidden(qs('#viewCockpit'), true);
+      setHidden(qs('#viewChat'), true);
     };
     qs('#tabCockpit').onclick = async () => {
       qs('#tabCockpit').classList.add('active');
       qs('#tabSetup').classList.remove('active');
+      qs('#tabChat').classList.remove('active');
       setHidden(qs('#viewSetup'), true);
       setHidden(qs('#viewCockpit'), false);
+      setHidden(qs('#viewChat'), true);
       try{ const { hass } = await getHass(); await refreshEntities(); renderMappedValues(hass); renderHouseMemory(); renderRecommendations(hass); } catch(e){}
+    };
+    qs('#tabChat').onclick = () => {
+      qs('#tabChat').classList.add('active');
+      qs('#tabSetup').classList.remove('active');
+      qs('#tabCockpit').classList.remove('active');
+      setHidden(qs('#viewSetup'), true);
+      setHidden(qs('#viewCockpit'), true);
+      setHidden(qs('#viewChat'), false);
+      renderChat();
     };
 
     qs('#refreshBtn').onclick = refreshEntities;
@@ -974,6 +1054,24 @@ PANEL_HTML = """<!doctype html>
         qs('#chatResult').textContent = 'error: ' + String(e);
       }
     };
+
+    qs('#chatComposerSend').onclick = () => {
+      const input = qs('#chatComposer');
+      const text = input.value.trim();
+      if (!text) return;
+      const now = new Date();
+      const ts = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+      demoChat.push({ role: 'user', text, ts });
+      demoChat.push({ role: 'agent', text: 'Got it. (Demo response — backend coming next slice.)', ts });
+      input.value = '';
+      renderChat();
+    };
+    qs('#chatComposer').addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        qs('#chatComposerSend').click();
+      }
+    });
 
     qs('#tabCockpit').onclick();
 
