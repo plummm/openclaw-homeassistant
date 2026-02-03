@@ -256,7 +256,9 @@ PANEL_HTML = """<!doctype html>
 class ClawdbotPanelView(HomeAssistantView):
     url = PANEL_PATH
     name = "api:clawdbot:panel"
-    requires_auth = True
+    # This route serves static HTML only (no secrets). It must be embeddable in HA's iframe panel.
+    # HA frontend auth is not a cookie header, so iframe navigation would 401 if requires_auth=True.
+    requires_auth = False
 
     async def get(self, request):
         from aiohttp import web
