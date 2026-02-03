@@ -575,20 +575,76 @@ PANEL_HTML = """<!doctype html>
 
     const m = getMapping();
     const rows = [
-      ['Battery SOC', m.soc],
-      ['Battery Voltage', m.voltage],
-      ['Solar Power', m.solar],
-      ['Load Power', m.load],
+      { key:'soc', label:'Battery SOC', entity_id: m.soc, hint:'battery' },
+      { key:'voltage', label:'Battery Voltage', entity_id: m.voltage, hint:'voltage' },
+      { key:'solar', label:'Solar Power', entity_id: m.solar, hint:'solar' },
+      { key:'load', label:'Load Power', entity_id: m.load, hint:'load' },
     ];
 
-    for (const [label, entity_id] of rows){
+    const toNum = (x)=>{ const n=Number.parseFloat(String(x)); return Number.isFinite(n)?n:null; };
+
+    for (const r of rows){
       const d=document.createElement('div');
-      const st = entity_id && hass && hass.states ? hass.states[entity_id] : null;
-      const unit = st && st.attributes ? (st.attributes.unit_of_measurement || '') : '';
-      const val = (entity_id ? (st ? (st.state + (unit ? (' '+unit) : '')) : 'not found') : 'unmapped');
-      d.innerHTML = `<div class="muted">${label}</div><div><b>${val}</b></div><div class="muted" style="margin-top:4px">${entity_id || ''}</div>`;
+      const st = r.entity_id && hass && hass.states ? hass.states[r.entity_id] : null;
+      let unit = st && st.attributes ? (st.attributes.unit_of_measurement || '') : '';
+      let valText = 'unmapped';
+
+      if (r.entity_id) {
+        if (!st) {
+          valText = 'not found';
+        } else {
+          let raw = st.state;
+          const n = toNum(raw);
+          if (r.key === 'soc' && n !== null) {
+            let pct = n;
+            if (pct <= 1) pct = pct * 100;
+            pct = Math.max(0, Math.min(100, pct));
+            valText = `${pct.toFixed(0)} %`;
+          } else if ((r.key === 'solar' || r.key === 'load') && n !== null) {
+            const u = String(unit||'').toLowerCase();
+            const w = (u === 'kw') ? (n * 1000) : n;
+            valText = `${w.toFixed(0)} W`;
+          } else if (r.key === 'voltage' && n !== null) {
+            valText = `${n.toFixed(1)} V`;
+          } else {
+            valText = `${raw}${unit ? (' '+unit) : ''}`;
+          }
+        }
+      }
+
+      const mapNow = (!r.entity_id) ? `<button class="btn" data-mapnow="${r.key}" style="margin-top:10px">Map now</button>` : '';
+      d.innerHTML = `<div class="muted">${r.label}</div><div style="margin-top:2px"><b>${valText}</b></div><div class="muted" style="margin-top:4px">${r.entity_id || 'unmapped'}</div>${mapNow}`;
       root.appendChild(d);
     }
+
+    // wire map-now shortcuts
+    for (const btn of root.querySelectorAll('button[data-mapnow]')){
+      btn.onclick = () => {
+        const key = btn.getAttribute('data-mapnow');
+        mapNowShortcut(key);
+      };
+    }
+  }
+
+  function mapNowShortcut(key){
+    // Jump to Setup and help the user find likely entities.
+    const hints = { soc:'battery', voltage:'voltage', solar:'solar', load:'power' };
+    const ids = { soc:'mapSoc', voltage:'mapVoltage', solar:'mapSolar', load:'mapLoad' };
+
+    // Pre-fill the entity list filter (visible under Cockpit), so when they return it’s ready.
+    const f = qs('#filter');
+    if (f){ f.value = hints[key] || ''; }
+
+    // Switch to Setup tab
+    try{ qs('#tabSetup').click(); }catch(e){}
+
+    // Focus the relevant manual input and scroll mapping section
+    try{
+      const input = document.getElementById(ids[key]);
+      if (input){ input.focus(); }
+      const sugg = document.getElementById('suggestions');
+      if (sugg){ sugg.scrollIntoView({behavior:'smooth', block:'start'}); }
+    } catch(e){}
   }
   async function getHass(){
     const parent = window.parent;
