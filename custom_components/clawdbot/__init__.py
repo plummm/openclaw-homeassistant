@@ -361,7 +361,8 @@ PANEL_HTML = """<!doctype html>
       const usedPlaceholder = !capacityKwh;
       if (!capacityKwh) capacityKwh = 10;
 
-      let body = 'Estimate unavailable (waiting for numeric SOC/load values).';
+      // Default: still show an informational message, even if values are not numeric yet.
+      let body = 'Estimate unavailable: SOC/load values are missing or non-numeric.';
       if (socPct !== null && loadW !== null && loadW > 0) {
         const availableKwh = capacityKwh * (socPct / 100);
         const hours = (availableKwh * 1000) / loadW;
@@ -371,7 +372,16 @@ PANEL_HTML = """<!doctype html>
           body += ' Solar is mapped but not counted in this estimate.';
         }
       } else if (loadW !== null && loadW <= 0) {
-        body = 'Estimate unavailable (load is 0 or negative).';
+        body = 'Estimate unavailable: load is 0 or negative.';
+      } else {
+        // Give a clearer reason if entities are mapped but not numeric.
+        try{
+          const socSt = hass && hass.states ? hass.states[mapping.soc] : null;
+          const loadSt = hass && hass.states ? hass.states[mapping.load] : null;
+          const socRaw = socSt ? socSt.state : null;
+          const loadRaw = loadSt ? loadSt.state : null;
+          body += ` (soc=${socRaw}, load=${loadRaw})`;
+        } catch(e){}
       }
       if (usedPlaceholder) {
         body += ' Assuming 10 kWh battery capacity (placeholder).';
@@ -909,6 +919,8 @@ class ClawdbotPanelSelfTestApiView(HomeAssistantView):
                 rec_visible = True
                 rec_reason = "soc+load numeric"
             else:
+                # In the UI we still render an informational recommendation item.
+                rec_visible = True
                 rec_reason = "soc/load not numeric or not found"
         else:
             rec_reason = "soc/load not mapped"
