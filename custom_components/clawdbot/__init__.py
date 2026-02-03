@@ -578,10 +578,10 @@ PANEL_HTML = """<!doctype html>
 
     const m = getMapping();
     const rows = [
-      { key:'soc', label:'Battery SOC (%)', entity_id: m.soc, hint:'battery' },
-      { key:'voltage', label:'Battery Voltage (V)', entity_id: m.voltage, hint:'voltage' },
-      { key:'solar', label:'Solar Power (W)', entity_id: m.solar, hint:'solar' },
-      { key:'load', label:'Load Power (W)', entity_id: m.load, hint:'power' },
+      { key:'soc', label:'Battery SOC', unitLabel:'(%)', entity_id: m.soc, hint:'battery' },
+      { key:'voltage', label:'Battery Voltage', unitLabel:'(V)', entity_id: m.voltage, hint:'voltage' },
+      { key:'solar', label:'Solar Power', unitLabel:'(W)', entity_id: m.solar, hint:'solar' },
+      { key:'load', label:'Load Power', unitLabel:'(W)', entity_id: m.load, hint:'power' },
     ];
 
     const toNum = (x)=>{ const n=Number.parseFloat(String(x)); return Number.isFinite(n)?n:null; };
@@ -617,7 +617,7 @@ PANEL_HTML = """<!doctype html>
 
       const keyLabel = ({soc:'SOC', voltage:'voltage', solar:'solar', load:'load'}[r.key] || r.key);
       const mapNow = (!r.entity_id) ? `<button class="btn" data-mapnow="${r.key}" style="margin-top:10px">Map ${keyLabel}</button>` : '';
-      d.innerHTML = `<div class="muted">${r.label}</div><div style="margin-top:2px"><b>${valText}</b></div><div class="muted" style="margin-top:4px">${r.entity_id || 'unmapped'}</div>${mapNow}`;
+      d.innerHTML = `<div class="muted">${r.label} <span class="muted">${r.unitLabel || ''}</span></div><div style="margin-top:2px"><b>${valText}</b></div><div class="muted" style="margin-top:4px">${r.entity_id || 'unmapped'}</div>${mapNow}`;
       root.appendChild(d);
     }
 
