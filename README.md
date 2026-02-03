@@ -15,10 +15,18 @@ Custom Home Assistant integration that connects HA to an OpenClaw Gateway.
 
 ```yaml
 clawdbot:
+  # Browser-facing iframe URL (preferred key)
   # MUST be reachable from your browser (the machine viewing HA)
-  url: "http://<OPENCLAW_PUBLIC_HOST>:7773/__clawdbot__/canvas/ha-panel/"
+  panel_url: "http://<OPENCLAW_PUBLIC_HOST>:7773/__clawdbot__/canvas/ha-panel/"
+
+  # Legacy alias (supported for backward compatibility)
+  # url: "http://<OPENCLAW_PUBLIC_HOST>:7773/__clawdbot__/canvas/ha-panel/"
+
+  # HA-backend-facing OpenClaw Gateway URL
   gateway_url: "http://<OPENCLAW_HOST>:7773"
+
   token: "<OPENCLAW_GATEWAY_TOKEN>"
+
   # For current MVP: Discord channel id to post into
   session_key: "<DISCORD_CHANNEL_ID>"
 ```

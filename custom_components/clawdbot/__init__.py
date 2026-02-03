@@ -35,7 +35,8 @@ DEFAULT_ICON = "mdi:robot"
 DEFAULT_URL = "http://127.0.0.1:7773/__clawdbot__/canvas/ha-panel/"
 DEFAULT_SESSION_KEY = "main"
 
-CONF_URL = "url"
+CONF_URL = "url"  # legacy
+CONF_PANEL_URL = "panel_url"  # preferred
 CONF_TOKEN = "token"
 CONF_SESSION_KEY = "session_key"
 CONF_GATEWAY_URL = "gateway_url"
@@ -72,7 +73,15 @@ def _derive_gateway_origin(panel_url: str) -> str:
 
 async def async_setup(hass, config):
     conf = config.get(DOMAIN, {})
-    panel_url = str(conf.get(CONF_URL, DEFAULT_URL)).rstrip("/")
+    # Prefer explicit panel_url; fallback to legacy url.
+    panel_url = str(conf.get(CONF_PANEL_URL, conf.get(CONF_URL, DEFAULT_URL))).rstrip("/")
+
+    # Guardrail: host.docker.internal works only inside Docker, not in the browser.
+    if "host.docker.internal" in panel_url:
+        raise RuntimeError(
+            "clawdbot.panel_url/url must be reachable from the browser viewing Home Assistant; "
+            "do not use host.docker.internal. Use a LAN IP or domain (ideally HTTPS)."
+        )
     title = conf.get("title", DEFAULT_TITLE)
     icon = conf.get("icon", DEFAULT_ICON)
 
