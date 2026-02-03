@@ -128,11 +128,11 @@ PANEL_HTML = """<!doctype html>
   <script>window.__CLAWDBOT_CONFIG__ = __CONFIG_JSON__;</script>
 
   <div class=\"tabs\">
-    <button class=\"tab active\" id=\"tabSetup\">Setup</button>
-    <button class=\"tab\" id=\"tabCockpit\">Cockpit</button>
+    <button class=\"tab\" id=\"tabSetup\">Setup</button>
+    <button class=\"tab active\" id=\"tabCockpit\">Cockpit</button>
   </div>
 
-  <div id=\"viewSetup\">
+  <div id=\"viewSetup\" class=\"hidden\">
     <div class=\"card\">
       <h2>Commissioning</h2>
       <div class=\"muted\">Verify configuration and connectivity before using the cockpit.</div>
@@ -173,15 +173,16 @@ PANEL_HTML = """<!doctype html>
     </div>
   </div>
 
-  <div id=\"viewCockpit\" class=\"hidden\">
+  <div id=\"viewCockpit\">
     <div class=\"card\">
       <div class=\"card\">
       <h2>Recommendations (preview)</h2>
       <div class=\"muted\">Informational only (no alerts). Based on your mapped signals + house memory.</div>
       <div id=\"recs\" style=\"margin-top:10px\"></div>
+      <div class=\"muted\" id=\"recsText\" style=\"display:none\">Finish mapping core signals</div>
     </div>
 
-      <h2>House memory (MVP)</h2>
+      <h2>House memory</h2>
       <div class=\"muted\">Derived from entities (heuristics). Read-only for now.</div>
       <div id=\"houseMemory\" style=\"margin-top:10px\"></div>
     </div>
@@ -569,6 +570,8 @@ PANEL_HTML = """<!doctype html>
         qs('#chatResult').textContent = 'error: ' + String(e);
       }
     };
+
+    qs('#tabCockpit').onclick();
 
     try{ const { hass } = await getHass(); setStatus(true,'connected',''); renderSuggestions(hass); renderMappedValues(hass); renderRecommendations(hass); } catch(e){ setStatus(false,'error', String(e)); }
   }
