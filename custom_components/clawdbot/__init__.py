@@ -35,7 +35,9 @@ DEFAULT_ICON = "mdi:robot"
 
 # HA-embedded panel is served by Home Assistant itself.
 # This avoids OpenClaw Control UI "device identity" requirements and mixed-content issues.
-PANEL_PATH = "/api/clawdbot/panel"
+# NOTE: Avoid /api/* paths: Home Assistant treats them as authenticated API endpoints
+# and will return 401/ban unauthenticated iframe navigations.
+PANEL_PATH = "/clawdbot-panel"
 
 DEFAULT_URL = PANEL_PATH  # legacy/override name; now defaults to HA-local panel
 DEFAULT_SESSION_KEY = "main"
