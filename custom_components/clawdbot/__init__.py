@@ -185,13 +185,20 @@ PANEL_HTML = """<!doctype html>
 
       <h2>House memory</h2>
       <div class=\"muted\">Derived from entities (heuristics). Read-only for now.</div>
-      <div id=\"houseMemory\" style=\"margin-top:10px\"></div>
+      <div id=\"houseMemory\" style=\"margin-top:10px\">
+        <ul style=\"margin:0;padding-left:18px\">
+          <li><b>Solar:</b> …</li>
+          <li><b>Battery:</b> …</li>
+          <li><b>Grid:</b> …</li>
+          <li><b>Generator:</b> …</li>
+        </ul>
+      </div>
     </div>
 
     <div class=\"card\">
       <h2>Core signals (mapped)</h2>
       <div class=\"muted\">Shows values for the configured entity mapping (or “unmapped”).</div>
-      <div class=\"kv\" id=\"mappedValues\" class=\"grid2\" style=\"margin-top:10px\"></div>
+      <div id=\"mappedValues\" class=\"grid2\" style=\"margin-top:10px\"></div>
     </div>
 
     <div class=\"card\" id=\"statusCard\">
