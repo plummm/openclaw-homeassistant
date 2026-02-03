@@ -590,11 +590,20 @@ PANEL_HTML = """<!doctype html>
       const d=document.createElement('div');
       const st = r.entity_id && hass && hass.states ? hass.states[r.entity_id] : null;
       let unit = st && st.attributes ? (st.attributes.unit_of_measurement || '') : '';
-      let valText = 'unmapped';
+      let valText = '—';
+      let subText = '';
+      let subTitle = '';
 
-      if (r.entity_id) {
+      if (!r.entity_id) {
+        // Unmapped: keep it clean.
+        valText = '—';
+        subText = 'unmapped';
+      } else {
+        // Mapped but missing/unavailable: show a soft status, keep entity_id in tooltip + secondary line.
         if (!st) {
-          valText = 'not found';
+          valText = 'Not available';
+          subText = r.entity_id;
+          subTitle = r.entity_id;
         } else {
           let raw = st.state;
           const n = toNum(raw);
@@ -612,12 +621,15 @@ PANEL_HTML = """<!doctype html>
           } else {
             valText = `${raw}${unit ? (' '+unit) : ''}`;
           }
+          subText = r.entity_id;
+          subTitle = r.entity_id;
         }
       }
 
       const keyLabel = ({soc:'SOC', voltage:'voltage', solar:'solar', load:'load'}[r.key] || r.key);
       const mapNow = (!r.entity_id) ? `<button class="btn" data-mapnow="${r.key}" style="margin-top:10px">Map ${keyLabel}</button>` : '';
-      d.innerHTML = `<div class="muted">${r.label} <span class="muted">${r.unitLabel || ''}</span></div><div style="margin-top:2px"><b>${valText}</b></div><div class="muted" style="margin-top:4px">${r.entity_id || 'unmapped'}</div>${mapNow}`;
+      const valueClass = (valText === 'Not available') ? 'muted' : '';
+      d.innerHTML = `<div class="muted">${r.label} <span class="muted">${r.unitLabel || ''}</span></div><div style="margin-top:2px" class="${valueClass}" title="${subTitle}"><b>${valText}</b></div><div class="muted" style="margin-top:4px" title="${subTitle}">${subText}</div>${mapNow}`;
       root.appendChild(d);
     }
 
