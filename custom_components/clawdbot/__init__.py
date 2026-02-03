@@ -1122,11 +1122,14 @@ class ClawdbotHouseMemoryApiView(HomeAssistantView):
 
 
 
-def _compute_house_memory_from_states(states: dict) -> dict:
-    """Heuristic summary derived from HA entity ids/names.
+def _compute_house_memory_from_states(states: dict, mapping: dict | None = None) -> dict:
+    """Heuristic summary derived from HA entity ids/names (+ optional user mapping).
 
     Output format:
       { solar: {present, confidence, evidence:[...]}, ... }
+
+    mapping is the persisted core-signal mapping (soc/voltage/solar/load). If provided,
+    we treat mapped entities as strong evidence.
     """
 
     def _scan(keywords):
@@ -1161,19 +1164,36 @@ def _compute_house_memory_from_states(states: dict) -> dict:
     grid_ev=_scan(grid_kw)
     gen_ev=_scan(gen_kw)
 
-    def pack(evidence):
-        n=len(evidence)
+    m = mapping or {}
+
+    def pack(evidence, mapped_ids=None, base_if_mapped=0.75):
+        mapped_ids = [x for x in (mapped_ids or []) if x]
+        # Inject mapped ids as strong evidence (dedupe, preserve order)
+        seen=set()
+        combined=[]
+        for ent_id in mapped_ids + list(evidence):
+            if ent_id in seen:
+                continue
+            seen.add(ent_id)
+            combined.append(ent_id)
+
+        n=len(combined)
         if n==0:
             return {"present": False, "confidence": 0.0, "evidence": []}
-        # simple confidence ramp
-        conf=min(1.0, 0.3 + 0.15*n)
-        return {"present": True, "confidence": round(conf, 2), "evidence": evidence[:10]}
+
+        # Confidence:
+        # - If user mapped a relevant entity, we assume stronger confidence.
+        # - Otherwise ramp based on number of keyword hits.
+        conf = min(1.0, 0.25 + 0.12*n)
+        if mapped_ids:
+            conf = max(conf, base_if_mapped)
+        return {"present": True, "confidence": round(conf, 2), "evidence": combined[:10]}
 
     return {
-        "solar": pack(solar_ev),
-        "battery": pack(batt_ev),
-        "grid": pack(grid_ev),
-        "generator": pack(gen_ev),
+        "solar": pack(solar_ev, mapped_ids=[m.get("solar")], base_if_mapped=0.8),
+        "battery": pack(batt_ev, mapped_ids=[m.get("soc"), m.get("voltage")], base_if_mapped=0.85),
+        "grid": pack(grid_ev, mapped_ids=[], base_if_mapped=0.75),
+        "generator": pack(gen_ev, mapped_ids=[], base_if_mapped=0.75),
     }
 async def async_setup(hass, config):
     conf = config.get(DOMAIN, {})
@@ -1197,6 +1217,10 @@ async def async_setup(hass, config):
     # Load persisted mappings
     store = Store(hass, MAPPING_STORE_VERSION, MAPPING_STORE_KEY)
 
+    mapping = await store.async_load() or {}
+    if not isinstance(mapping, dict):
+        mapping = {}
+
     # Load / compute house memory summary
     house_store = Store(hass, HOUSEMEM_STORE_VERSION, HOUSEMEM_STORE_KEY)
     house_memory = await house_store.async_load() or {}
@@ -1205,15 +1229,11 @@ async def async_setup(hass, config):
     # Always compute a fresh snapshot from current states (MVP)
     try:
         states = {s.entity_id: s for s in hass.states.async_all()}
-        computed = _compute_house_memory_from_states(states)
+        computed = _compute_house_memory_from_states(states, mapping=mapping)
         house_memory = computed
         await house_store.async_save(house_memory)
     except Exception:
         _LOGGER.exception('Failed to compute house memory')
-
-    mapping = await store.async_load() or {}
-    if not isinstance(mapping, dict):
-        mapping = {}
 
     hass.data[DOMAIN].update(
         {
@@ -1328,7 +1348,7 @@ async def async_setup(hass, config):
         if house_store is None:
             raise RuntimeError('house memory store not initialized')
         states = {s.entity_id: s for s in hass.states.async_all()}
-        computed = _compute_house_memory_from_states(states)
+        computed = _compute_house_memory_from_states(states, mapping=cfg.get('mapping') or {})
         cfg['house_memory'] = computed
         await house_store.async_save(computed)
         await _notify('Clawdbot: house_memory', __import__('json').dumps(computed, indent=2)[:4000])
