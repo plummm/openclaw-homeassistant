@@ -1551,6 +1551,11 @@ async def async_setup(hass, config):
             ("script", "turn_on"),
             ("automation", "trigger"),
             ("persistent_notification", "create"),
+            # Safe expansion: temp setpoint is common + bounded; no hvac_mode changes.
+            ("climate", "set_temperature"),
+            # Optional but generally safe: open/close covers (no position/tilt yet).
+            ("cover", "open_cover"),
+            ("cover", "close_cover"),
         }
         key = (str(domain), str(service_name))
         if key not in allowed:
