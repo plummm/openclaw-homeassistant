@@ -198,9 +198,9 @@ PANEL_HTML = """<!doctype html>
   <script>window.__CLAWDBOT_CONFIG__ = __CONFIG_JSON__;</script>
 
   <div class=\"tabs\">
-    <button class=\"tab\" id=\"tabSetup\">Setup</button>
-    <button class=\"tab active\" id=\"tabCockpit\">Cockpit</button>
-    <button class=\"tab\" id=\"tabChat\">Chat</button>
+    <button type=\"button\" class=\"tab\" id=\"tabSetup\">Setup</button>
+    <button type=\"button\" class=\"tab active\" id=\"tabCockpit\">Cockpit</button>
+    <button type=\"button\" class=\"tab\" id=\"tabChat\">Chat</button>
   </div>
 
   <div id=\"viewSetup\" class=\"hidden\">
@@ -334,6 +334,17 @@ PANEL_HTML = """<!doctype html>
     const list = qs('#chatList');
     if (!list) return;
     list.innerHTML = '';
+
+    if (!chatItems || !chatItems.length) {
+      const empty = document.createElement('div');
+      empty.className = 'muted';
+      empty.style.textAlign = 'center';
+      empty.style.marginTop = '18px';
+      empty.textContent = 'No messages yet. Say hi.';
+      list.appendChild(empty);
+      return;
+    }
+
     for (const msg of chatItems){
       const row = document.createElement('div');
       row.className = `chat-row ${msg.role === 'user' ? 'user' : 'agent'}`;
@@ -985,7 +996,9 @@ PANEL_HTML = """<!doctype html>
     renderMappedValues(null);
     renderSuggestions(null);
 
-    qs('#tabSetup').onclick = () => {
+    qs('#tabSetup').onclick = (ev) => {
+      try{ ev && ev.preventDefault && ev.preventDefault(); }catch(e){}
+      try{ ev && ev.stopPropagation && ev.stopPropagation(); }catch(e){}
       qs('#tabSetup').classList.add('active');
       qs('#tabCockpit').classList.remove('active');
       qs('#tabChat').classList.remove('active');
@@ -993,7 +1006,9 @@ PANEL_HTML = """<!doctype html>
       setHidden(qs('#viewCockpit'), true);
       setHidden(qs('#viewChat'), true);
     };
-    qs('#tabCockpit').onclick = async () => {
+    qs('#tabCockpit').onclick = async (ev) => {
+      try{ ev && ev.preventDefault && ev.preventDefault(); }catch(e){}
+      try{ ev && ev.stopPropagation && ev.stopPropagation(); }catch(e){}
       qs('#tabCockpit').classList.add('active');
       qs('#tabSetup').classList.remove('active');
       qs('#tabChat').classList.remove('active');
@@ -1002,7 +1017,9 @@ PANEL_HTML = """<!doctype html>
       setHidden(qs('#viewChat'), true);
       try{ const { hass } = await getHass(); await refreshEntities(); renderMappedValues(hass); renderHouseMemory(); renderRecommendations(hass); } catch(e){}
     };
-    qs('#tabChat').onclick = () => {
+    qs('#tabChat').onclick = (ev) => {
+      try{ ev && ev.preventDefault && ev.preventDefault(); }catch(e){}
+      try{ ev && ev.stopPropagation && ev.stopPropagation(); }catch(e){}
       qs('#tabChat').classList.add('active');
       qs('#tabSetup').classList.remove('active');
       qs('#tabCockpit').classList.remove('active');
