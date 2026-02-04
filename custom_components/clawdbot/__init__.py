@@ -155,7 +155,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.39"
+PANEL_BUILD_ID = "89337ab.40"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1825,8 +1825,9 @@ PANEL_HTML = """<!doctype html>
     }
     .tab.active::after{
       content:"";position:absolute;left:12px;right:12px;bottom:6px;height:3px;border-radius:999px;
-      background:var(--mdc-theme-primary, var(--primary-color));
+      background:linear-gradient(90deg, rgba(0,245,255,.95), rgba(123,44,255,.95));
     }
+    @media (prefers-reduced-motion: reduce){ .tab, .btn { transition:none !important; } }
     .hidden{display:none;}
     .kv{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;}
     .kv > div{background:color-mix(in srgb, var(--secondary-background-color) 90%, var(--cb-card-bg));border:1px solid var(--cb-border);border-radius:10px;padding:8px 10px;}
@@ -1917,6 +1918,7 @@ PANEL_HTML = """<!doctype html>
 
   <div class=\"tabs\">
     <button type=\"button\" class=\"tab active\" id=\"tabCockpit\">Cockpit</button>
+    <button type=\"button\" class=\"tab\" id=\"tabAgent\">Agent</button>
     <button type=\"button\" class=\"tab\" id=\"tabChat\">Chat</button>
     <button type=\"button\" class=\"tab\" id=\"tabSetup\">Setup</button>
   </div>
@@ -2132,6 +2134,47 @@ PANEL_HTML = """<!doctype html>
         <button class=\"btn\" id=\"clearFilter\">Clear</button>
       </div>
       <div class=\"entities\" id=\"entities\" style=\"margin-top:10px\"></div>
+    </div>
+  </div>
+
+  <div id=\"viewAgent\" class=\"hidden\">
+    <div class=\"card\" style=\"position:relative;overflow:hidden\">
+      <div style=\"position:absolute;inset:-40px -60px auto -60px;height:180px;background:radial-gradient(circle at 20% 30%, rgba(0,245,255,.35), transparent 60%), radial-gradient(circle at 70% 40%, rgba(123,44,255,.35), transparent 65%);filter:blur(0px);pointer-events:none\"></div>
+      <div class=\"row\" style=\"position:relative;z-index:1;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap\">
+        <div class=\"row\" style=\"gap:14px;align-items:center\">
+          <div style=\"width:64px;height:64px;border-radius:18px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg, rgba(0,245,255,.25), rgba(123,44,255,.25));border:1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));font-weight:800;letter-spacing:.5px\">A0</div>
+          <div style=\"display:flex;flex-direction:column;gap:4px;min-width:260px\">
+            <div style=\"font-size:22px;font-weight:800\">Agent 0</div>
+            <div class=\"muted\">Ship ops / energy monitoring assistant</div>
+            <div class=\"row\" style=\"gap:8px;flex-wrap:wrap\">
+              <span class=\"pill\" id=\"agentConnPill\">…</span>
+              <span class=\"pill\" id=\"agentDerivedPill\">…</span>
+              <span class=\"pill\" id=\"agentSessionPill\">session: —</span>
+              <span class=\"muted\" id=\"agentUptime\" style=\"margin-left:6px\">uptime: —</span>
+            </div>
+          </div>
+        </div>
+        <div class=\"row\" style=\"gap:8px;align-items:center\">
+          <button class=\"btn primary\" id=\"btnAgentPulse\">Pulse</button>
+          <button class=\"btn\" id=\"btnAgentRefresh\">Refresh</button>
+        </div>
+      </div>
+    </div>
+
+    <div class=\"card\">
+      <h2 style=\"display:flex;justify-content:space-between;align-items:center\">Live activity <span class=\"muted\" style=\"font-size:12px\">last 5</span></h2>
+      <div id=\"agentActivity\" class=\"muted\">No activity yet.</div>
+    </div>
+
+    <div class=\"card\">
+      <h2>Voice to text (preview)</h2>
+      <div class=\"muted\">Uses browser speech recognition if available. Requires a click + microphone permission. Off by default.</div>
+      <div class=\"row\" style=\"margin-top:10px;gap:8px\">
+        <button class=\"btn primary\" id=\"btnListen\">Start listening</button>
+        <button class=\"btn\" id=\"btnStopListen\" disabled>Stop</button>
+        <span class=\"muted\" id=\"listenStatus\"></span>
+      </div>
+      <div id=\"transcript\" style=\"margin-top:10px;min-height:120px;border-radius:14px;border:1px solid var(--divider-color);padding:10px 12px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 85%, transparent);white-space:pre-wrap\"></div>
     </div>
   </div>
 

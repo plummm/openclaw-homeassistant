@@ -662,6 +662,194 @@ window.__clawdbotPanelInitError = null;
     } catch(e){}
   }
 
+  // ---------------- Agent view (high-tech profile + STT) ----------------
+
+  function fmtDur(ms){
+    try{
+      const s = Math.max(0, Math.floor(ms/1000));
+      const h = Math.floor(s/3600);
+      const m = Math.floor((s%3600)/60);
+      const ss = s%60;
+      if (h>0) return `${h}h ${m}m`;
+      if (m>0) return `${m}m ${ss}s`;
+      return `${ss}s`;
+    } catch(e){ return '—'; }
+  }
+
+  let _agentStartMs = Date.now();
+  let _agentUptimeTimer = null;
+  let _agentActivity = [];
+  let _speechRec = null;
+  let _speechActive = false;
+
+  function agentAddActivity(kind, text){
+    const now = new Date();
+    _agentActivity.unshift({ ts: now.toISOString(), kind, text: String(text||'') });
+    _agentActivity = _agentActivity.slice(0,5);
+    const el = document.getElementById('agentActivity');
+    if (!el) return;
+    if (!_agentActivity.length) { el.textContent = 'No activity yet.'; return; }
+    el.innerHTML = '';
+    for (const it of _agentActivity){
+      const row = document.createElement('div');
+      row.style.border = '1px solid var(--divider-color)';
+      row.style.borderRadius = '14px';
+      row.style.padding = '10px 12px';
+      row.style.margin = '10px 0';
+      row.style.background = 'linear-gradient(120deg, color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent), color-mix(in srgb, #00f5ff 6%, transparent))';
+      row.innerHTML = `<div style="display:flex;justify-content:space-between;gap:10px"><div style="font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(it.kind)}</div><div class="muted" style="font-size:11px;white-space:nowrap">${escapeHtml(it.ts.slice(11,19))}</div></div><div class="muted" style="margin-top:4px;white-space:pre-wrap">${escapeHtml(it.text)}</div>`;
+      el.appendChild(row);
+    }
+  }
+
+  async function renderAgentView(){
+    // Uptime ticker
+    const uptimeEl = document.getElementById('agentUptime');
+    if (_agentUptimeTimer) { clearInterval(_agentUptimeTimer); _agentUptimeTimer=null; }
+    _agentUptimeTimer = setInterval(() => {
+      try{ if (uptimeEl) uptimeEl.textContent = 'uptime: ' + fmtDur(Date.now() - _agentStartMs); }catch(e){}
+    }, 1000);
+
+    const cfg = (window.__CLAWDBOT_CONFIG__ || {});
+    const sess = cfg.session_key || 'main';
+    const sessPill = document.getElementById('agentSessionPill');
+    if (sessPill) sessPill.textContent = 'session: ' + sess;
+
+    // Derived sensors status
+    const derivedPill = document.getElementById('agentDerivedPill');
+    try{
+      const r = await callServiceResponse('clawdbot','derived_sensors_status',{});
+      const data = (r && r.response) ? r.response : r;
+      const rr = data && data.result ? data.result : data;
+      const en = !!(rr && rr.enabled);
+      if (derivedPill) {
+        derivedPill.textContent = en ? 'derived: ON' : 'derived: OFF';
+        derivedPill.classList.toggle('ok', en);
+        derivedPill.classList.toggle('bad', !en);
+      }
+    } catch(e){
+      if (derivedPill) { derivedPill.textContent = 'derived: —'; derivedPill.classList.remove('ok'); derivedPill.classList.remove('bad'); }
+    }
+
+    // Gateway health (latency)
+    const connPill = document.getElementById('agentConnPill');
+    try{
+      const r = await callServiceResponse('clawdbot','gateway_test',{});
+      const data = (r && r.response) ? r.response : r;
+      const rr = data && data.result ? data.result : data;
+      const ms = rr && rr.latency_ms != null ? Number(rr.latency_ms) : null;
+      if (connPill) {
+        connPill.textContent = ms != null && !Number.isNaN(ms) ? `gateway OK (${ms}ms)` : 'gateway OK';
+        connPill.classList.add('ok');
+        connPill.classList.remove('bad');
+      }
+    } catch(e){
+      if (connPill) {
+        connPill.textContent = 'gateway FAIL';
+        connPill.classList.add('bad');
+        connPill.classList.remove('ok');
+      }
+    }
+
+    agentAddActivity('status', 'Agent view refreshed');
+
+    // Wire buttons once
+    const btnPulse = document.getElementById('btnAgentPulse');
+    if (btnPulse && !btnPulse.__bound) {
+      btnPulse.__bound = true;
+      btnPulse.onclick = () => { agentAddActivity('pulse', 'Pulse acknowledged'); toast('Pulse sent'); };
+    }
+    const btnRefresh = document.getElementById('btnAgentRefresh');
+    if (btnRefresh && !btnRefresh.__bound) {
+      btnRefresh.__bound = true;
+      btnRefresh.onclick = async () => { await renderAgentView(); toast('Refreshed'); };
+    }
+
+    bindSpeechUi();
+  }
+
+  function bindSpeechUi(){
+    const btn = document.getElementById('btnListen');
+    const btnStop = document.getElementById('btnStopListen');
+    const statusEl = document.getElementById('listenStatus');
+    const outEl = document.getElementById('transcript');
+    if (!btn || !btnStop || !statusEl || !outEl) return;
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      statusEl.textContent = 'SpeechRecognition not supported in this browser.';
+      btn.disabled = true;
+      btnStop.disabled = true;
+      return;
+    }
+
+    if (!_speechRec) {
+      _speechRec = new SpeechRecognition();
+      _speechRec.lang = 'en-US';
+      _speechRec.interimResults = true;
+      _speechRec.continuous = true;
+
+      _speechRec.onresult = (ev) => {
+        try{
+          let full = '';
+          for (let i = ev.resultIndex; i < ev.results.length; i++) {
+            const r = ev.results[i];
+            full += r[0] && r[0].transcript ? r[0].transcript : '';
+          }
+          if (full) outEl.textContent = full.trim();
+        } catch(e){}
+      };
+      _speechRec.onerror = (ev) => {
+        statusEl.textContent = 'mic error: ' + String(ev && (ev.error || ev.message) || ev);
+        _speechActive = false;
+        btn.disabled = false;
+        btnStop.disabled = true;
+      };
+      _speechRec.onend = () => {
+        if (_speechActive) {
+          // stopped unexpectedly
+          _speechActive = false;
+          btn.disabled = false;
+          btnStop.disabled = true;
+          statusEl.textContent = 'stopped';
+        }
+      };
+    }
+
+    if (!btn.__bound) {
+      btn.__bound = true;
+      btn.onclick = () => {
+        try{
+          outEl.textContent = '';
+          statusEl.textContent = 'listening…';
+          _speechActive = true;
+          btn.disabled = true;
+          btnStop.disabled = false;
+          _speechRec.start();
+          agentAddActivity('voice', 'Listening started');
+        } catch(e){
+          statusEl.textContent = 'failed to start: ' + String(e);
+          _speechActive = false;
+          btn.disabled = false;
+          btnStop.disabled = true;
+        }
+      };
+    }
+    if (!btnStop.__bound) {
+      btnStop.__bound = true;
+      btnStop.onclick = () => {
+        try{
+          _speechActive = false;
+          _speechRec.stop();
+          statusEl.textContent = 'stopped';
+          btn.disabled = false;
+          btnStop.disabled = true;
+          agentAddActivity('voice', 'Listening stopped');
+        } catch(e){}
+      };
+    }
+  }
+
   async function setMappingField(field, entityId){
     const mapping = mappingWithDefaults();
     mapping[field] = entityId || null;
@@ -1809,22 +1997,29 @@ async function fetchStatesRest(hass){
       const chatTab = qs('#tabChat');
       const viewSetup = qs('#viewSetup');
       const viewCockpit = qs('#viewCockpit');
+      const viewAgent = qs('#viewAgent');
       const viewChat = qs('#viewChat');
-      if (!setupTab || !cockpitTab || !chatTab || !viewSetup || !viewCockpit || !viewChat) return;
+      const agentTab = qs('#tabAgent');
+      if (!setupTab || !cockpitTab || !chatTab || !agentTab || !viewSetup || !viewCockpit || !viewAgent || !viewChat) return;
 
       setupTab.classList.toggle('active', which === 'setup');
       cockpitTab.classList.toggle('active', which === 'cockpit');
+      agentTab.classList.toggle('active', which === 'agent');
       chatTab.classList.toggle('active', which === 'chat');
 
       // Hard display toggles (production UI must isolate views)
       setHidden(viewSetup, which !== 'setup');
       setHidden(viewCockpit, which !== 'cockpit');
+      setHidden(viewAgent, which !== 'agent');
       setHidden(viewChat, which !== 'chat');
 
       if (which === 'cockpit') {
     try{ if (DEBUG_UI) dbgStep('before-getHass');
     console.debug('[clawdbot] before getHass'); } catch(e) {}
         try{ const { hass } = await getHass(); await refreshEntities(); renderMappedValues(hass); renderHouseMemory(); renderRecommendations(hass); await refreshSuggestedSensors(); } catch(e){}
+      }
+      if (which === 'agent') {
+        try{ await renderAgentView(); } catch(e){}
       }
       if (which === 'setup') {
         try{ const { hass } = await getHass(); await refreshEntities(); renderEntityConfig(hass); } catch(e){}
@@ -1856,6 +2051,7 @@ async function fetchStatesRest(hass){
 
     bindTab('#tabSetup','setup');
     bindTab('#tabCockpit','cockpit');
+    bindTab('#tabAgent','agent');
     bindTab('#tabChat','chat');
 
     // Extra robustness: event delegation so clicks on child nodes still switch.
@@ -1867,6 +2063,7 @@ async function fetchStatesRest(hass){
         const id = t.id || (t.closest ? (t.closest('button')||{}).id : '');
         if (id === 'tabSetup') switchTab('setup');
         if (id === 'tabCockpit') switchTab('cockpit');
+        if (id === 'tabAgent') switchTab('agent');
         if (id === 'tabChat') switchTab('chat');
       }, true);
     } catch(e){}
