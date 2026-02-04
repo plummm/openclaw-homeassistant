@@ -340,6 +340,7 @@ PANEL_HTML = """<!doctype html>
       </div>
       <div class=\"chat-head-right\">
         <span class=\"muted\" style=\"font-size:12px\">Tokens: <span id=\"chatTokenUsage\">—</span></span>
+        <span id=\"chatPollDebug\" class=\"muted\" style=\"font-size:12px;display:none\"></span>
       </div>
     </div>
     <div class=\"chat-load-top\" id=\"chatLoadTop\">
@@ -373,6 +374,9 @@ PANEL_HTML = """<!doctype html>
   let chatPollTimer = null;
   let chatLastSeenIds = new Set();
   let chatPollBoostUntil = 0;
+  let chatLastPollTs = null;
+  let chatLastPollAppended = 0;
+  let chatLastPollError = null;
   const DEBUG_UI = (() => {
     try{
       const qs1 = new URLSearchParams(window.location.search || '');
@@ -678,11 +682,23 @@ PANEL_HTML = """<!doctype html>
       clearTimeout(chatPollTimer);
       chatPollTimer = null;
     }
+    updateChatPollDebug();
+  }
+
+  function updateChatPollDebug(){
+    const el = qs('#chatPollDebug');
+    if (!el) return;
+    if (!DEBUG_UI) { el.style.display = 'none'; return; }
+    const last = chatLastPollTs ? new Date(chatLastPollTs).toLocaleTimeString() : '—';
+    const err = chatLastPollError ? (' err:' + chatLastPollError) : '';
+    el.textContent = `Polling: ${chatPollingActive ? 'on' : 'off'} · last: ${last} · +${chatLastPollAppended || 0}${err}`;
+    el.style.display = 'inline';
   }
 
   function startChatPolling(){
     if (chatPollingActive) return;
     chatPollingActive = true;
+    updateChatPollDebug();
     scheduleChatPoll(1000);
   }
 
@@ -699,6 +715,10 @@ PANEL_HTML = """<!doctype html>
   async function pollSessionsHistory(){
     if (!chatPollingActive) return;
     if (!chatSessionKey) {
+      chatLastPollTs = Date.now();
+      chatLastPollAppended = 0;
+      chatLastPollError = null;
+      updateChatPollDebug();
       scheduleChatPoll(5000);
       return;
     }
@@ -730,8 +750,16 @@ PANEL_HTML = """<!doctype html>
       }
       chatLastSeenIds = seen;
     } catch(e){
+      chatLastPollError = String(e && (e.message || e)).slice(0, 60);
+      if (DEBUG_UI) console.debug('[clawdbot chat] poll error', e);
       // keep polling, best-effort only
     }
+
+    chatLastPollTs = Date.now();
+    chatLastPollAppended = appended.length;
+    if (appended.length) chatLastPollError = null;
+    updateChatPollDebug();
+    if (DEBUG_UI) console.debug('[clawdbot chat] poll ok', {session: currentSession, appended: appended.length});
 
     if (appended.length) {
       boostChatPolling();
@@ -1380,6 +1408,7 @@ PANEL_HTML = """<!doctype html>
         renderChat({ autoScroll: true });
         await refreshTokenUsage();
         startChatPolling();
+        updateChatPollDebug();
       } else {
         stopChatPolling();
       }
