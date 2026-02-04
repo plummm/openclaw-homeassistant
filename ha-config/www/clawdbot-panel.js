@@ -1273,14 +1273,13 @@ async function fetchStatesRest(hass){
   async function refreshEntities(){
     try{ if (DEBUG_UI) dbgStep('refresh-start');
     console.debug('[clawdbot] refreshEntities start'); }catch(e) {}
-    const { hass } = await getHass();
+    const { hass, conn } = await getHass();
     let states = (hass && hass.states) ? hass.states : {};
     let n = 0;
     try{ n = Object.keys(states||{}).length; }catch(e){}
     if (!n) {
       // Prefer websocket get_states when available (avoids REST 401 in iframe context)
       try{
-        const conn = (hass && hass.connection) ? hass.connection : null;
         if (DEBUG_UI) console.debug('[clawdbot] hass.states empty; trying WS get_states');
         states = await fetchStatesWs(conn);
       } catch(e) {
@@ -1293,9 +1292,16 @@ async function fetchStatesRest(hass){
         }
       }
     }
+
+    // Hydrate iframe hass snapshot so Cockpit/mapping reads the same state object.
+    try{ if (hass) hass.states = states; } catch(e) {}
+
     _allIds = Object.keys(states).sort();
     buildMappingDatalist(hass);
     renderEntities(hass, qs('#filter').value);
+    try{ renderSuggestions(hass); } catch(e){}
+    try{ renderMappedValues(hass); } catch(e){}
+    try{ renderRecommendations(hass); } catch(e){}
 
   function buildMappingDatalist(hass){
     const dl = document.getElementById('entityIdList');
