@@ -336,6 +336,14 @@ PANEL_HTML = """<!doctype html>
   let chatHasOlder = false;
   let chatLoadingOlder = false;
   let chatSessionKey = null;
+  const DEBUG_UI = (() => {
+    try{
+      const qs = new URLSearchParams(window.location.search || '');
+      return qs.get('debug') === '1';
+    } catch(e){
+      return false;
+    }
+  })();
 
   function escapeHtml(txt){
     return String(txt)
@@ -441,6 +449,9 @@ PANEL_HTML = """<!doctype html>
     }));
     chatHasOlder = !!cfg.chat_history_has_older;
     chatSessionKey = cfg.session_key || cfg.target || null;
+
+    // Dev/test toggle: enable `?debug=1` to force showing paging control for UI QA.
+    if (DEBUG_UI && (chatItems && chatItems.length >= 1)) chatHasOlder = true;
 
   }
 
