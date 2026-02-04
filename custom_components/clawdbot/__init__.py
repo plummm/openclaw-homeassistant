@@ -66,6 +66,9 @@ SERVICE_CHAT_FETCH = "chat_fetch"
 SERVICE_CHAT_POLL = "chat_poll"
 SERVICE_CHAT_SEND = "chat_send"
 SERVICE_CHAT_HISTORY_DELTA = "chat_history_delta"
+SERVICE_SESSIONS_LIST = "sessions_list"
+SERVICE_SESSIONS_SPAWN = "sessions_spawn"
+SERVICE_SESSION_STATUS_GET = "session_status_get"
 
 
 async def _gw_post(session: aiohttp.ClientSession, url: str, token: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -370,6 +373,15 @@ PANEL_HTML = """<!doctype html>
     el.style.display = hidden ? 'none' : '';
   }
 
+  // Chat constants (single source of truth)
+  const CHAT_POLL_INTERVAL_MS = 5000;
+  const CHAT_POLL_FAST_MS = 2000;
+  const CHAT_POLL_INITIAL_MS = 1000;
+  const CHAT_POLL_BOOST_WINDOW_MS = 30000;
+  const CHAT_DELTA_LIMIT = 200;
+  const CHAT_HISTORY_PAGE_LIMIT = 50;
+  const CHAT_UI_MAX_ITEMS = 200;
+
   let chatItems = [];
   let chatHasOlder = false;
   let chatLoadingOlder = false;
@@ -536,48 +548,6 @@ PANEL_HTML = """<!doctype html>
     chatLastSeenIds = new Set(ids);
   }
 
-  async function hassFetch(path, opts){
-    const parent = window.parent;
-
-    // Preferred: HA frontend auth helpers (when available)
-    try{
-      if (parent && parent.hass && typeof parent.hass.fetchWithAuth === 'function') {
-        return parent.hass.fetchWithAuth(path, opts || {});
-      }
-      if (parent && parent.hass && parent.hass.connection && typeof parent.hass.connection.fetchWithAuth === 'function') {
-        return parent.hass.connection.fetchWithAuth(path, opts || {});
-      }
-      if (parent && parent.hass && typeof parent.hass.callApi === 'function') {
-        const apiPath = String(path || '').replace(/^\\/api\\//, '');
-        return parent.hass.callApi('GET', apiPath);
-      }
-    } catch(e){}
-
-    // Next-best: bearer token if accessible (HA stores auth in parent.hass.auth)
-    try{
-      const token = parent && parent.hass && parent.hass.auth && parent.hass.auth.accessToken;
-      if (token) {
-        const o = Object.assign({}, (opts || {}));
-        o.headers = Object.assign({}, (o.headers || {}), { 'Authorization': `Bearer ${token}` });
-        const resp = await fetch(path, o);
-        if (!resp.ok) {
-          const txt = await resp.text().catch(()=> '');
-          throw new Error(`HTTP ${resp.status} ${path} ${txt.slice(0,120)}`);
-        }
-        return resp;
-      }
-    } catch(e){}
-
-    // Fallback: same-origin cookies (may 401 in HA depending on auth mode)
-    const o = Object.assign({ credentials: 'same-origin' }, (opts || {}));
-    const resp = await fetch(path, o);
-    if (!resp.ok) {
-      const txt = await resp.text().catch(()=> '');
-      throw new Error(`HTTP ${resp.status} ${path} ${txt.slice(0,120)}`);
-    }
-    return resp;
-  }
-
   async function callServiceResponse(domain, service, data){
     const { conn } = await getHass();
     const payload = data || {};
@@ -593,16 +563,7 @@ PANEL_HTML = """<!doctype html>
     });
   }
 
-  async function fetchSessionsHistory(limit){
-    const params = new URLSearchParams();
-    if (chatSessionKey) params.set('session_key', chatSessionKey);
-    params.set('limit', String(limit || 20));
-    const apiPath = 'clawdbot/sessions_history?' + params.toString();
 
-    // No iframe /api fallback: enforce parent.hass.callApi (auth-safe)
-    const data = await hassApiGet(apiPath);
-    return (data && Array.isArray(data.items)) ? data.items : [];
-  }
 
   function setTyping(on){
     const el = qs('#chatTyping');
@@ -625,8 +586,8 @@ PANEL_HTML = """<!doctype html>
   async function refreshTokenUsage(){
     try{
       if (!chatSessionKey) { setTokenUsage('—'); return; }
-      const resp = await hassFetch('/api/clawdbot/session_status?session_key=' + encodeURIComponent(chatSessionKey));
-      const data = resp && resp.json ? await resp.json() : resp;
+      const resp = await callServiceResponse('clawdbot','session_status_get', { session_key: chatSessionKey });
+      const data = (resp && resp.response) ? resp.response : resp;
       const r = data && data.result ? data.result : data;
       const usage = (r && (r.usage || r.Usage || r.data && r.data.usage)) || null;
       const total = usage && (usage.totalTokens || usage.total_tokens || usage.tokens || usage.total) ;
@@ -659,15 +620,8 @@ PANEL_HTML = """<!doctype html>
     try{
       const apiPath = 'clawdbot/sessions?limit=50';
       // Use parent callApi when available, otherwise fall back to authenticated fetch
-      let data;
-      try{
-        const p = window.parent;
-        if (p && p.hass && typeof p.hass.callApi === 'function') data = await p.hass.callApi('GET', apiPath);
-      }catch(e){}
-      if (!data) {
-        const resp = await hassFetch('/api/' + apiPath);
-        data = resp && resp.json ? await resp.json() : resp;
-      }
+      const resp = await callServiceResponse('clawdbot','sessions_list', { limit: 50 });
+      const data = (resp && resp.response) ? resp.response : resp;
 
       const r = data && data.result ? data.result : data;
       const sessions = (r && (r.sessions || r.items || r.result || r)) || [];
@@ -716,7 +670,7 @@ PANEL_HTML = """<!doctype html>
       const apiPath = 'clawdbot/chat_history?' + params.toString();
 
       // Use service response to avoid iframe auth/context issues.
-      const resp = await callServiceResponse('clawdbot','chat_history_delta', { session_key: chatSessionKey, limit: 50 });
+      const resp = await callServiceResponse('clawdbot','chat_history_delta', { session_key: chatSessionKey, limit: CHAT_HISTORY_PAGE_LIMIT });
       const data = (resp && resp.response) ? resp.response : resp;
       chatItems = (data && Array.isArray(data.items)) ? data.items : [];
       chatHasOlder = !!(data && data.has_older);
@@ -746,9 +700,9 @@ PANEL_HTML = """<!doctype html>
       params.set('limit', '50');
       params.set('before_id', beforeId);
       if (chatSessionKey) params.set('session_key', chatSessionKey);
-      // Older paging still uses HTTP (rare) - best effort
-      const resp = await hassFetch('/api/clawdbot/chat_history?' + params.toString());
-      const data = resp && resp.json ? await resp.json() : resp;
+      // Older paging via service response (no /api auth boundary)
+      const resp = await callServiceResponse('clawdbot','chat_history_delta', { session_key: chatSessionKey, before_id: beforeId, limit: CHAT_HISTORY_PAGE_LIMIT });
+      const data = (resp && resp.response) ? resp.response : resp;
       const items = (data && Array.isArray(data.items)) ? data.items : [];
       const existing = new Set((chatItems || []).map((it)=>it && it.id).filter(Boolean));
       const prepend = [];
@@ -799,11 +753,11 @@ PANEL_HTML = """<!doctype html>
     if (chatPollingActive) return;
     chatPollingActive = true;
     updateChatPollDebug();
-    scheduleChatPoll(1000);
+    scheduleChatPoll(CHAT_POLL_INITIAL_MS);
   }
 
   function boostChatPolling(){
-    chatPollBoostUntil = Date.now() + 30000;
+    chatPollBoostUntil = Date.now() + CHAT_POLL_BOOST_WINDOW_MS;
   }
 
   function scheduleChatPoll(delayMs){
@@ -819,20 +773,20 @@ PANEL_HTML = """<!doctype html>
       chatLastPollAppended = 0;
       chatLastPollError = null;
       updateChatPollDebug();
-      scheduleChatPoll(5000);
+      scheduleChatPoll(CHAT_POLL_INTERVAL_MS);
       return;
     }
 
     const currentSession = chatSessionKey;
     try{
       const seenBefore = chatLastSeenIds ? new Set(Array.from(chatLastSeenIds)) : new Set();
-      await callService('clawdbot','chat_poll',{ session_key: currentSession, limit: 50 });
+      await callService('clawdbot','chat_poll',{ session_key: currentSession, limit: CHAT_HISTORY_PAGE_LIMIT });
       chatLastPollTs = Date.now();
       chatLastPollError = null;
 
       // Incremental refresh: fetch only items newer than current max ts (avoids capped moving-window)
       const afterTs = maxChatTs();
-      const resp = await callServiceResponse('clawdbot','chat_history_delta', { session_key: currentSession, after_ts: afterTs || null, limit: 200 });
+      const resp = await callServiceResponse('clawdbot','chat_history_delta', { session_key: currentSession, after_ts: afterTs || null, limit: CHAT_DELTA_LIMIT });
       const data = (resp && resp.response) ? resp.response : resp;
       const newer = (data && Array.isArray(data.items)) ? data.items : [];
 
@@ -884,7 +838,7 @@ PANEL_HTML = """<!doctype html>
     updateChatPollDebug();
 
     if (chatLastPollAppended) boostChatPolling();
-    const delay = (Date.now() < chatPollBoostUntil) ? 2000 : 5000;
+    const delay = (Date.now() < chatPollBoostUntil) ? CHAT_POLL_FAST_MS : CHAT_POLL_INTERVAL_MS;
     scheduleChatPoll(delay);
   }
 
@@ -1635,19 +1589,15 @@ PANEL_HTML = """<!doctype html>
       await loadChatLatest();
       renderChat({ autoScroll: true });
       await refreshTokenUsage();
-      if (chatPollingActive) scheduleChatPoll(1000);
+      if (chatPollingActive) scheduleChatPoll(CHAT_POLL_INITIAL_MS);
     };
 
     const newSessionBtn = qs('#chatNewSessionBtn');
     if (newSessionBtn) newSessionBtn.onclick = async () => {
       const label = prompt('New session label (optional):', '');
       try{
-        const resp = await hassFetch('/api/clawdbot/sessions_spawn', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ label: label || undefined }),
-        });
-        const data = resp && resp.json ? await resp.json() : resp;
+        const resp = await callServiceResponse('clawdbot','sessions_spawn', { label: label || undefined });
+        const data = (resp && resp.response) ? resp.response : resp;
         const r = data && data.result ? data.result : data;
         const key = r && (r.sessionKey || r.session_key || r.key);
         await refreshSessions();
@@ -1657,7 +1607,7 @@ PANEL_HTML = """<!doctype html>
           await loadChatLatest();
           renderChat({ autoScroll: true });
           await refreshTokenUsage();
-          if (chatPollingActive) scheduleChatPoll(1000);
+          if (chatPollingActive) scheduleChatPoll(CHAT_POLL_INITIAL_MS);
         }
       } catch(e){
         console.warn('sessions_spawn failed', e);
@@ -1683,7 +1633,7 @@ PANEL_HTML = """<!doctype html>
       input.value = '';
       renderChat({ autoScroll: true });
       boostChatPolling();
-      if (chatPollingActive) scheduleChatPoll(1000);
+      if (chatPollingActive) scheduleChatPoll(CHAT_POLL_INITIAL_MS);
 
       // deterministic in-flight indicator while the gateway call is pending
       setTyping(true);
@@ -2786,6 +2736,38 @@ async def async_setup(hass, config):
         except Exception:
             pass
 
+    async def handle_sessions_list(call):
+        if not token:
+            raise RuntimeError("clawdbot.token is required to use services")
+        limit = 50
+        try:
+            limit = int(call.data.get("limit", 50))
+        except Exception:
+            limit = 50
+        if limit < 1:
+            limit = 1
+        if limit > 200:
+            limit = 200
+        payload = {"tool": "sessions_list", "args": {"limit": limit, "messageLimit": 1}}
+        res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
+        return {"result": res}
+
+    async def handle_sessions_spawn(call):
+        if not token:
+            raise RuntimeError("clawdbot.token is required to use services")
+        label = call.data.get("label")
+        payload = {"tool": "sessions_spawn", "args": {"task": "(new chat session)", "label": label or None, "cleanup": "keep"}}
+        res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
+        return {"result": res}
+
+    async def handle_session_status_get(call):
+        if not token:
+            raise RuntimeError("clawdbot.token is required to use services")
+        session_key = call.data.get("session_key") or cfg.get("target") or DEFAULT_SESSION_KEY
+        payload = {"tool": "session_status", "args": {"sessionKey": session_key}}
+        res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
+        return {"result": res}
+
     async def handle_chat_poll(call):
         """Poll gateway sessions_history and append new agent messages into the HA chat store.
 
@@ -2966,16 +2948,17 @@ async def async_setup(hass, config):
             # Keep cfg mirror warm even when no append occurs.
             cfg["chat_history"] = current[-500:]
 
-        _LOGGER.info(
-            "chat_poll: fetched=%s roles=%s candidates=%s appended=%s store_len=%s->%s session=%s",
-            len(messages),
-            seen_roles,
-            len(candidates),
-            appended,
-            store_len_before,
-            len(current),
-            session_key_local,
-        )
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug(
+                "chat_poll: fetched=%s roles=%s candidates=%s appended=%s store_len=%s->%s session=%s",
+                len(messages),
+                seen_roles,
+                len(candidates),
+                appended,
+                store_len_before,
+                len(current),
+                session_key_local,
+            )
 
         # Fire-and-forget service; caller can diff chat_history to infer changes.
         return
@@ -2984,6 +2967,9 @@ async def async_setup(hass, config):
         """Return chat history items (optionally since after_ts) from the HA Store.
 
         This is used by the iframe panel to avoid relying on parent.hass.callApi.
+        Supports:
+        - after_ts / since_ts: return items strictly newer than timestamp
+        - before_id: return older items before a given id
         """
         hass = call.hass
         cfg = hass.data.get(DOMAIN, {})
@@ -3003,6 +2989,7 @@ async def async_setup(hass, config):
 
         session_key = call.data.get("session_key") or cfg.get("target") or DEFAULT_SESSION_KEY
         after_ts = call.data.get("after_ts") or call.data.get("since_ts")
+        before_id = call.data.get("before_id")
 
         items = await store.async_load() or []
         if not isinstance(items, list):
@@ -3017,6 +3004,17 @@ async def async_setup(hass, config):
             newer = [it for it in items if str(it.get("ts") or "") > str(after_ts)]
             page = newer[:limit]
             return {"items": page, "has_older": False}
+
+        if before_id:
+            idx = None
+            for i, it in enumerate(items):
+                if it.get("id") == before_id:
+                    idx = i
+                    break
+            older = items[:idx] if idx is not None else items
+            page = older[-limit:] if len(older) > limit else older
+            has_older = len(older) > len(page)
+            return {"items": page, "has_older": has_older}
 
         # default: last N
         page = items[-limit:] if len(items) > limit else items
@@ -3206,6 +3204,9 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, SERVICE_CHAT_FETCH, handle_chat_fetch)
     hass.services.async_register(DOMAIN, SERVICE_CHAT_SEND, handle_chat_send)
     hass.services.async_register(DOMAIN, SERVICE_CHAT_HISTORY_DELTA, handle_chat_history_delta, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, SERVICE_SESSIONS_LIST, handle_sessions_list, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, SERVICE_SESSIONS_SPAWN, handle_sessions_spawn, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, SERVICE_SESSION_STATUS_GET, handle_session_status_get, supports_response=SupportsResponse.ONLY)
     _LOGGER.info("Registering service: %s.%s", DOMAIN, SERVICE_CHAT_POLL)
     # Fire-and-forget: panel calls this service; backend updates Store. No service response needed.
     hass.services.async_register(DOMAIN, SERVICE_CHAT_POLL, handle_chat_poll)
