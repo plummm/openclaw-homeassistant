@@ -320,7 +320,12 @@ PANEL_HTML = """<!doctype html>
 <script>
 (function(){
   function qs(sel){ return document.querySelector(sel); }
-  function setHidden(el, hidden){ el.classList.toggle('hidden', !!hidden); }
+  function setHidden(el, hidden){
+    if (!el) return;
+    // Use explicit display toggling to avoid any class/CSS interference.
+    el.classList.toggle('hidden', !!hidden);
+    el.style.display = hidden ? 'none' : '';
+  }
 
   let chatItems = [];
 
@@ -998,18 +1003,22 @@ PANEL_HTML = """<!doctype html>
     renderSuggestions(null);
 
     async function switchTab(which){
-      const setup = qs('#tabSetup');
-      const cockpit = qs('#tabCockpit');
-      const chat = qs('#tabChat');
-      if (!setup || !cockpit || !chat) return;
+      const setupTab = qs('#tabSetup');
+      const cockpitTab = qs('#tabCockpit');
+      const chatTab = qs('#tabChat');
+      const viewSetup = qs('#viewSetup');
+      const viewCockpit = qs('#viewCockpit');
+      const viewChat = qs('#viewChat');
+      if (!setupTab || !cockpitTab || !chatTab || !viewSetup || !viewCockpit || !viewChat) return;
 
-      setup.classList.toggle('active', which === 'setup');
-      cockpit.classList.toggle('active', which === 'cockpit');
-      chat.classList.toggle('active', which === 'chat');
+      setupTab.classList.toggle('active', which === 'setup');
+      cockpitTab.classList.toggle('active', which === 'cockpit');
+      chatTab.classList.toggle('active', which === 'chat');
 
-      setHidden(qs('#viewSetup'), which !== 'setup');
-      setHidden(qs('#viewCockpit'), which !== 'cockpit');
-      setHidden(qs('#viewChat'), which !== 'chat');
+      // Hard display toggles (production UI must isolate views)
+      setHidden(viewSetup, which !== 'setup');
+      setHidden(viewCockpit, which !== 'cockpit');
+      setHidden(viewChat, which !== 'chat');
 
       if (which === 'cockpit') {
         try{ const { hass } = await getHass(); await refreshEntities(); renderMappedValues(hass); renderHouseMemory(); renderRecommendations(hass); } catch(e){}
@@ -1046,6 +1055,9 @@ PANEL_HTML = """<!doctype html>
         if (id === 'tabChat') switchTab('chat');
       }, true);
     } catch(e){}
+
+    // Normalize initial state (ensures non-active views are truly hidden).
+    switchTab('cockpit');
 
     qs('#refreshBtn').onclick = refreshEntities;
     qs('#clearFilter').onclick = () => { qs('#filter').value=''; getHass().then(({hass})=>renderEntities(hass,'')); };
