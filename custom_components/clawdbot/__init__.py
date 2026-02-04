@@ -149,7 +149,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.19"
+PANEL_BUILD_ID = "89337ab.20"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -4311,7 +4311,8 @@ async def async_setup(hass, config):
             buckets = AGENT0_MAX_BUCKETS
             period_hours = (buckets * bucket_minutes) / 60.0
 
-        # Fetch history from recorder
+        # Fetch history using recorder *statistics* helpers (async-safe). We avoid
+        # recorder.history.get_significant_states because it can trigger async-blocking warnings.
         from datetime import timedelta
         from homeassistant.util import dt as dt_util
 
@@ -4319,26 +4320,29 @@ async def async_setup(hass, config):
         start = end - timedelta(hours=period_hours)
 
         try:
-            from homeassistant.components.recorder import history
+            from homeassistant.components.recorder import statistics as recorder_statistics
+            from homeassistant.components.recorder import get_instance
         except Exception as e:
-            raise HomeAssistantError(f"Recorder history not available: {e}")
+            raise HomeAssistantError(f"Recorder statistics not available: {e}")
 
-        # Recorder history helpers may hit the DB; ensure we don't block the event loop.
-        from homeassistant.components.recorder import get_instance
         rec = get_instance(hass)
 
-        def _load_hist_sync():
+        stat_types = {"mean", "min", "max", "last"}
+        if stat not in stat_types:
+            stat = "mean"
+
+        def _load_stats_sync():
             # Runs in executor thread.
-            return history.get_significant_states(
+            return recorder_statistics.statistics_during_period(
                 hass,
                 start,
                 end,
                 entity_ids,
-                minimal_response=True,
-                include_start_time_state=True,
+                period=timedelta(minutes=bucket_minutes),
+                types={stat},
             )
 
-        hist = await rec.async_add_executor_job(_load_hist_sync)
+        stats = await rec.async_add_executor_job(_load_stats_sync)
 
         def _num(x):
             try:
@@ -4360,45 +4364,18 @@ async def async_setup(hass, config):
             "series": {},
         }
 
-        # Prebuild bucket edges
-        edges = [start + timedelta(minutes=bucket_minutes * i) for i in range(buckets + 1)]
-        # Emit one point per bucket (timestamp at bucket end)
+        # statistics_during_period returns a dict keyed by entity_id/statistic_id.
+        # Each entry is a list of dicts with timestamps and the requested statistic.
+        # We normalize to: [{t, v}] with t at period start.
         for eid in entity_ids:
-            states = hist.get(eid) or []
-            # states are recorder States; use last_updated/last_changed and state
+            rows = (stats or {}).get(eid) or []
             points = []
-            j = 0
-            n = len(states)
-            for bi in range(buckets):
-                b0 = edges[bi]
-                b1 = edges[bi + 1]
-                vals = []
-                while j < n:
-                    st = states[j]
-                    t = getattr(st, "last_updated", None) or getattr(st, "last_changed", None)
-                    if t is None:
-                        j += 1
-                        continue
-                    if t < b0:
-                        j += 1
-                        continue
-                    if t >= b1:
-                        break
-                    v = _num(getattr(st, "state", None))
-                    if v is not None:
-                        vals.append(v)
-                    j += 1
-                vout = None
-                if vals:
-                    if stat == "min":
-                        vout = min(vals)
-                    elif stat == "max":
-                        vout = max(vals)
-                    elif stat == "last":
-                        vout = vals[-1]
-                    else:
-                        vout = sum(vals) / float(len(vals))
-                points.append({"t": b1.isoformat(), "v": vout})
+            for r in rows:
+                if not isinstance(r, dict):
+                    continue
+                t = r.get("start") or r.get("time") or r.get("end")
+                v = r.get(stat)
+                points.append({"t": str(t) if t is not None else None, "v": v})
             out["series"][eid] = points
 
         return out
