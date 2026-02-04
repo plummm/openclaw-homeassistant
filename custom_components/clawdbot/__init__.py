@@ -164,7 +164,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.53"
+PANEL_BUILD_ID = "89337ab.54"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -5307,6 +5307,13 @@ async def async_setup(hass, config):
                         raw = raw.get("result")
                     else:
                         break
+
+                # Match chat_poll parsing: some gateways return {details:{messages:[...]}} wrapper
+                if isinstance(raw, dict) and isinstance(raw.get("details"), dict):
+                    details = raw.get("details")
+                    if isinstance(details.get("messages"), list):
+                        raw = details
+
                 if isinstance(raw, dict):
                     poll_debug["raw_top_keys"] = sorted(list(raw.keys()))[:30]
                     # capture details + content len
