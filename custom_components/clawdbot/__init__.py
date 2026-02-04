@@ -512,18 +512,29 @@ PANEL_HTML = """<!doctype html>
 
   async function hassFetch(path, opts){
     const parent = window.parent;
-    if (!parent) throw new Error('No parent window');
-    if (parent.hass && typeof parent.hass.fetchWithAuth === 'function') {
-      return parent.hass.fetchWithAuth(path, opts || {});
+
+    // Preferred: HA frontend auth helpers (works when embedded at /clawdbot)
+    try{
+      if (parent && parent.hass && typeof parent.hass.fetchWithAuth === 'function') {
+        return parent.hass.fetchWithAuth(path, opts || {});
+      }
+      if (parent && parent.hass && parent.hass.connection && typeof parent.hass.connection.fetchWithAuth === 'function') {
+        return parent.hass.connection.fetchWithAuth(path, opts || {});
+      }
+      if (parent && parent.hass && typeof parent.hass.callApi === 'function') {
+        const apiPath = String(path || '').replace(/^\\/api\\//, '');
+        return parent.hass.callApi('GET', apiPath);
+      }
+    } catch(e){}
+
+    // Fallback: same-origin fetch (works on /clawdbot-panel with HA session cookies)
+    const o = Object.assign({ credentials: 'same-origin' }, (opts || {}));
+    const resp = await fetch(path, o);
+    if (!resp.ok) {
+      const txt = await resp.text().catch(()=> '');
+      throw new Error(`HTTP ${resp.status} ${path} ${txt.slice(0,120)}`);
     }
-    if (parent.hass && parent.hass.connection && typeof parent.hass.connection.fetchWithAuth === 'function') {
-      return parent.hass.connection.fetchWithAuth(path, opts || {});
-    }
-    if (parent.hass && typeof parent.hass.callApi === 'function') {
-      const apiPath = String(path || '').replace(/^\\/api\\//, '');
-      return parent.hass.callApi('GET', apiPath);
-    }
-    throw new Error('Unable to fetch with Home Assistant auth');
+    return resp;
   }
 
   async function fetchSessionsHistory(limit){
@@ -750,7 +761,7 @@ PANEL_HTML = """<!doctype html>
       }
       chatLastSeenIds = seen;
     } catch(e){
-      chatLastPollError = String(e && (e.message || e)).slice(0, 60);
+      chatLastPollError = String(e && (e.message || e)).slice(0, 120);
       if (DEBUG_UI) console.debug('[clawdbot chat] poll error', e);
       // keep polling, best-effort only
     }
