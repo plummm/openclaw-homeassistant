@@ -139,7 +139,7 @@
       for (let i = 0; i < parts.length; i++){
         const seg = escapeHtml(parts[i]);
         if (i % 2 === 0){
-          html += seg.replaceAll('\\n', '<br/>');
+          html += seg.replaceAll('\n', '<br/>');
         } else {
           html += `<pre><code>${seg}</code></pre>`;
         }
@@ -1231,9 +1231,18 @@
 
   async function fetchStatesRest(){
     // Fallback when hass.states is empty/unavailable in iframe context.
-    const r = await fetch('/api/states', { credentials: 'include' });
-    if (!r.ok) throw new Error('REST /api/states failed: ' + r.status);
+    const r = await fetch('/api/states', {
+      credentials: 'include',
+      headers: { 'Accept': 'application/json' },
+    });
+    let len = null;
+    if (!r.ok) {
+      try{ if (DEBUG_UI) console.debug('[clawdbot] /api/states status', r.status); }catch(e){}
+      throw new Error('REST /api/states failed: ' + r.status);
+    }
     const arr = await r.json();
+    if (Array.isArray(arr)) len = arr.length;
+    try{ if (DEBUG_UI) console.debug('[clawdbot] /api/states ok len', len); }catch(e){}
     const out = {};
     if (Array.isArray(arr)) {
       for (const it of arr) {
@@ -1252,7 +1261,12 @@
     try{ n = Object.keys(states||{}).length; }catch(e){}
     if (!n) {
       try{ if (DEBUG_UI) console.debug('[clawdbot] hass.states empty; using REST /api/states fallback'); }catch(e){}
-      states = await fetchStatesRest();
+      try{
+        states = await fetchStatesRest();
+      } catch(e){
+        setStatus(false,'error', String(e));
+        throw e;
+      }
     }
     _allIds = Object.keys(states).sort();
     buildMappingDatalist(hass);
