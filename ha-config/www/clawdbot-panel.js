@@ -1,0 +1,1494 @@
+// Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
+(function(){
+  try{
+    const el = document.getElementById('clawdbot-config');
+    const txt = el ? (el.textContent || el.innerText || '{}') : '{}';
+    window.__CLAWDBOT_CONFIG__ = JSON.parse(txt || '{}');
+  } catch(e){ window.__CLAWDBOT_CONFIG__ = {}; }
+
+    // Theme binding: copy HA CSS variables from parent document into this iframe.
+    // CSS custom properties do not inherit across iframe boundaries.
+    (function syncThemeVars(){
+      try{
+        const p = window.parent && window.parent.document;
+        if (!p) return;
+        const src = window.parent.getComputedStyle(p.documentElement);
+        const dstEl = document.documentElement;
+        const keys = [
+          '--primary-background-color','--secondary-background-color','--card-background-color','--ha-card-background',
+          '--primary-text-color','--secondary-text-color','--divider-color','--primary-color','--mdc-theme-primary',
+          '--ha-card-border-radius','--ha-card-box-shadow','--success-color','--error-color'
+        ];
+        for (const k of keys){
+          const v = src.getPropertyValue(k);
+          if (v && v.trim()) dstEl.style.setProperty(k, v.trim());
+        }
+      } catch(e) {}
+    })();
+
+(function(){
+  function qs(sel){ return document.querySelector(sel); }
+  function setHidden(el, hidden){
+    if (!el) return;
+    // Use explicit display toggling to avoid any class/CSS interference.
+    el.classList.toggle('hidden', !!hidden);
+    el.style.display = hidden ? 'none' : '';
+  }
+
+  // Chat constants (single source of truth)
+  const CHAT_POLL_INTERVAL_MS = 5000;
+  const CHAT_POLL_FAST_MS = 2000;
+  const CHAT_POLL_INITIAL_MS = 1000;
+  const CHAT_POLL_BOOST_WINDOW_MS = 30000;
+  const CHAT_DELTA_LIMIT = 200;
+  const CHAT_HISTORY_PAGE_LIMIT = 50;
+  const CHAT_UI_MAX_ITEMS = 200;
+
+  let chatItems = [];
+  let chatHasOlder = false;
+  let chatLoadingOlder = false;
+  let chatSessionKey = null;
+  let chatPollingActive = false;
+  let chatPollTimer = null;
+  let chatLastSeenIds = new Set();
+  let chatPollBoostUntil = 0;
+  let chatLastPollTs = null;
+  let chatLastPollAppended = 0;
+  let chatLastPollError = null;
+  const BUILD_ID = 'cda126c+debugstamp';
+  const DEBUG_UI = (() => {
+    try{
+      const qs1 = new URLSearchParams(window.location.search || '');
+      if (qs1.get('debug') === '1') return true;
+      // If the panel is embedded at /clawdbot (iframe), the debug flag may be on the parent URL.
+      const parentSearch = (window.parent && window.parent.location) ? (window.parent.location.search || '') : '';
+      const qs2 = new URLSearchParams(parentSearch);
+      return qs2.get('debug') === '1';
+    } catch(e){
+      return false;
+    }
+  })();
+
+
+  let __dbgStep = 'boot';
+  function dbgStep(step, extra){
+    __dbgStep = step;
+    if (!DEBUG_UI) return;
+    try{ console.debug('[clawdbot] step', step, extra||''); }catch(e){}
+    try{
+      const el = qs('#debugStamp');
+      if (!el) return;
+      el.style.display = 'block';
+      el.textContent = `build:${BUILD_ID} step:${step}` + (extra ? ` (${extra})` : '');
+    } catch(e){}
+  }
+  function escapeHtml(txt){
+    return String(txt)
+      .replaceAll('&','&amp;')
+      .replaceAll('<','&lt;')
+      .replaceAll('>','&gt;');
+  }
+
+  function isAtBottom(list){
+    if (!list) return true;
+    const gap = list.scrollHeight - list.scrollTop - list.clientHeight;
+    return gap < 6;
+  }
+
+  function updateLoadOlderTop(){
+    const wrap = qs('#chatLoadTop');
+    const btn = qs('#chatLoadOlderBtn');
+    if (!wrap || !btn) return;
+    const show = !!(chatHasOlder || chatLoadingOlder);
+    wrap.style.display = show ? 'flex' : 'none';
+    btn.textContent = chatLoadingOlder ? 'Loading…' : 'Load older';
+    btn.disabled = !!chatLoadingOlder;
+  }
+
+  function renderChat(opts){
+    const list = qs('#chatList');
+    if (!list) return;
+    const preserveScroll = !!(opts && opts.preserveScroll);
+    const shouldAutoScroll = !!(opts && opts.autoScroll);
+    const wasAtBottom = isAtBottom(list);
+    const prevScrollHeight = list.scrollHeight;
+    const prevScrollTop = list.scrollTop;
+    list.innerHTML = '';
+
+    const stack = document.createElement('div');
+    stack.className = 'chat-stack';
+    list.appendChild(stack);
+
+    if (!chatItems || !chatItems.length) {
+      const empty = document.createElement('div');
+      empty.className = 'muted';
+      empty.style.textAlign = 'center';
+      empty.style.marginTop = '18px';
+      empty.textContent = 'No messages yet. Say hi.';
+      stack.appendChild(empty);
+      return;
+    }
+
+    for (const msg of chatItems){
+      const row = document.createElement('div');
+      row.className = `chat-row ${msg.role === 'user' ? 'user' : 'agent'}`;
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-bubble';
+      const parts = String(msg.text || '').split('```');
+      let html = '';
+      for (let i = 0; i < parts.length; i++){
+        const seg = escapeHtml(parts[i]);
+        if (i % 2 === 0){
+          html += seg.replaceAll('\\\\n', '<br/>');
+        } else {
+          html += `<pre><code>${seg}</code></pre>`;
+        }
+      }
+      bubble.innerHTML = html;
+      const meta = document.createElement('div');
+      meta.className = 'chat-meta';
+      meta.innerHTML = `<span>${msg.role === 'user' ? 'You' : 'Clawdbot'}</span><span>${msg.ts || ''}</span>`;
+      bubble.appendChild(meta);
+      row.appendChild(bubble);
+      stack.appendChild(row);
+    }
+    updateLoadOlderTop();
+
+    if (preserveScroll) {
+      const nextScrollHeight = list.scrollHeight;
+      list.scrollTop = nextScrollHeight - prevScrollHeight + prevScrollTop;
+    } else if (shouldAutoScroll || wasAtBottom) {
+      list.scrollTop = list.scrollHeight;
+    }
+  }
+
+  function renderConfigSummary(){
+    const cfg = (window.__CLAWDBOT_CONFIG__ || {});
+    const root = qs('#cfgSummary');
+    const items = [
+      ['gateway_url', cfg.gateway_url || '(missing)'],
+      ['token', cfg.has_token ? 'present' : 'missing'],
+      ['session_key', cfg.session_key || '(missing)'],
+    ];
+    root.innerHTML = '';
+    for (const [k,v] of items){
+      const d = document.createElement('div');
+      d.innerHTML = `<div class="muted">${k}</div><div><b>${String(v)}</b></div>`;
+      root.appendChild(d);
+    }
+  }
+  function fillConnectionInputs(){
+    const cfg = (window.__CLAWDBOT_CONFIG__ || {});
+    const set = (id, val) => { const el = qs('#'+id); if (el) el.value = (val == null ? '' : String(val)); };
+    set('connGatewayUrl', cfg.gateway_url || '');
+    set('connSessionKey', cfg.session_key || '');
+    // Token is never echoed back; leave blank.
+  }
+
+  async function saveConnectionOverrides(kind){
+    const resultEl = qs('#connResult');
+    if (resultEl) resultEl.textContent = (kind === 'reset') ? 'resetting…' : 'saving…';
+    try{
+      let resp;
+      if (kind === 'reset') {
+        resp = await callServiceResponse('clawdbot','reset_connection_overrides', {});
+      } else {
+        const gateway_url = (qs('#connGatewayUrl') ? qs('#connGatewayUrl').value : '').trim();
+        const session_key = (qs('#connSessionKey') ? qs('#connSessionKey').value : '').trim();
+        const token = (qs('#connToken') ? qs('#connToken').value : '').trim();
+        resp = await callServiceResponse('clawdbot','set_connection_overrides', { gateway_url, session_key, token });
+      }
+      const data = (resp && resp.response) ? resp.response : resp;
+      const r = data && data.result ? data.result : data;
+      if (r && r.gateway_url !== undefined) window.__CLAWDBOT_CONFIG__.gateway_url = r.gateway_url;
+      if (r && r.session_key) window.__CLAWDBOT_CONFIG__.session_key = r.session_key;
+      if (r && r.has_token !== undefined) window.__CLAWDBOT_CONFIG__.has_token = !!r.has_token;
+      fillConnectionInputs();
+      renderConfigSummary();
+      if (resultEl) resultEl.textContent = 'ok';
+    } catch(e){
+      if (resultEl) resultEl.textContent = 'error: ' + String(e);
+    }
+  }
+
+  }
+
+  function loadChatFromConfig(){
+    const cfg = (window.__CLAWDBOT_CONFIG__ || {});
+    const items = Array.isArray(cfg.chat_history) ? cfg.chat_history : [];
+    chatItems = items.map((it) => ({
+      id: it.id,
+      ts: it.ts,
+      role: it.role,
+      session_key: it.session_key,
+      text: it.text,
+    }));
+    chatHasOlder = !!cfg.chat_history_has_older;
+    chatSessionKey = cfg.session_key || null;
+
+    // Dev/test toggle: enable `?debug=1` to force showing paging control for UI QA.
+    if (DEBUG_UI && (chatItems && chatItems.length >= 1)) chatHasOlder = true;
+
+    syncChatSeenIds();
+  }
+
+  function simpleHash(str){
+    // Non-crypto, deterministic 32-bit hash for UI dedupe keys
+    let h = 5381;
+    const s = String(str || '');
+    for (let i = 0; i < s.length; i++) h = ((h << 5) + h) + s.charCodeAt(i);
+    return (h >>> 0).toString(16);
+  }
+
+  function chatItemKey(it){
+    if (!it) return '';
+    const id = it.id || it.message_id || it.messageId;
+    if (id) return String(id);
+    // Fallback: stable-ish key when backend doesn't provide ids
+    const role = it.role || '';
+    const ts = it.ts || '';
+    const text = it.text || '';
+    return 'h_' + simpleHash(`${role}|${ts}|${text}`);
+  }
+
+  function syncChatSeenIds(){
+    // Important: poll loop is the sole owner of advancing seen-set (for stable +N).
+    // Only initialize once (first load).
+    if (chatLastSeenIds && chatLastSeenIds.size > 0) return;
+    const ids = (chatItems || []).map((it)=>chatItemKey(it)).filter(Boolean);
+    chatLastSeenIds = new Set(ids);
+  }
+
+  async function callServiceResponse(domain, service, data){
+    const { conn } = await getHass();
+    const payload = data || {};
+    if (!conn || typeof conn.sendMessagePromise !== 'function') {
+      throw new Error('No HA websocket connection available for service response');
+    }
+    return conn.sendMessagePromise({
+      type: 'call_service',
+      domain,
+      service,
+      service_data: payload,
+      return_response: true,
+    });
+  }
+
+
+
+  function setTyping(on){
+    const el = qs('#chatTyping');
+    if (!el) return;
+    if (on) {
+      el.textContent = 'Clawdbot is typing…';
+      el.style.opacity = '1';
+    } else {
+      // Keep reserved space to avoid layout jump.
+      el.textContent = '';
+      el.style.opacity = '0.75';
+    }
+  }
+
+  function setTokenUsage(text){
+    const el = qs('#chatTokenUsage');
+    if (el) el.textContent = (text == null ? '—' : String(text));
+  }
+
+  async function refreshTokenUsage(){
+    try{
+      if (!chatSessionKey) { setTokenUsage('—'); return; }
+      const resp = await callServiceResponse('clawdbot','session_status_get', { session_key: chatSessionKey });
+      const data = (resp && resp.response) ? resp.response : resp;
+      const r = data && data.result ? data.result : data;
+      const usage = (r && (r.usage || r.Usage || r.data && r.data.usage)) || null;
+      const total = usage && (usage.totalTokens || usage.total_tokens || usage.tokens || usage.total) ;
+      if (total != null) setTokenUsage(total);
+      else setTokenUsage('—');
+    } catch(e){
+      setTokenUsage('—');
+    }
+  }
+
+  function ensureSessionSelectValue(){
+    const sel = qs('#chatSessionSelect');
+    if (!sel) return;
+    const current = chatSessionKey || sel.value || '';
+    const fallback = current || (window.__CLAWDBOT_CONFIG__ && (window.__CLAWDBOT_CONFIG__.session_key)) || 'main';
+    if (!sel.options || sel.options.length === 0) {
+      const o = document.createElement('option');
+      o.value = fallback;
+      o.textContent = fallback;
+      sel.appendChild(o);
+      sel.value = fallback;
+    }
+  }
+
+  async function refreshSessions(){
+    const sel = qs('#chatSessionSelect');
+    if (!sel) return;
+    // Always show *something* immediately so the control isn't an empty chevron.
+    ensureSessionSelectValue();
+    try{
+      const apiPath = 'clawdbot/sessions?limit=50';
+      // Use parent callApi when available, otherwise fall back to authenticated fetch
+      const resp = await callServiceResponse('clawdbot','sessions_list', { limit: 50 });
+      const data = (resp && resp.response) ? resp.response : resp;
+
+      const r = data && data.result ? data.result : data;
+      const sessions = (r && (r.sessions || r.items || r.result || r)) || [];
+      const arr = Array.isArray(sessions) ? sessions : (sessions.sessions || sessions.items || []);
+      // Preserve existing selection
+      const current = chatSessionKey || sel.value || '';
+      sel.innerHTML = '';
+      const mkOpt = (value, label) => {
+        const o = document.createElement('option');
+        o.value = value;
+        o.textContent = label;
+        return o;
+      };
+      const seen = new Set();
+      // Ensure there's always a visible value even if sessions_list parse fails.
+      const fallback = current || (window.__CLAWDBOT_CONFIG__ && (window.__CLAWDBOT_CONFIG__.session_key)) || 'main';
+      if (fallback) { sel.appendChild(mkOpt(fallback, fallback)); seen.add(fallback); }
+      for (const s of arr){
+        const key = s && (s.sessionKey || s.session_key || s.key || s.id);
+        if (!key || seen.has(key)) continue;
+        const label = s.label || s.name || '';
+        sel.appendChild(mkOpt(key, label ? (label + ' — ' + key) : key));
+        seen.add(key);
+      }
+      sel.value = current || fallback;
+    } catch(e){
+      // best-effort only
+      if (DEBUG_UI) console.debug('[clawdbot chat] refreshSessions failed', e);
+    }
+  }
+
+  function maxChatTs(){
+    let max = '';
+    for (const it of (chatItems || [])){
+      const ts = it && it.ts ? String(it.ts) : '';
+      if (ts && ts > max) max = ts;
+    }
+    return max;
+  }
+
+  async function loadChatLatest(){
+    try{
+      const params = new URLSearchParams();
+      params.set('limit', '50');
+      if (chatSessionKey) params.set('session_key', chatSessionKey);
+      const apiPath = 'clawdbot/chat_history?' + params.toString();
+
+      // Use service response to avoid iframe auth/context issues.
+      const resp = await callServiceResponse('clawdbot','chat_history_delta', { session_key: chatSessionKey, limit: CHAT_HISTORY_PAGE_LIMIT });
+      const data = (resp && resp.response) ? resp.response : resp;
+      chatItems = (data && Array.isArray(data.items)) ? data.items : [];
+      chatHasOlder = !!(data && data.has_older);
+      syncChatSeenIds();
+    } catch(e){
+      if (DEBUG_UI) console.debug('[clawdbot chat] loadChatLatest failed', e);
+    }
+  }
+
+  async function loadOlderChat(){
+    if (chatLoadingOlder) return;
+    const beforeId = (() => {
+      for (const it of (chatItems || [])) {
+        if (it && it.id) return it.id;
+      }
+      return null;
+    })();
+    if (!beforeId) {
+      chatHasOlder = false;
+      renderChat({ preserveScroll: true });
+      return;
+    }
+    chatLoadingOlder = true;
+    renderChat({ preserveScroll: true });
+    try{
+      const params = new URLSearchParams();
+      params.set('limit', '50');
+      params.set('before_id', beforeId);
+      if (chatSessionKey) params.set('session_key', chatSessionKey);
+      // Older paging via service response (no /api auth boundary)
+      const resp = await callServiceResponse('clawdbot','chat_history_delta', { session_key: chatSessionKey, before_id: beforeId, limit: CHAT_HISTORY_PAGE_LIMIT });
+      const data = (resp && resp.response) ? resp.response : resp;
+      const items = (data && Array.isArray(data.items)) ? data.items : [];
+      const existing = new Set((chatItems || []).map((it)=>it && it.id).filter(Boolean));
+      const prepend = [];
+      for (const it of items){
+        if (!it || !it.id || existing.has(it.id)) continue;
+        prepend.push(it);
+      }
+      if (prepend.length) {
+        chatItems = prepend.concat(chatItems || []);
+      }
+      chatHasOlder = !!(data && data.has_older);
+      syncChatSeenIds();
+    } catch(e){
+      console.warn('chat_history fetch failed', e);
+    } finally {
+      chatLoadingOlder = false;
+      renderChat({ preserveScroll: true });
+    }
+  }
+
+  function stopChatPolling(){
+    chatPollingActive = false;
+    if (chatPollTimer) {
+      clearTimeout(chatPollTimer);
+      chatPollTimer = null;
+    }
+    if (DEBUG_UI) {
+      chatLastPollDebugDetail = 'stopped';
+    }
+    updateChatPollDebug();
+    if (DEBUG_UI) console.debug('[clawdbot chat] polling stopped');
+  }
+
+  let chatLastPollDebugDetail = '';
+
+  function updateChatPollDebug(){
+    const el = qs('#chatPollDebug');
+    if (!el) return;
+    if (!DEBUG_UI) { el.style.display = 'none'; return; }
+    const last = chatLastPollTs ? new Date(chatLastPollTs).toLocaleTimeString() : '—';
+    const err = chatLastPollError ? (' err:' + chatLastPollError) : '';
+    const detail = chatLastPollDebugDetail ? (' · ' + chatLastPollDebugDetail) : '';
+    el.textContent = `Polling: ${chatPollingActive ? 'on' : 'off'} · last: ${last} · +${chatLastPollAppended || 0}${err}${detail}`;
+    el.style.display = 'inline';
+  }
+
+  function startChatPolling(){
+    if (chatPollingActive) return;
+    chatPollingActive = true;
+    updateChatPollDebug();
+    scheduleChatPoll(CHAT_POLL_INITIAL_MS);
+  }
+
+  function boostChatPolling(){
+    chatPollBoostUntil = Date.now() + CHAT_POLL_BOOST_WINDOW_MS;
+  }
+
+  function scheduleChatPoll(delayMs){
+    if (!chatPollingActive) return;
+    if (chatPollTimer) clearTimeout(chatPollTimer);
+    chatPollTimer = setTimeout(pollSessionsHistory, Math.max(500, delayMs || 0));
+  }
+
+  async function pollSessionsHistory(){
+    if (!chatPollingActive) return;
+    if (!chatSessionKey) {
+      chatLastPollTs = Date.now();
+      chatLastPollAppended = 0;
+      chatLastPollError = null;
+      updateChatPollDebug();
+      scheduleChatPoll(CHAT_POLL_INTERVAL_MS);
+      return;
+    }
+
+    const currentSession = chatSessionKey;
+    try{
+      const seenBefore = chatLastSeenIds ? new Set(Array.from(chatLastSeenIds)) : new Set();
+      await callService('clawdbot','chat_poll',{ session_key: currentSession, limit: CHAT_HISTORY_PAGE_LIMIT });
+      chatLastPollTs = Date.now();
+      chatLastPollError = null;
+
+      // Incremental refresh: fetch only items newer than current max ts (avoids capped moving-window)
+      const afterTs = maxChatTs();
+      const resp = await callServiceResponse('clawdbot','chat_history_delta', { session_key: currentSession, after_ts: afterTs || null, limit: CHAT_DELTA_LIMIT });
+      const data = (resp && resp.response) ? resp.response : resp;
+      const newer = (data && Array.isArray(data.items)) ? data.items : [];
+
+      // Merge new items onto existing list
+      if (newer.length) {
+        const existing = new Set((chatItems || []).map(chatItemKey));
+        for (const it of newer){
+          const k = chatItemKey(it);
+          if (!k || existing.has(k)) continue;
+          chatItems.push(it);
+          existing.add(k);
+        }
+        // keep last 200 for UI responsiveness
+        if (chatItems.length > 200) chatItems = chatItems.slice(-200);
+      }
+
+      // +N: count newly-seen agent keys among returned items
+      let appendedCount = 0;
+      const nextSeen = new Set(Array.from(seenBefore));
+      for (const it of newer){
+        const key = chatItemKey(it);
+        if (!key) continue;
+        if (nextSeen.has(key)) continue;
+        nextSeen.add(key);
+        if (it && it.role === 'agent') appendedCount += 1;
+      }
+      chatLastSeenIds = nextSeen;
+      chatLastPollAppended = appendedCount;
+
+      renderChat({ preserveScroll: true });
+
+      if (DEBUG_UI) {
+        const tail = (chatItems || []).slice(-3).map((it)=>({
+          id: (it && (it.id || it.message_id || it.messageId)) || null,
+          key: chatItemKey(it),
+          role: it && it.role,
+          ts: it && it.ts,
+        }));
+        chatLastPollDebugDetail = `seen:${seenBefore.size} items:${(chatItems||[]).length} new:${newer.length} tailTs:${(tail[tail.length-1]&&tail[tail.length-1].ts)||'—'}`;
+        console.debug('[clawdbot chat] poll ok', {session: currentSession, appended: chatLastPollAppended, afterTs, newerCount: newer.length, tail});
+      }
+    } catch(e){
+      chatLastPollTs = Date.now();
+      chatLastPollAppended = 0;
+      chatLastPollError = String(e && (e.message || e)).slice(0, 120);
+      if (DEBUG_UI) console.debug('[clawdbot chat] poll error', e);
+    }
+
+    updateChatPollDebug();
+
+    if (chatLastPollAppended) boostChatPolling();
+    const delay = (Date.now() < chatPollBoostUntil) ? CHAT_POLL_FAST_MS : CHAT_POLL_INTERVAL_MS;
+    scheduleChatPoll(delay);
+  }
+
+
+
+  function getMapping(){
+    const cfg = (window.__CLAWDBOT_CONFIG__ || {});
+    return cfg.mapping || {};
+  }
+
+  function fillMappingInputs(){
+    const m = getMapping();
+    const byId = (id)=>document.getElementById(id);
+    const set = (id, val)=>{ const el=byId(id); if (el) el.value = (val || ''); };
+    set('mapSoc', m.soc);
+    set('mapVoltage', m.voltage);
+    set('mapSolar', m.solar);
+    set('mapLoad', m.load);
+  }
+
+  function setConfigMapping(next){
+    if (!window.__CLAWDBOT_CONFIG__) window.__CLAWDBOT_CONFIG__ = {};
+    window.__CLAWDBOT_CONFIG__.mapping = next || {};
+  }
+
+  function mappingWithDefaults(){
+    const m = getMapping();
+    return {
+      soc: m.soc || null,
+      voltage: m.voltage || null,
+      solar: m.solar || null,
+      load: m.load || null,
+    };
+  }
+
+  function manualInputValue(field){
+    const ids = {
+      soc: 'mapSoc',
+      voltage: 'mapVoltage',
+      solar: 'mapSolar',
+      load: 'mapLoad',
+    };
+    const el = document.getElementById(ids[field]);
+    return el ? el.value.trim() : '';
+  }
+
+  async function confirmFieldMapping(field){
+    const picked = document.querySelector(`input[name="sugg-${field}"]:checked`);
+    const manual = manualInputValue(field);
+    let value = null;
+    if (picked && picked.value && picked.value !== '__manual__') {
+      value = picked.value;
+    } else if (manual) {
+      value = manual;
+    }
+    const mapping = mappingWithDefaults();
+    mapping[field] = value;
+    const resultEl = document.getElementById(`confirm-${field}`);
+    if (resultEl) resultEl.textContent = 'saving…';
+    try{
+      await callService('clawdbot','set_mapping',{mapping});
+      setConfigMapping(mapping);
+      fillMappingInputs();
+      if (resultEl) resultEl.textContent = value ? 'saved' : 'cleared';
+      try{ const { hass } = await getHass(); renderMappedValues(hass); renderRecommendations(hass); } catch(e){}
+    } catch(e){
+      if (resultEl) resultEl.textContent = 'error: ' + String(e);
+    }
+  }
+
+
+
+
+  function renderRecommendations(hass){
+    const el = document.getElementById('recs');
+    if (!el) return;
+    const cfg = (window.__CLAWDBOT_CONFIG__ || {});
+    const mem = cfg.house_memory || {};
+    const mapping = cfg.mapping || {};
+
+    const items=[];
+
+    const toNumber = (val) => {
+      if (val === null || val === undefined) return null;
+      const n = Number.parseFloat(String(val));
+      return Number.isFinite(n) ? n : null;
+    };
+    const powerToWatts = (val, unit) => {
+      if (val === null) return null;
+      const u = (unit || '').toLowerCase();
+      if (u === 'kw' || u === 'kilowatt' || u === 'kilowatts') return val * 1000;
+      if (u === 'w' || u === 'watt' || u === 'watts') return val;
+      return val;
+    };
+
+    // Estimate hours remaining (v0)
+    if (mapping.soc && mapping.load) {
+      let socPct = null;
+      let loadW = null;
+      let solarW = null;
+      try{
+        const socSt = hass && hass.states ? hass.states[mapping.soc] : null;
+        const loadSt = hass && hass.states ? hass.states[mapping.load] : null;
+        const solarSt = mapping.solar && hass && hass.states ? hass.states[mapping.solar] : null;
+        socPct = toNumber(socSt ? socSt.state : null);
+        if (socPct !== null && socPct <= 1) socPct = socPct * 100;
+        socPct = socPct !== null ? Math.max(0, Math.min(100, socPct)) : null;
+        const loadUnit = loadSt && loadSt.attributes ? loadSt.attributes.unit_of_measurement : '';
+        loadW = powerToWatts(toNumber(loadSt ? loadSt.state : null), loadUnit);
+        const solarUnit = solarSt && solarSt.attributes ? solarSt.attributes.unit_of_measurement : '';
+        solarW = powerToWatts(toNumber(solarSt ? solarSt.state : null), solarUnit);
+      } catch(e){}
+
+      let capacityKwh = null;
+      if (mem.battery && typeof mem.battery.capacity_kwh === 'number') {
+        capacityKwh = mem.battery.capacity_kwh;
+      } else if (mem.battery && typeof mem.battery.capacity_wh === 'number') {
+        capacityKwh = mem.battery.capacity_wh / 1000;
+      }
+      const usedPlaceholder = !capacityKwh;
+      if (!capacityKwh) capacityKwh = 10;
+
+      // Default: still show an informational message, even if values are not numeric yet.
+      let body = 'Cannot estimate yet: mapped SOC/load values are missing or non-numeric.';
+      if (socPct !== null && loadW !== null && loadW > 0) {
+        const availableKwh = capacityKwh * (socPct / 100);
+        const hours = (availableKwh * 1000) / loadW;
+        const hoursText = hours >= 1 ? `${hours.toFixed(1)} h` : `${Math.max(0, hours * 60).toFixed(0)} min`;
+        body = `Estimated runtime remaining (conservative): ~${hoursText}.`;
+        if (mapping.solar && solarW !== null) {
+          body += ' Solar is mapped but not counted in this estimate.';
+        }
+      } else if (loadW !== null && loadW <= 0) {
+        body = 'Cannot estimate yet: load is 0 or negative.';
+      } else {
+        // Give a clearer reason if entities are mapped but not numeric.
+        try{
+          const socSt = hass && hass.states ? hass.states[mapping.soc] : null;
+          const loadSt = hass && hass.states ? hass.states[mapping.load] : null;
+          // keep raw values behind a debug flag (user-facing UI should stay clean)
+          const DEBUG = false;
+          if (DEBUG) {
+            const socRaw = socSt ? socSt.state : null;
+            const loadRaw = loadSt ? loadSt.state : null;
+            body += ` (soc=${socRaw}, load=${loadRaw})`;
+          }
+        } catch(e){}
+      }
+      if (usedPlaceholder) {
+        body += ' Assuming 10 kWh battery capacity (placeholder).';
+      }
+      items.push({
+        title: 'Estimate (preview): Battery hours remaining',
+        body,
+      });
+    }
+
+    // Basic commissioning reminder
+    const missing = [];
+    if (!mapping.soc) missing.push('battery SOC');
+    if (!mapping.solar) missing.push('solar power');
+    if (!mapping.load) missing.push('load power');
+    if (missing.length) {
+      items.push({
+        title: 'Finish mapping core signals',
+        body: `To enable better insights, map: ${missing.join(', ')}.`
+      });
+    }
+
+    // Off-grid risk heuristic (placeholder)
+    const solarPresent = mem.solar && mem.solar.present;
+    const batteryPresent = mem.battery && mem.battery.present;
+    if (batteryPresent && solarPresent) {
+      items.push({
+        title: 'Off-grid reserve check (preview)',
+        body: 'If you are fully off-grid, watch battery SOC especially during cloudy periods. (Weather integration coming later.)'
+      });
+    } else if (batteryPresent && !solarPresent) {
+      items.push({
+        title: 'Battery present, no solar detected',
+        body: 'If this is unexpected, check entity naming or map a solar/pv sensor. Otherwise plan charging accordingly.'
+      });
+    }
+
+    // Weather-based preview (v0, informational only)
+    try{
+      let weatherId = null;
+      if (hass && hass.states) {
+        for (const id of Object.keys(hass.states)) {
+          if (id.startsWith('weather.')) { weatherId = id; break; }
+        }
+      }
+      if (!weatherId) {
+        items.push({
+          title: 'Weather (preview)',
+          body: 'Not configured: add any Home Assistant weather integration (entity weather.*) to unlock cloud/rain-aware battery guidance.',
+          cta: { label: 'Configure weather', href: '/config/integrations' }
+        });
+      } else {
+        const st = hass.states[weatherId];
+        const attrs = (st && st.attributes) ? st.attributes : {};
+        const temp = (attrs.temperature ?? attrs.temp ?? null);
+        const tempUnit = (attrs.temperature_unit ?? '°');
+        const condition = st ? st.state : 'unknown';
+
+        // Forecast timestamp (best-effort): HA weather integrations typically expose attrs.forecast[]
+        // with a datetime field (datetime/time).
+        let forecastAt = null;
+        try{
+          const fc = attrs.forecast;
+          if (Array.isArray(fc) && fc.length){
+            const first = fc[0] || {};
+            forecastAt = first.datetime || first.time || null;
+          }
+        } catch(e){}
+
+        const cond = String(condition || '').toLowerCase();
+        const isBad = (cond.includes('rain') || cond.includes('pour') || cond.includes('storm') || cond.includes('snow') || cond.includes('sleet') || cond.includes('hail') || cond.includes('cloud') || cond.includes('fog'));
+        const isGood = (cond.includes('clear') || cond.includes('sun') || cond.includes('partly') || cond.includes('fair'));
+        let hint = '';
+        if (isBad) hint = 'Expect reduced solar harvest; consider conserving load.';
+        else if (isGood) hint = 'Good solar window; consider charging/deferrable loads.';
+
+        let body = `Current: ${condition}`;
+        if (temp !== null && temp !== undefined) body += `, ${temp}${tempUnit}`;
+        if (forecastAt) body += `. Forecast @ ${forecastAt}`;
+        body += ` (${weatherId}).`;
+        if (hint) body += ` ${hint}`;
+        items.push({ title: 'Weather (preview)', body, meta: weatherId });
+      }
+    } catch(e){}
+
+    // If SOC mapped, show quick status line
+    try{
+      if (mapping.soc && hass && hass.states && hass.states[mapping.soc]){
+        const st=hass.states[mapping.soc];
+        const unit=(st.attributes && st.attributes.unit_of_measurement) ? (' '+st.attributes.unit_of_measurement) : '';
+        items.push({title:'Current battery SOC', body: `${st.state}${unit} (${mapping.soc})`});
+      }
+    } catch(e){}
+
+    if (!items.length) {
+      items.push({title:'No recommendations yet', body:'Add mappings (SOC/solar/load) to unlock insights.'});
+    }
+
+    el.innerHTML = '';
+    for (const it of items){
+      const d=document.createElement('div');
+      d.style.border='1px solid #f1f5f9';
+      d.style.borderRadius='10px';
+      d.style.padding='10px 12px';
+      d.style.margin='8px 0';
+      const meta = it.meta ? `<div class="muted" style="margin-top:4px">${it.meta}</div>` : '';
+      const cta = it.cta ? `<div style="margin-top:8px"><a class="btn" href="${it.cta.href}" target="_parent">${it.cta.label}</a></div>` : '';
+      d.innerHTML = `<div style="font-weight:600">${it.title}</div><div class="muted" style="margin-top:4px">${it.body}</div>${meta}${cta}`;
+      el.appendChild(d);
+    }
+  }
+  function renderHouseMemory(){
+    const el = document.getElementById('houseMemory');
+    if (!el) return;
+    const cfg = (window.__CLAWDBOT_CONFIG__ || {});
+    const mem = cfg.house_memory || {};
+
+    const rows = [
+      ['Solar', mem.solar],
+      ['Battery', mem.battery],
+      ['Grid', mem.grid],
+      ['Generator', mem.generator],
+    ];
+
+    el.innerHTML = '';
+    const ul = document.createElement('ul');
+    ul.style.margin = '0';
+    ul.style.paddingLeft = '18px';
+    for (const [label, obj] of rows){
+      const present = obj && obj.present;
+      const conf = obj && (obj.confidence ?? 0);
+      const li = document.createElement('li');
+      li.innerHTML = `<b>${label}:</b> ${present ? 'present' : 'not detected'} <span class=\\"muted\\">(confidence ${Math.round((conf||0)*100)}%}</span>`;
+      ul.appendChild(li);
+    }
+    el.appendChild(ul);
+  }
+  function renderMappedValues(hass){
+    const root = qs('#mappedValues');
+    if (!root) return;
+    root.innerHTML='';
+
+    const m = getMapping();
+    const rows = [
+      { key:'soc', label:'Battery SOC', unitLabel:'(%)', entity_id: m.soc, hint:'battery' },
+      { key:'voltage', label:'Battery Voltage', unitLabel:'(V)', entity_id: m.voltage, hint:'voltage' },
+      { key:'solar', label:'Solar Power', unitLabel:'(W)', entity_id: m.solar, hint:'solar' },
+      { key:'load', label:'Load Power', unitLabel:'(W)', entity_id: m.load, hint:'power' },
+    ];
+
+    const toNum = (x)=>{ const n=Number.parseFloat(String(x)); return Number.isFinite(n)?n:null; };
+
+    for (const r of rows){
+      const d=document.createElement('div');
+      const st = r.entity_id && hass && hass.states ? hass.states[r.entity_id] : null;
+      let unit = st && st.attributes ? (st.attributes.unit_of_measurement || '') : '';
+      let valText = '—';
+      let subText = '';
+      let subTitle = '';
+
+      if (!r.entity_id) {
+        // Unmapped: keep it clean.
+        valText = '—';
+        subText = 'unmapped';
+      } else {
+        // Mapped but missing/unavailable: show a soft status, keep entity_id in tooltip + secondary line.
+        if (!st) {
+          valText = 'Not available';
+          subText = r.entity_id;
+          subTitle = r.entity_id;
+        } else {
+          let raw = st.state;
+          const n = toNum(raw);
+          if (r.key === 'soc' && n !== null) {
+            let pct = n;
+            if (pct <= 1) pct = pct * 100;
+            pct = Math.max(0, Math.min(100, pct));
+            valText = `${pct.toFixed(0)} %`;
+          } else if ((r.key === 'solar' || r.key === 'load') && n !== null) {
+            const u = String(unit||'').toLowerCase();
+            const w = (u === 'kw') ? (n * 1000) : n;
+            valText = `${w.toFixed(0)} W`;
+          } else if (r.key === 'voltage' && n !== null) {
+            valText = `${n.toFixed(1)} V`;
+          } else {
+            valText = `${raw}${unit ? (' '+unit) : ''}`;
+          }
+          subText = r.entity_id;
+          subTitle = r.entity_id;
+        }
+      }
+
+      const keyLabel = ({soc:'SOC', voltage:'voltage', solar:'solar', load:'load'}[r.key] || r.key);
+      const mapNow = (!r.entity_id) ? `<button class="btn" data-mapnow="${r.key}" style="margin-top:10px">Map ${keyLabel}</button>` : '';
+      const valueClass = (valText === 'Not available') ? 'muted' : '';
+      d.innerHTML = `<div class="muted">${r.label} <span class="muted">${r.unitLabel || ''}</span></div><div style="margin-top:2px" class="${valueClass}" title="${subTitle}"><b>${valText}</b></div><div class="muted" style="margin-top:4px" title="${subTitle}">${subText}</div>${mapNow}`;
+      root.appendChild(d);
+    }
+
+    // wire map-now shortcuts
+    for (const btn of root.querySelectorAll('button[data-mapnow]')){
+      btn.onclick = () => {
+        const key = btn.getAttribute('data-mapnow');
+        mapNowShortcut(key);
+      };
+    }
+  }
+
+  function mapNowShortcut(key){
+    // Jump to Setup and help the user find likely entities.
+    const hints = { soc:'battery', voltage:'voltage', solar:'solar', load:'power' };
+    const ids = { soc:'mapSoc', voltage:'mapVoltage', solar:'mapSolar', load:'mapLoad' };
+
+    // Pre-fill + focus the entity list filter (Cockpit). Even after switching tabs, the value remains.
+    const f = qs('#filter');
+    if (f){
+      f.value = hints[key] || '';
+      try{ f.focus(); }catch(e){}
+      try{ f.scrollIntoView({behavior:'smooth', block:'center'}); }catch(e){}
+    }
+
+    // Switch to Setup tab
+    try{ qs('#tabSetup').click(); }catch(e){}
+
+    // Focus the relevant manual input and scroll mapping section
+    try{
+      const input = document.getElementById(ids[key]);
+      if (input){ input.focus(); }
+      const sugg = document.getElementById('suggestions');
+      if (sugg){ sugg.scrollIntoView({behavior:'smooth', block:'start'}); }
+    } catch(e){}
+  }
+  async function getHass(){
+    const parent = window.parent;
+    if (!parent) throw new Error('No parent window');
+
+    // If opened as top-window (not embedded), we cannot access HA frontend connection.
+    if (window === window.top) {
+      throw new Error('Top-window mode: no parent hass connection');
+    }
+
+    // Path 1: legacy global hassConnection promise (add timeout; some builds keep it pending)
+    try{
+      if (parent.hassConnection && parent.hassConnection.then) {
+        const timeoutMs = 1500;
+        const hc = await Promise.race([
+          parent.hassConnection,
+          new Promise((_, rej) => setTimeout(() => rej(new Error('hassConnection timeout')), timeoutMs)),
+        ]);
+        if (hc && hc.conn) { try{ if (DEBUG_UI) console.debug('[clawdbot] getHass via hassConnection', !!(hc.hass && hc.hass.states)); }catch(e){}; return { conn: hc.conn, hass: hc.hass }; }
+      }
+    } catch(e) {}
+
+    // Path 2: legacy global hass
+    try{
+      if (parent.hass && parent.hass.connection) { try{ if (DEBUG_UI) console.debug('[clawdbot] getHass via parent.hass', !!(parent.hass && parent.hass.states)); }catch(e){}; return { conn: parent.hass.connection, hass: parent.hass }; }
+    } catch(e) {}
+
+    // Path 3: query DOM for HA root element, then read hass / hassConnection
+    try{
+      const doc = parent.document;
+      const roots = [
+        doc && doc.querySelector && doc.querySelector('home-assistant'),
+        doc && doc.querySelector && doc.querySelector('home-assistant-main'),
+        doc && doc.querySelector && doc.querySelector('hc-main'),
+      ].filter(Boolean);
+
+      for (const r of roots){
+        try{
+          if (r.hassConnection && r.hassConnection.then) {
+            const timeoutMs = 1500;
+            const hc = await Promise.race([
+              r.hassConnection,
+              new Promise((_, rej) => setTimeout(() => rej(new Error('hassConnection timeout')), timeoutMs)),
+            ]);
+            if (hc && hc.conn) { try{ if (DEBUG_UI) console.debug('[clawdbot] getHass via root.hassConnection', !!(hc.hass && hc.hass.states)); }catch(e){}; return { conn: hc.conn, hass: hc.hass }; }
+          }
+        } catch(e) {}
+        try{
+          if (r.hass && r.hass.connection) { try{ if (DEBUG_UI) console.debug('[clawdbot] getHass via root.hass', !!(r.hass && r.hass.states)); }catch(e){}; return { conn: r.hass.connection, hass: r.hass }; }
+        } catch(e) {}
+        // some HA builds tuck hass on appEl._hass
+        try{
+          if (r._hass && r._hass.connection) { try{ if (DEBUG_UI) console.debug('[clawdbot] getHass via root._hass', !!(r._hass && r._hass.states)); }catch(e){}; return { conn: r._hass.connection, hass: r._hass }; }
+        } catch(e) {}
+        // shadowRoot hop
+        try{
+          const sr = r.shadowRoot;
+          if (sr){
+            const inner = sr.querySelector('home-assistant') || sr.querySelector('home-assistant-main');
+            if (inner && inner.hass && inner.hass.connection) return { conn: inner.hass.connection, hass: inner.hass };
+          }
+        } catch(e) {}
+      }
+    } catch(e) {}
+
+
+
+    // Path 4: explicit HA shadow DOM traversal (home-assistant → shadowRoot → home-assistant-main)
+    try{
+      const doc = parent.document;
+      const ha = doc && doc.querySelector ? doc.querySelector('home-assistant') : null;
+      const main = ha && ha.shadowRoot && ha.shadowRoot.querySelector ? ha.shadowRoot.querySelector('home-assistant-main') : null;
+      if (main) {
+        const hass = main.hass || main._hass || null;
+        const conn = hass && hass.connection ? hass.connection : null;
+        if (hass && conn) { try{ if (DEBUG_UI) dbgStep('got-hass-shadow');
+        console.debug('[clawdbot] getHass via shadowRoot', !!(hass && hass.states), !!(hass && hass.connection)); }catch(e){}; return { conn, hass }; }
+      }
+    } catch(e) {}
+    throw new Error('Unable to access Home Assistant frontend connection from iframe');
+  }
+
+  function setStatus(ok, text, detail, hint){
+    try{ if (DEBUG_UI) console.debug('[clawdbot] setStatus', {ok, text, detail, hint}); } catch(e) {}
+    const el = qs('#status');
+    if (!el) return;
+    el.textContent = text;
+    el.className = ok ? 'ok' : 'bad';
+    const pill = document.getElementById('connPill');
+    if (pill){ pill.textContent = ok ? 'connected' : 'error'; pill.className = 'pill ' + (ok ? 'ok' : 'bad'); }
+    qs('#statusDetail').textContent = detail || '';
+    const hintEl = qs('#statusHint');
+    if (hintEl) hintEl.textContent = hint || '';
+  }
+
+
+
+  function scoreEntity(meta, rules){
+    const id=(meta.entity_id||'').toLowerCase();
+    const name=(meta.name||'').toLowerCase();
+    const unit=(meta.unit||'').toLowerCase();
+    let s=0;
+    for (const kw of (rules.keywords||[])){
+      if (id.includes(kw) || name.includes(kw)) s += 3;
+    }
+    for (const kw of (rules.weak||[])){
+      if (id.includes(kw) || name.includes(kw)) s += 1;
+    }
+    if (rules.units && rules.units.includes(unit)) s += 2;
+    // Penalize obviously irrelevant domains
+    if (id.startsWith('automation.') || id.startsWith('update.')) s -= 2;
+    return s;
+  }
+
+  function topCandidates(hass, rules, limit){
+    const out=[];
+    const states=(hass && hass.states) ? hass.states : {};
+    for (const [entity_id, st] of Object.entries(states)){
+      const meta={
+        entity_id,
+        name: (st.attributes && (st.attributes.friendly_name || st.attributes.device_class || '')) || '',
+        unit: (st.attributes && st.attributes.unit_of_measurement) || '',
+        state: st.state,
+      };
+      const score=scoreEntity(meta, rules);
+      if (score > 0) out.push({score, ...meta});
+    }
+    out.sort((a,b)=>b.score-a.score);
+    return out.slice(0, limit||3);
+  }
+
+  function renderSuggestions(hass){
+    const root = qs('#suggestions');
+    if (!root) return;
+    root.innerHTML='';
+
+    const rules={
+      soc: { label:'Battery SOC (%)', keywords:['soc','state_of_charge','battery_soc'], units:['%'], weak:['battery'] },
+      voltage: { label:'Battery Voltage (V)', keywords:['voltage','battery_voltage','batt_v'], units:['v'], weak:['battery'] },
+      solar: { label:'Solar Input Power (W)', keywords:['solar','pv','photovoltaic','panel'], units:['w'], weak:['input','power'] },
+      load: { label:'Total Consumption / Load (W)', keywords:['load','consumption','house_power','ac_load','power'], units:['w'], weak:['total','sum'] },
+    };
+
+    const mapping = getMapping();
+    const fields = ['soc','voltage','solar','load'];
+
+    for (const key of fields){
+      const r = rules[key];
+      const cands = topCandidates(hass, r, 3);
+      const card = document.createElement('div');
+      card.className = 'suggest-card';
+
+      const title = document.createElement('div');
+      title.className = 'muted';
+      title.textContent = r.label;
+      card.appendChild(title);
+
+      const list = document.createElement('div');
+      if (cands.length) {
+        cands.forEach((c, idx) => {
+          const row = document.createElement('label');
+          row.className = 'choice';
+          const id = `sugg-${key}-${idx}`;
+          const input = document.createElement('input');
+          input.type = 'radio';
+          input.name = `sugg-${key}`;
+          input.id = id;
+          input.value = c.entity_id;
+          if (mapping[key] && mapping[key] === c.entity_id) input.checked = true;
+          const main = document.createElement('div');
+          main.className = 'choice-main';
+          main.textContent = c.entity_id;
+          const meta = document.createElement('div');
+          meta.className = 'choice-meta';
+          meta.textContent = `${c.state}${c.unit ? (' ' + c.unit) : ''} · score ${c.score}`;
+          const wrap = document.createElement('div');
+          wrap.appendChild(main);
+          wrap.appendChild(meta);
+          row.appendChild(input);
+          row.appendChild(wrap);
+          list.appendChild(row);
+        });
+      } else {
+        const empty = document.createElement('div');
+        empty.className = 'muted';
+        empty.textContent = '(no candidates found)';
+        empty.style.marginTop = '6px';
+        list.appendChild(empty);
+      }
+
+      const manualRow = document.createElement('label');
+      manualRow.className = 'choice';
+      const manualInput = document.createElement('input');
+      manualInput.type = 'radio';
+      manualInput.name = `sugg-${key}`;
+      manualInput.value = '__manual__';
+      if (!cands.find(c => c.entity_id === mapping[key])) {
+        manualInput.checked = true;
+      }
+      const manualText = document.createElement('div');
+      manualText.className = 'choice-main';
+      manualText.textContent = 'Use manual input below';
+      manualRow.appendChild(manualInput);
+      manualRow.appendChild(manualText);
+      list.appendChild(manualRow);
+
+      list.style.marginTop = '6px';
+      card.appendChild(list);
+
+      const actions = document.createElement('div');
+      actions.className = 'row';
+      actions.style.marginTop = '8px';
+      const btn = document.createElement('button');
+      btn.className = 'btn primary';
+      btn.textContent = 'Confirm';
+      btn.onclick = () => confirmFieldMapping(key);
+      const status = document.createElement('span');
+      status.className = 'muted';
+      status.id = `confirm-${key}`;
+      actions.appendChild(btn);
+      actions.appendChild(status);
+      card.appendChild(actions);
+
+      root.appendChild(card);
+    }
+  }
+  async function callService(domain, service, data){
+    const { conn, hass } = await getHass();
+    const payload = data || {};
+
+    // Preferred: hass.callService
+    if (hass && typeof hass.callService === 'function') {
+      if (DEBUG_UI) console.debug('[clawdbot] callService via hass.callService', domain, service);
+      return hass.callService(domain, service, payload);
+    }
+
+    // Fallback: websocket message (Home Assistant connection)
+    if (conn && typeof conn.sendMessagePromise === 'function') {
+      if (DEBUG_UI) console.debug('[clawdbot] callService via conn.sendMessagePromise', domain, service);
+      return conn.sendMessagePromise({
+        type: 'call_service',
+        domain,
+        service,
+        service_data: payload,
+      });
+    }
+
+    throw new Error('Unable to call service (no hass.callService or conn.sendMessagePromise)');
+  }
+
+  let _allIds = [];
+
+  function renderEntities(hass, filter){
+    const states = hass && hass.states ? hass.states : {};
+    const root = qs('#entities');
+    root.innerHTML = '';
+
+    const f = (filter || '').trim().toLowerCase();
+    const ids = (f ? _allIds.filter(id => id.toLowerCase().includes(f)) : _allIds);
+
+    for (const id of ids){
+      const st = states[id];
+      const row = document.createElement('div');
+      row.className = 'ent';
+
+      const left = document.createElement('div');
+      left.style.minWidth = '280px';
+      left.innerHTML = `<div class="ent-id">${id}</div><div class="ent-state">${st.state}</div>`;
+
+      const right = document.createElement('div');
+      right.className = 'row';
+
+      const domain = id.split('.')[0];
+      if (['switch','light','input_boolean'].includes(domain)){
+        const onBtn = document.createElement('button');
+        onBtn.className = 'btn';
+        onBtn.textContent = 'On';
+        onBtn.onclick = async () => { await callService('clawdbot','ha_call_service',{domain, service:'turn_on', entity_id:id, service_data:{}}); };
+
+        const offBtn = document.createElement('button');
+        offBtn.className = 'btn';
+        offBtn.textContent = 'Off';
+        offBtn.onclick = async () => { await callService('clawdbot','ha_call_service',{domain, service:'turn_off', entity_id:id, service_data:{}}); };
+
+        right.appendChild(onBtn);
+        right.appendChild(offBtn);
+      } else {
+        const noop = document.createElement('span');
+        noop.className = 'muted';
+        noop.textContent = 'no controls';
+        right.appendChild(noop);
+      }
+
+      row.appendChild(left);
+      row.appendChild(right);
+      root.appendChild(row);
+    }
+
+    setStatus(true, 'connected', `Loaded ${ids.length} entities (filter: ${f || 'none'})`);
+  }
+
+  async function refreshEntities(){
+    try{ if (DEBUG_UI) dbgStep('refresh-start');
+    console.debug('[clawdbot] refreshEntities start'); }catch(e) {}
+
+    const { hass } = await getHass();
+    const states = hass && hass.states ? hass.states : {};
+    _allIds = Object.keys(states).sort();
+    buildMappingDatalist(hass);
+    renderEntities(hass, qs('#filter').value);
+
+  function buildMappingDatalist(hass){
+    const dl = document.getElementById('entityIdList');
+    if (!dl) return;
+    const states = hass && hass.states ? hass.states : {};
+    dl.innerHTML = '';
+    // Filter out noisy domains for mapping UX; keep sensors, numbers by default.
+    const allow = (id) => {
+      if (!id || typeof id !== 'string') return false;
+      if (id.startsWith('automation.') || id.startsWith('update.')) return false;
+      return true;
+    };
+    for (const id of _allIds){
+      if (!allow(id)) continue;
+      const st = states[id];
+      const name = (st && st.attributes && st.attributes.friendly_name) ? String(st.attributes.friendly_name) : '';
+      const opt = document.createElement('option');
+      opt.value = id;
+      if (name) opt.label = name;
+      dl.appendChild(opt);
+    }
+  }
+  }
+
+  async function init(){
+    try{ setStatus(false, 'checking…', 'initializing…', (window===window.top)?'Tip: open via the Home Assistant sidebar panel (iframe) to access hass connection.':''); } catch(e) {}
+    try{ if (DEBUG_UI) dbgStep('init-start');
+    console.debug('[clawdbot] init start', {top: window===window.top}); } catch(e) {}
+    try {
+    renderConfigSummary();
+    fillConnectionInputs();
+    fillMappingInputs();
+    renderHouseMemory();
+    renderMappedValues(null);
+    renderSuggestions(null);
+
+    async function switchTab(which){
+      const setupTab = qs('#tabSetup');
+      const cockpitTab = qs('#tabCockpit');
+      const chatTab = qs('#tabChat');
+      const viewSetup = qs('#viewSetup');
+      const viewCockpit = qs('#viewCockpit');
+      const viewChat = qs('#viewChat');
+      if (!setupTab || !cockpitTab || !chatTab || !viewSetup || !viewCockpit || !viewChat) return;
+
+      setupTab.classList.toggle('active', which === 'setup');
+      cockpitTab.classList.toggle('active', which === 'cockpit');
+      chatTab.classList.toggle('active', which === 'chat');
+
+      // Hard display toggles (production UI must isolate views)
+      setHidden(viewSetup, which !== 'setup');
+      setHidden(viewCockpit, which !== 'cockpit');
+      setHidden(viewChat, which !== 'chat');
+
+      if (which === 'cockpit') {
+    try{ if (DEBUG_UI) dbgStep('before-getHass');
+    console.debug('[clawdbot] before getHass'); } catch(e) {}
+        try{ const { hass } = await getHass(); await refreshEntities(); renderMappedValues(hass); renderHouseMemory(); renderRecommendations(hass); } catch(e){}
+      }
+      if (which === 'chat') {
+        loadChatFromConfig();
+        ensureSessionSelectValue();
+        await refreshSessions();
+        // Prefer live fetch for the selected session (keeps dropdown + history in sync)
+        await loadChatLatest();
+        renderChat({ autoScroll: true });
+        await refreshTokenUsage();
+        startChatPolling();
+        updateChatPollDebug();
+      } else {
+        stopChatPolling();
+      }
+    }
+
+    const bindTab = (id, which) => {
+      const el = qs(id);
+      if (!el) return;
+      el.onclick = (ev) => {
+        try{ ev && ev.preventDefault && ev.preventDefault(); }catch(e){}
+        try{ ev && ev.stopPropagation && ev.stopPropagation(); }catch(e){}
+        switchTab(which);
+      };
+    };
+
+    bindTab('#tabSetup','setup');
+    bindTab('#tabCockpit','cockpit');
+    bindTab('#tabChat','chat');
+
+    // Extra robustness: event delegation so clicks on child nodes still switch.
+    try{
+      const tabs = qs('.tabs');
+      if (tabs) tabs.addEventListener('click', (ev) => {
+        const t = ev.target;
+        if (!t) return;
+        const id = t.id || (t.closest ? (t.closest('button')||{}).id : '');
+        if (id === 'tabSetup') switchTab('setup');
+        if (id === 'tabCockpit') switchTab('cockpit');
+        if (id === 'tabChat') switchTab('chat');
+      }, true);
+    } catch(e){}
+
+    // Normalize initial state (ensures non-active views are truly hidden).
+    switchTab('cockpit');
+
+    qs('#refreshBtn').onclick = refreshEntities;
+    qs('#clearFilter').onclick = () => { qs('#filter').value=''; getHass().then(({hass})=>renderEntities(hass,'')); };
+    qs('#filter').oninput = async () => { try{ const { hass } = await getHass(); renderEntities(hass, qs('#filter').value); } catch(e){} };
+
+    const btnSave = qs('#btnConnSave');
+    if (btnSave) btnSave.onclick = () => saveConnectionOverrides('save');
+    const btnReset = qs('#btnConnReset');
+    if (btnReset) btnReset.onclick = () => saveConnectionOverrides('reset');
+
+    qs('#btnGatewayTest').onclick = async () => {
+      qs('#gwTestResult').textContent = 'running…';
+      try{
+        await callService('clawdbot','gateway_test',{});
+        qs('#gwTestResult').textContent = 'triggered';
+      } catch(e){
+        qs('#gwTestResult').textContent = 'error: ' + String(e);
+      }
+    };
+
+    const parseJsonSafe = (txt) => {
+      const t = String(txt || '').trim();
+      if (!t) return {};
+      try{ return JSON.parse(t); }catch(e){ return null; }
+    };
+
+    const btnSend = qs('#btnSendEvent');
+    if (btnSend) btnSend.onclick = async () => {
+      const resultEl = qs('#evtResult');
+      if (resultEl) resultEl.textContent = 'Sending…';
+      const event_type = (qs('#evtType') ? qs('#evtType').value.trim() : 'clawdbot.test');
+      const severity = (qs('#evtSeverity') ? qs('#evtSeverity').value : 'info');
+      const source = (qs('#evtSource') ? qs('#evtSource').value.trim() : 'panel');
+      const attrsTxt = (qs('#evtAttrs') ? qs('#evtAttrs').value : '');
+      const attrs = parseJsonSafe(attrsTxt);
+      if (attrs === null) {
+        if (resultEl) resultEl.textContent = 'attributes JSON is invalid';
+        return;
+      }
+      try{
+        await callService('clawdbot','notify_event',{ event_type, severity, source, attributes: attrs });
+        if (resultEl) resultEl.textContent = 'Sent (ok)';
+      } catch(e){
+        if (resultEl) resultEl.textContent = 'Error: ' + String(e);
+      }
+    };
+
+    const composer = qs('#chatComposer');
+    const composerSend = qs('#chatComposerSend');
+    const loadOlderBtn = qs('#chatLoadOlderBtn');
+    if (loadOlderBtn) loadOlderBtn.onclick = () => { loadOlderChat(); };
+
+    const sessionSel = qs('#chatSessionSelect');
+    if (sessionSel) sessionSel.onchange = async () => {
+      chatSessionKey = sessionSel.value || null;
+      await loadChatLatest();
+      renderChat({ autoScroll: true });
+      await refreshTokenUsage();
+      if (chatPollingActive) scheduleChatPoll(CHAT_POLL_INITIAL_MS);
+    };
+
+    const newSessionBtn = qs('#chatNewSessionBtn');
+    if (newSessionBtn) newSessionBtn.onclick = async () => {
+      const label = prompt('New session label (optional):', '');
+      try{
+        const resp = await callServiceResponse('clawdbot','sessions_spawn', { label: label || undefined });
+        const data = (resp && resp.response) ? resp.response : resp;
+        const r = data && data.result ? data.result : data;
+        const key = r && (r.sessionKey || r.session_key || r.key);
+        await refreshSessions();
+        if (key && sessionSel) {
+          sessionSel.value = key;
+          chatSessionKey = key;
+          await loadChatLatest();
+          renderChat({ autoScroll: true });
+          await refreshTokenUsage();
+          if (chatPollingActive) scheduleChatPoll(CHAT_POLL_INITIAL_MS);
+        }
+      } catch(e){
+        console.warn('sessions_spawn failed', e);
+      }
+    };
+    const setSendEnabled = () => {
+      if (!composer || !composerSend) return;
+      composerSend.disabled = !String(composer.value||'').trim();
+    };
+    if (composer) composer.addEventListener('input', setSendEnabled);
+    setSendEnabled();
+
+    if (composerSend) composerSend.onclick = async () => {
+      const input = composer;
+      const text = input.value.trim();
+      if (!text) return;
+
+      // optimistic append to local history store
+      try{ await callService('clawdbot','chat_append',{ role:'user', text, session_key: chatSessionKey }); } catch(e){}
+      const now = new Date();
+      const ts = now.toISOString();
+      chatItems.push({ role: 'user', text, ts, session_key: chatSessionKey });
+      input.value = '';
+      renderChat({ autoScroll: true });
+      boostChatPolling();
+      if (chatPollingActive) scheduleChatPoll(CHAT_POLL_INITIAL_MS);
+
+      // deterministic in-flight indicator while the gateway call is pending
+      setTyping(true);
+      try{
+        await callService('clawdbot','chat_send',{ session_key: chatSessionKey, message: text });
+      } catch(e){
+        console.warn('sessions_send failed', e);
+      } finally {
+        setTyping(false);
+        await refreshTokenUsage();
+      }
+    };
+    qs('#chatComposer').addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        qs('#chatComposerSend').click();
+      }
+    });
+
+    qs('#tabCockpit').onclick();
+
+    try{ const { hass } = await getHass(); dbgStep('connected');
+    setStatus(true,'connected',''); renderSuggestions(hass); renderMappedValues(hass); renderRecommendations(hass); } catch(e){ const hint = (window === window.top) ? 'Tip: open via the Home Assistant sidebar panel (iframe) to access hass connection.' : ''; setStatus(false,'error', String(e), hint); }
+    } catch(e) {
+      try{ if (DEBUG_UI) dbgStep('init-fatal');
+      console.error('[clawdbot] init fatal', e); } catch(_e) {}
+      const hint = (window === window.top) ? 'Tip: open via the Home Assistant sidebar panel (iframe) to access hass connection.' : '';
+      try{ setStatus(false,'error', String(e), hint); } catch(_e) {}
+    }
+  }
+
+  function __clawdbotBoot(){
+    if (window.__clawdbotPanelInit) return;
+    window.__clawdbotPanelInit = true;
+    try{ init(); } catch(e){
+      try{ if (typeof DEBUG_UI !== 'undefined' && DEBUG_UI) console.error('[clawdbot] init threw', e); }catch(_e){}
+      // retry once on next tick in case DOM wasn't ready
+      try{ setTimeout(() => { try{ init(); } catch(_e2){} }, 50); } catch(_e) {}
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', __clawdbotBoot, { once: true });
+  } else {
+    __clawdbotBoot();
+  }
+})();
+})();
