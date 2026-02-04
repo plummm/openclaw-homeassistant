@@ -62,7 +62,6 @@ SERVICE_SET_MAPPING = "set_mapping"
 SERVICE_REFRESH_HOUSE_MEMORY = "refresh_house_memory"
 SERVICE_NOTIFY_EVENT = "notify_event"
 SERVICE_CHAT_FETCH = "chat_fetch"
-SERVICE_SESSIONS_HISTORY = "sessions_history"
 
 
 async def _gw_post(session: aiohttp.ClientSession, url: str, token: str, payload: dict[str, Any]) -> dict[str, Any]:
