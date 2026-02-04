@@ -1320,8 +1320,27 @@ PANEL_HTML = """<!doctype html>
     }
   }
   async function callService(domain, service, data){
-    const { conn } = await getHass();
-    return conn.callService(domain, service, data || {});
+    const { conn, hass } = await getHass();
+    const payload = data || {};
+
+    // Preferred: hass.callService
+    if (hass && typeof hass.callService === 'function') {
+      if (DEBUG_UI) console.debug('[clawdbot] callService via hass.callService', domain, service);
+      return hass.callService(domain, service, payload);
+    }
+
+    // Fallback: websocket message (Home Assistant connection)
+    if (conn && typeof conn.sendMessagePromise === 'function') {
+      if (DEBUG_UI) console.debug('[clawdbot] callService via conn.sendMessagePromise', domain, service);
+      return conn.sendMessagePromise({
+        type: 'call_service',
+        domain,
+        service,
+        service_data: payload,
+      });
+    }
+
+    throw new Error('Unable to call service (no hass.callService or conn.sendMessagePromise)');
   }
 
   let _allIds = [];
