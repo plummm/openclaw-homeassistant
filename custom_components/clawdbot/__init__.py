@@ -59,6 +59,7 @@ SERVICE_GATEWAY_TEST = "gateway_test"
 SERVICE_SET_MAPPING = "set_mapping"
 SERVICE_REFRESH_HOUSE_MEMORY = "refresh_house_memory"
 SERVICE_NOTIFY_EVENT = "notify_event"
+SERVICE_CHAT_FETCH = "chat_fetch"
 
 
 async def _gw_post(session: aiohttp.ClientSession, url: str, token: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -189,6 +190,8 @@ PANEL_HTML = """<!doctype html>
     .chat-input input{flex:1;min-width:220px;height:46px;}
     .chat-bubble pre{margin:8px 0 0 0;padding:10px 12px;border-radius:12px;background:color-mix(in srgb, var(--primary-background-color) 65%, transparent);border:1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);overflow:auto;}
     .chat-bubble code{background:color-mix(in srgb, var(--primary-background-color) 70%, transparent);padding:2px 6px;border-radius:8px;}
+    .chat-load{display:flex;justify-content:center;margin-bottom:6px;}
+    .chat-load .btn{height:32px;font-size:12px;padding:0 10px;}
     @media (max-width: 680px){ .chat-bubble{max-width:90%;} .chat-shell{height:72vh;} }
   </style>
 </head>
@@ -330,6 +333,9 @@ PANEL_HTML = """<!doctype html>
   }
 
   let chatItems = [];
+  let chatHasOlder = false;
+  let chatLoadingOlder = false;
+  let chatSessionKey = null;
 
   function escapeHtml(txt){
     return String(txt)
@@ -338,10 +344,33 @@ PANEL_HTML = """<!doctype html>
       .replaceAll('>','&gt;');
   }
 
-  function renderChat(){
+  function isAtBottom(list){
+    if (!list) return true;
+    const gap = list.scrollHeight - list.scrollTop - list.clientHeight;
+    return gap < 6;
+  }
+
+  function renderChat(opts){
     const list = qs('#chatList');
     if (!list) return;
+    const preserveScroll = !!(opts && opts.preserveScroll);
+    const shouldAutoScroll = !!(opts && opts.autoScroll);
+    const wasAtBottom = isAtBottom(list);
+    const prevScrollHeight = list.scrollHeight;
+    const prevScrollTop = list.scrollTop;
     list.innerHTML = '';
+
+    if (chatHasOlder || chatLoadingOlder) {
+      const loadWrap = document.createElement('div');
+      loadWrap.className = 'chat-load';
+      const btn = document.createElement('button');
+      btn.className = 'btn';
+      btn.textContent = chatLoadingOlder ? 'Loading…' : 'Load older';
+      btn.disabled = chatLoadingOlder;
+      btn.onclick = () => { loadOlderChat(); };
+      loadWrap.appendChild(btn);
+      list.appendChild(loadWrap);
+    }
 
     if (!chatItems || !chatItems.length) {
       const empty = document.createElement('div');
@@ -376,7 +405,12 @@ PANEL_HTML = """<!doctype html>
       row.appendChild(bubble);
       list.appendChild(row);
     }
-    list.scrollTop = list.scrollHeight;
+    if (preserveScroll) {
+      const nextScrollHeight = list.scrollHeight;
+      list.scrollTop = nextScrollHeight - prevScrollHeight + prevScrollTop;
+    } else if (shouldAutoScroll || wasAtBottom) {
+      list.scrollTop = list.scrollHeight;
+    }
   }
 
   function renderConfigSummary(){
@@ -405,6 +439,65 @@ PANEL_HTML = """<!doctype html>
       session_key: it.session_key,
       text: it.text,
     }));
+    chatHasOlder = !!cfg.chat_history_has_older;
+    chatSessionKey = cfg.session_key || cfg.target || null;
+  }
+
+  async function hassFetch(path, opts){
+    const parent = window.parent;
+    if (!parent) throw new Error('No parent window');
+    if (parent.hass && typeof parent.hass.fetchWithAuth === 'function') {
+      return parent.hass.fetchWithAuth(path, opts || {});
+    }
+    if (parent.hass && parent.hass.connection && typeof parent.hass.connection.fetchWithAuth === 'function') {
+      return parent.hass.connection.fetchWithAuth(path, opts || {});
+    }
+    if (parent.hass && typeof parent.hass.callApi === 'function') {
+      const apiPath = String(path || '').replace(/^\\/api\\//, '');
+      return parent.hass.callApi('GET', apiPath);
+    }
+    throw new Error('Unable to fetch with Home Assistant auth');
+  }
+
+  async function loadOlderChat(){
+    if (chatLoadingOlder) return;
+    const beforeId = (() => {
+      for (const it of (chatItems || [])) {
+        if (it && it.id) return it.id;
+      }
+      return null;
+    })();
+    if (!beforeId) {
+      chatHasOlder = false;
+      renderChat({ preserveScroll: true });
+      return;
+    }
+    chatLoadingOlder = true;
+    renderChat({ preserveScroll: true });
+    try{
+      const params = new URLSearchParams();
+      params.set('limit', '50');
+      params.set('before_id', beforeId);
+      if (chatSessionKey) params.set('session_key', chatSessionKey);
+      const resp = await hassFetch('/api/clawdbot/chat_history?' + params.toString());
+      const data = resp && resp.json ? await resp.json() : resp;
+      const items = (data && Array.isArray(data.items)) ? data.items : [];
+      const existing = new Set((chatItems || []).map((it)=>it && it.id).filter(Boolean));
+      const prepend = [];
+      for (const it of items){
+        if (!it || !it.id || existing.has(it.id)) continue;
+        prepend.push(it);
+      }
+      if (prepend.length) {
+        chatItems = prepend.concat(chatItems || []);
+      }
+      chatHasOlder = !!(data && data.has_older);
+    } catch(e){
+      console.warn('chat_history fetch failed', e);
+    } finally {
+      chatLoadingOlder = false;
+      renderChat({ preserveScroll: true });
+    }
   }
 
 
@@ -1027,7 +1120,7 @@ PANEL_HTML = """<!doctype html>
       }
       if (which === 'chat') {
         loadChatFromConfig();
-        renderChat();
+        renderChat({ autoScroll: true });
       }
     }
 
@@ -1134,7 +1227,7 @@ PANEL_HTML = """<!doctype html>
         const ts = now.toISOString();
         chatItems.push({ role: 'user', text, ts });
         input.value = '';
-        renderChat();
+        renderChat({ autoScroll: true });
       } catch(e){
         console.warn('chat_append failed', e);
       }
@@ -1174,7 +1267,12 @@ class ClawdbotPanelView(HomeAssistantView):
         chat_history = cfg.get("chat_history", []) or []
         if not isinstance(chat_history, list):
             chat_history = []
-        chat_history = chat_history[-50:]
+        session_key = cfg.get("target") or DEFAULT_SESSION_KEY
+        session_items = [it for it in chat_history if isinstance(it, dict) and it.get("session_key") == session_key]
+        if not session_items:
+            session_items = [it for it in chat_history if isinstance(it, dict)]
+        chat_history = session_items[-50:]
+        chat_has_older = len(session_items) > len(chat_history)
         safe_cfg = {
             "gateway_url": cfg.get("gateway_url") or cfg.get("gateway_origin"),
             "has_token": bool(cfg.get("has_token")),
@@ -1182,6 +1280,8 @@ class ClawdbotPanelView(HomeAssistantView):
             "mapping": cfg.get("mapping", {}),
             "house_memory": cfg.get("house_memory", {}),
             "chat_history": chat_history,
+            "chat_history_has_older": chat_has_older,
+            "session_key": session_key,
         }
         html = PANEL_HTML.replace("__CONFIG_JSON__", dumps(safe_cfg))
         return web.Response(
@@ -1370,6 +1470,7 @@ class ClawdbotChatHistoryApiView(HomeAssistantView):
         items = cfg.get("chat_history", []) or []
         if not isinstance(items, list):
             items = []
+        items = [it for it in items if isinstance(it, dict)]
 
         limit = 50
         try:
@@ -1383,11 +1484,37 @@ class ClawdbotChatHistoryApiView(HomeAssistantView):
 
         session_key = request.query.get("session_key")
         if session_key:
-            filtered = [it for it in items if isinstance(it, dict) and it.get("session_key") == session_key]
+            filtered = [it for it in items if it.get("session_key") == session_key]
         else:
             filtered = items
+        before_id = request.query.get("before_id")
 
-        return web.json_response({"ok": True, "items": (filtered[-limit:])})
+        if before_id:
+            idx = None
+            for i, it in enumerate(filtered):
+                if it.get("id") == before_id:
+                    idx = i
+                    break
+            if idx is None:
+                candidates = filtered
+            else:
+                candidates = filtered[:idx]
+        else:
+            candidates = filtered
+
+        if len(candidates) > limit:
+            page = candidates[-limit:]
+        else:
+            page = candidates
+
+        if before_id and len(candidates) > limit:
+            has_older = len(candidates) > len(page)
+        elif before_id and len(candidates) <= limit:
+            has_older = False
+        else:
+            has_older = len(filtered) > len(page)
+
+        return web.json_response({"ok": True, "items": page, "has_older": has_older})
 
 
 
@@ -1746,6 +1873,75 @@ async def async_setup(hass, config):
         await store.async_save(items)
         cfg["chat_history"] = items
 
+    async def handle_chat_fetch(call):
+        hass = call.hass
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("chat_store")
+        if store is None:
+            raise RuntimeError("chat history store not initialized")
+
+        limit = 50
+        try:
+            limit = int(call.data.get("limit", 50))
+        except Exception:
+            limit = 50
+        if limit < 1:
+            limit = 1
+        if limit > 500:
+            limit = 500
+
+        session = call.data.get("session_key") or cfg.get("target") or DEFAULT_SESSION_KEY
+        before_id = call.data.get("before_id")
+
+        all_items = await store.async_load() or []
+        if not isinstance(all_items, list):
+            all_items = []
+
+        filtered = [it for it in all_items if isinstance(it, dict)]
+        if session:
+            filtered = [it for it in filtered if it.get("session_key") == session]
+
+        if before_id:
+            idx = None
+            for i, it in enumerate(filtered):
+                if it.get("id") == before_id:
+                    idx = i
+                    break
+            if idx is None:
+                candidates = filtered
+            else:
+                candidates = filtered[:idx]
+        else:
+            candidates = filtered
+
+        if len(candidates) > limit:
+            older = candidates[-limit:]
+        else:
+            older = candidates
+
+        current = cfg.get("chat_history", []) or []
+        if not isinstance(current, list):
+            current = []
+
+        combined = older + current
+        seen = set()
+        deduped = []
+        for it in combined:
+            if not isinstance(it, dict):
+                continue
+            item_id = it.get("id")
+            if item_id and item_id in seen:
+                continue
+            if item_id:
+                seen.add(item_id)
+            deduped.append(it)
+
+        if len(deduped) > 500:
+            deduped = deduped[-500:]
+
+        await store.async_save(deduped)
+        cfg["chat_history"] = deduped
+
     async def handle_gateway_test(call):
         if not token:
             raise RuntimeError("clawdbot.token is required to use services")
@@ -1857,6 +2053,7 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, SERVICE_HA_GET_STATES, handle_ha_get_states)
     hass.services.async_register(DOMAIN, SERVICE_HA_CALL_SERVICE, handle_ha_call_service)
     hass.services.async_register(DOMAIN, "chat_append", handle_chat_append)
+    hass.services.async_register(DOMAIN, SERVICE_CHAT_FETCH, handle_chat_fetch)
 
     _LOGGER.info(
         "Clawdbot services registered (%s.%s, %s.%s, %s.%s, %s.%s)",
