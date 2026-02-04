@@ -145,7 +145,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.14"
+PANEL_BUILD_ID = "89337ab.15"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -1865,10 +1865,15 @@ PANEL_HTML = """<!doctype html>
     @media (max-width: 680px){ .chat-bubble{max-width:90%;} .chat-shell{height:72vh;} }
 
     /* Entity configuration (Setup) */
-    .cfg-row{display:grid;grid-template-columns: 160px 1fr auto auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--divider-color);}
+    .cfg-row{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--divider-color);}
     .cfg-row:first-child{border-top:none;}
+    .cfg-left{min-width:0;display:flex;flex-direction:column;gap:4px;flex:1;}
     .cfg-label{font-weight:600;}
-    .cfg-value{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; color: var(--secondary-text-color); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+    .cfg-selected{min-width:0;display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:12px;border:1px solid color-mix(in srgb, var(--divider-color) 70%, transparent);background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent);}
+    .cfg-name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .cfg-meta{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; color: var(--secondary-text-color); white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .cfg-actions{display:flex;gap:8px;flex-shrink:0;}
+    @media (max-width: 680px){ .cfg-row{flex-direction:column;align-items:stretch;} .cfg-actions{justify-content:flex-end;} }
 
     /* Modal */
     .modal{position:fixed;inset:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;z-index:9999;}
@@ -1964,29 +1969,60 @@ PANEL_HTML = """<!doctype html>
       </div>
 
       <div id=\"entityConfig\" style=\"margin-top:10px\">
-        <div class=\"cfg-row\">
-          <div class=\"cfg-label\">Battery SOC</div>
-          <div class=\"cfg-value\" id=\"cfgSocValue\">—</div>
-          <button class=\"btn\" data-pick=\"soc\">Select…</button>
-          <button class=\"btn\" data-clear=\"soc\">Clear</button>
+        <div class=\"cfg-row\" data-field=\"soc\">
+          <div class=\"cfg-left\">
+            <div class=\"cfg-label\">Battery SOC</div>
+            <div class=\"cfg-selected\">
+              <div class=\"cfg-name\" id=\"cfgSocName\">Not set</div>
+              <div class=\"cfg-meta\" id=\"cfgSocMeta\">—</div>
+            </div>
+          </div>
+          <div class=\"cfg-actions\">
+            <button class=\"btn\" data-pick=\"soc\">Select…</button>
+            <button class=\"btn\" data-clear=\"soc\">Clear</button>
+          </div>
         </div>
-        <div class=\"cfg-row\">
-          <div class=\"cfg-label\">Battery Voltage</div>
-          <div class=\"cfg-value\" id=\"cfgVoltageValue\">—</div>
-          <button class=\"btn\" data-pick=\"voltage\">Select…</button>
-          <button class=\"btn\" data-clear=\"voltage\">Clear</button>
+
+        <div class=\"cfg-row\" data-field=\"voltage\">
+          <div class=\"cfg-left\">
+            <div class=\"cfg-label\">Battery Voltage</div>
+            <div class=\"cfg-selected\">
+              <div class=\"cfg-name\" id=\"cfgVoltageName\">Not set</div>
+              <div class=\"cfg-meta\" id=\"cfgVoltageMeta\">—</div>
+            </div>
+          </div>
+          <div class=\"cfg-actions\">
+            <button class=\"btn\" data-pick=\"voltage\">Select…</button>
+            <button class=\"btn\" data-clear=\"voltage\">Clear</button>
+          </div>
         </div>
-        <div class=\"cfg-row\">
-          <div class=\"cfg-label\">Solar Power</div>
-          <div class=\"cfg-value\" id=\"cfgSolarValue\">—</div>
-          <button class=\"btn\" data-pick=\"solar\">Select…</button>
-          <button class=\"btn\" data-clear=\"solar\">Clear</button>
+
+        <div class=\"cfg-row\" data-field=\"solar\">
+          <div class=\"cfg-left\">
+            <div class=\"cfg-label\">Solar Power</div>
+            <div class=\"cfg-selected\">
+              <div class=\"cfg-name\" id=\"cfgSolarName\">Not set</div>
+              <div class=\"cfg-meta\" id=\"cfgSolarMeta\">—</div>
+            </div>
+          </div>
+          <div class=\"cfg-actions\">
+            <button class=\"btn\" data-pick=\"solar\">Select…</button>
+            <button class=\"btn\" data-clear=\"solar\">Clear</button>
+          </div>
         </div>
-        <div class=\"cfg-row\">
-          <div class=\"cfg-label\">Load Power</div>
-          <div class=\"cfg-value\" id=\"cfgLoadValue\">—</div>
-          <button class=\"btn\" data-pick=\"load\">Select…</button>
-          <button class=\"btn\" data-clear=\"load\">Clear</button>
+
+        <div class=\"cfg-row\" data-field=\"load\">
+          <div class=\"cfg-left\">
+            <div class=\"cfg-label\">Load Power</div>
+            <div class=\"cfg-selected\">
+              <div class=\"cfg-name\" id=\"cfgLoadName\">Not set</div>
+              <div class=\"cfg-meta\" id=\"cfgLoadMeta\">—</div>
+            </div>
+          </div>
+          <div class=\"cfg-actions\">
+            <button class=\"btn\" data-pick=\"load\">Select…</button>
+            <button class=\"btn\" data-clear=\"load\">Clear</button>
+          </div>
         </div>
       </div>
 
