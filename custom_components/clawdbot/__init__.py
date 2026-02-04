@@ -145,7 +145,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.8"
+PANEL_BUILD_ID = "89337ab.9"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -1096,13 +1096,37 @@ PANEL_JS = r"""
           parent.hassConnection,
           new Promise((_, rej) => setTimeout(() => rej(new Error('hassConnection timeout')), timeoutMs)),
         ]);
-        if (hc && hc.conn) { try{ if (DEBUG_UI) console.debug('[clawdbot] getHass via hassConnection', !!(hc.hass && hc.hass.states)); }catch(e){}; return { conn: hc.conn, hass: hc.hass }; }
+        if (hc && hc.conn) {
+          // IMPORTANT: some HA builds resolve hassConnection with {conn} but without {hass}.
+          // Do not return early in that case; keep the conn and continue searching for hass.
+          let hass = hc.hass || null;
+          if (!hass || !hass.states) {
+            try{ hass = (parent.hass && parent.hass.states) ? parent.hass : null; } catch(e) {}
+          }
+          if (hass && hass.states) {
+            try{ if (DEBUG_UI) console.debug('[clawdbot] getHass via hassConnection', true); }catch(e){};
+            return { conn: hc.conn, hass };
+          }
+          parent.__clawdbotConn = hc.conn;
+        }
       }
     } catch(e) {}
 
     // Path 2: legacy global hass
     try{
       if (parent.hass && parent.hass.connection) { try{ if (DEBUG_UI) console.debug('[clawdbot] getHass via parent.hass', !!(parent.hass && parent.hass.states)); }catch(e){}; return { conn: parent.hass.connection, hass: parent.hass }; }
+    } catch(e) {}
+
+    // If we have a conn from Path1 but still no hass, try to synthesize hass via DOM and return.
+    try{
+      const fallbackConn = parent.__clawdbotConn || null;
+      if (fallbackConn) {
+        const doc = parent.document;
+        const ha = doc && doc.querySelector ? doc.querySelector('home-assistant') : null;
+        const main = ha && ha.shadowRoot && ha.shadowRoot.querySelector ? ha.shadowRoot.querySelector('home-assistant-main') : null;
+        const hass = (main && (main.hass || main._hass)) || (ha && (ha.hass || ha._hass)) || null;
+        if (hass && hass.states) return { conn: fallbackConn, hass };
+      }
     } catch(e) {}
 
     // Path 3: query DOM for HA root element, then read hass / hassConnection
