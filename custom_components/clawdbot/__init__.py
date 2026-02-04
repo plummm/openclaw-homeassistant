@@ -164,7 +164,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.52"
+PANEL_BUILD_ID = "89337ab.53"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -5271,9 +5271,14 @@ async def async_setup(hass, config):
         import asyncio, json as _json
         resp_txt = None
         resp_raw = None
+        debug_quick = bool(call.data.get("debug"))
+        max_attempts = 6 if debug_quick else 40
+        sleep_s = 0.2 if debug_quick else 0.75
+
         poll_debug = {
             "attempts": 0,
             "tool": "sessions_history",
+            "debug_quick": debug_quick,
             "hist_top_keys": [],
             "raw_top_keys": [],
             "details_keys": [],
@@ -5285,7 +5290,7 @@ async def async_setup(hass, config):
             "last_content_type": None,
             "last_text_len": 0,
         }
-        for _ in range(40):
+        for _ in range(max_attempts):
             poll_debug["attempts"] += 1
             payload_hist = {"tool": "sessions_history", "args": {"sessionKey": sk, "limit": 10}}
             hist = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload_hist)
@@ -5388,7 +5393,7 @@ async def async_setup(hass, config):
                     break
             except Exception:
                 pass
-            await asyncio.sleep(0.75)
+            await asyncio.sleep(sleep_s)
 
         # Apply response or fallback
         default_desc = "Ship ops / energy monitoring assistant"
