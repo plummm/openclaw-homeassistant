@@ -116,8 +116,8 @@ PANEL_HTML = """<!doctype html>
       height:44px;
       padding:0 14px;
       border-radius:12px;
-      border:1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);
-      background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 70%, transparent);
+      border:1px solid color-mix(in srgb, var(--divider-color) 78%, #000 14%);
+      background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 72%, transparent);
       color:var(--primary-text-color);
       outline:none;
     }
@@ -129,18 +129,18 @@ PANEL_HTML = """<!doctype html>
     code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;}
     .surface{
       background:linear-gradient(180deg,
-        color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 16%, var(--primary-background-color)) 0%,
-        color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 6%, var(--primary-background-color)) 220px,
-        var(--primary-background-color) 520px);
+        color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 22%, var(--primary-background-color)) 0%,
+        color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 10%, var(--primary-background-color)) 240px,
+        var(--primary-background-color) 560px);
       border-radius:16px;
       padding:18px;
-      border:1px solid var(--divider-color);
-      box-shadow:0 8px 30px rgba(0,0,0,.06);
+      border:1px solid color-mix(in srgb, var(--divider-color) 88%, #000 12%);
+      box-shadow:0 10px 34px rgba(0,0,0,.08);
     }
     .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
-    .card{border:1px solid color-mix(in srgb, var(--divider-color) 95%, transparent);border-radius:16px;padding:16px;margin:14px 0;
-      background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent);
-      box-shadow:0 6px 18px rgba(0,0,0,.06);
+    .card{border:1px solid color-mix(in srgb, var(--divider-color) 82%, #000 10%);border-radius:16px;padding:16px;margin:14px 0;
+      background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 94%, transparent);
+      box-shadow:0 8px 20px rgba(0,0,0,.07);
       backdrop-filter:saturate(1.1);
     }
     .muted{color:var(--secondary-text-color);font-size:13px;}
