@@ -324,7 +324,10 @@ PANEL_HTML = """<!doctype html>
     <div class=\"chat-head\">
       <div class=\"chat-head-left\">
         <span class=\"muted\" style=\"font-size:12px\">Session</span>
-        <select id=\"chatSessionSelect\" class=\"chat-session\"></select>
+        <div class=\"row\" style=\"gap:8px;align-items:center;flex-wrap:nowrap;\">
+          <select id=\"chatSessionSelect\" class=\"chat-session\"></select>
+          <button class=\"btn\" id=\"chatNewSessionBtn\" style=\"height:40px;border-radius:12px;padding:0 12px;white-space:nowrap;\">New session</button>
+        </div>
       </div>
       <div class=\"chat-head-right\">
         <span class=\"muted\" style=\"font-size:12px\">Tokens: <span id=\"chatTokenUsage\">—</span></span>
@@ -543,9 +546,10 @@ PANEL_HTML = """<!doctype html>
         o.textContent = label;
         return o;
       };
-      // Always include current if set
       const seen = new Set();
-      if (current) { sel.appendChild(mkOpt(current, current)); seen.add(current); }
+      // Ensure there's always a visible value even if sessions_list parse fails.
+      const fallback = current || (window.__CLAWDBOT_CONFIG__ && (window.__CLAWDBOT_CONFIG__.session_key || window.__CLAWDBOT_CONFIG__.target)) || 'main';
+      if (fallback) { sel.appendChild(mkOpt(fallback, fallback)); seen.add(fallback); }
       for (const s of arr){
         const key = s && (s.sessionKey || s.session_key || s.key || s.id);
         if (!key || seen.has(key)) continue;
@@ -553,7 +557,7 @@ PANEL_HTML = """<!doctype html>
         sel.appendChild(mkOpt(key, label ? (label + ' — ' + key) : key));
         seen.add(key);
       }
-      if (current) sel.value = current;
+      sel.value = current || fallback;
     } catch(e){
       // best-effort only
     }
@@ -1338,6 +1342,31 @@ PANEL_HTML = """<!doctype html>
       renderChat({ autoScroll: true });
       await refreshTokenUsage();
     };
+
+    const newSessionBtn = qs('#chatNewSessionBtn');
+    if (newSessionBtn) newSessionBtn.onclick = async () => {
+      const label = prompt('New session label (optional):', '');
+      try{
+        const resp = await hassFetch('/api/clawdbot/sessions_spawn', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ label: label || undefined }),
+        });
+        const data = resp && resp.json ? await resp.json() : resp;
+        const r = data && data.result ? data.result : data;
+        const key = r && (r.sessionKey || r.session_key || r.key);
+        await refreshSessions();
+        if (key && sessionSel) {
+          sessionSel.value = key;
+          chatSessionKey = key;
+          await loadChatLatest();
+          renderChat({ autoScroll: true });
+          await refreshTokenUsage();
+        }
+      } catch(e){
+        console.warn('sessions_spawn failed', e);
+      }
+    };
     const setSendEnabled = () => {
       if (!composer || !composerSend) return;
       composerSend.disabled = !String(composer.value||'').trim();
@@ -1723,6 +1752,39 @@ class ClawdbotSessionStatusApiView(HomeAssistantView):
 class ClawdbotSessionsSendApiView(HomeAssistantView):
     """Authenticated API for sending chat messages into an OpenClaw session."""
 
+
+class ClawdbotSessionsSpawnApiView(HomeAssistantView):
+    """Authenticated API for spawning a new OpenClaw session (best-effort)."""
+
+    url = "/api/clawdbot/sessions_spawn"
+    name = "api:clawdbot:sessions_spawn"
+    requires_auth = True
+
+    async def post(self, request):
+        from aiohttp import web
+
+        hass = request.app["hass"]
+        cfg = hass.data.get(DOMAIN, {})
+        token = cfg.get("token")
+        gateway_origin = cfg.get("gateway_origin")
+        session: aiohttp.ClientSession = cfg.get("session")
+        if not token or not gateway_origin or session is None:
+            return web.json_response({"ok": False, "error": "gateway not configured"}, status=400)
+
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        label = data.get("label")
+
+        payload = {"tool": "sessions_spawn", "args": {"task": "(new chat session)", "label": label or None, "cleanup": "keep"}}
+        res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
+        return web.json_response({"ok": True, "result": res})
+
+
+
     url = "/api/clawdbot/sessions_send"
     name = "api:clawdbot:sessions_send"
     requires_auth = True
@@ -1911,6 +1973,7 @@ async def async_setup(hass, config):
         hass.http.register_view(ClawdbotSessionsApiView)
         hass.http.register_view(ClawdbotSessionStatusApiView)
         hass.http.register_view(ClawdbotSessionsSendApiView)
+        hass.http.register_view(ClawdbotSessionsSpawnApiView)
         _LOGGER.info("Registered Clawdbot panel view → %s", PANEL_PATH)
         _LOGGER.info("Registered Clawdbot mapping API → %s", ClawdbotMappingApiView.url)
     except Exception:
