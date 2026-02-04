@@ -287,7 +287,7 @@ PANEL_JS = r"""
       for (let i = 0; i < parts.length; i++){
         const seg = escapeHtml(parts[i]);
         if (i % 2 === 0){
-          html += seg.replaceAll('\\n', '<br/>');
+          html += seg.replaceAll('\n', '<br/>');
         } else {
           html += `<pre><code>${seg}</code></pre>`;
         }
@@ -1376,12 +1376,32 @@ PANEL_JS = r"""
     setStatus(true, 'connected', `Loaded ${ids.length} entities (filter: ${f || 'none'})`);
   }
 
+
+  async function fetchStatesRest(){
+    // Fallback when hass.states is empty/unavailable in iframe context.
+    const r = await fetch('/api/states', { credentials: 'include' });
+    if (!r.ok) throw new Error('REST /api/states failed: ' + r.status);
+    const arr = await r.json();
+    const out = {};
+    if (Array.isArray(arr)) {
+      for (const it of arr) {
+        if (it && it.entity_id) out[it.entity_id] = it;
+      }
+    }
+    return out;
+  }
+
   async function refreshEntities(){
     try{ if (DEBUG_UI) dbgStep('refresh-start');
     console.debug('[clawdbot] refreshEntities start'); }catch(e) {}
-
     const { hass } = await getHass();
-    const states = hass && hass.states ? hass.states : {};
+    let states = (hass && hass.states) ? hass.states : {};
+    let n = 0;
+    try{ n = Object.keys(states||{}).length; }catch(e){}
+    if (!n) {
+      try{ if (DEBUG_UI) console.debug('[clawdbot] hass.states empty; using REST /api/states fallback'); }catch(e){}
+      states = await fetchStatesRest();
+    }
     _allIds = Object.keys(states).sort();
     buildMappingDatalist(hass);
     renderEntities(hass, qs('#filter').value);

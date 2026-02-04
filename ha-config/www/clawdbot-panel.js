@@ -139,7 +139,7 @@
       for (let i = 0; i < parts.length; i++){
         const seg = escapeHtml(parts[i]);
         if (i % 2 === 0){
-          html += seg.replaceAll('\\\\n', '<br/>');
+          html += seg.replaceAll('\\n', '<br/>');
         } else {
           html += `<pre><code>${seg}</code></pre>`;
         }
@@ -828,7 +828,7 @@
       const present = obj && obj.present;
       const conf = obj && (obj.confidence ?? 0);
       const li = document.createElement('li');
-      li.innerHTML = `<b>${label}:</b> ${present ? 'present' : 'not detected'} <span class=\\"muted\\">(confidence ${Math.round((conf||0)*100)}%}</span>`;
+      li.innerHTML = `<b>${label}:</b> ${present ? 'present' : 'not detected'} <span class=\"muted\">(confidence ${Math.round((conf||0)*100)}%}</span>`;
       ul.appendChild(li);
     }
     el.appendChild(ul);
@@ -1228,12 +1228,32 @@
     setStatus(true, 'connected', `Loaded ${ids.length} entities (filter: ${f || 'none'})`);
   }
 
+
+  async function fetchStatesRest(){
+    // Fallback when hass.states is empty/unavailable in iframe context.
+    const r = await fetch('/api/states', { credentials: 'include' });
+    if (!r.ok) throw new Error('REST /api/states failed: ' + r.status);
+    const arr = await r.json();
+    const out = {};
+    if (Array.isArray(arr)) {
+      for (const it of arr) {
+        if (it && it.entity_id) out[it.entity_id] = it;
+      }
+    }
+    return out;
+  }
+
   async function refreshEntities(){
     try{ if (DEBUG_UI) dbgStep('refresh-start');
     console.debug('[clawdbot] refreshEntities start'); }catch(e) {}
-
     const { hass } = await getHass();
-    const states = hass && hass.states ? hass.states : {};
+    let states = (hass && hass.states) ? hass.states : {};
+    let n = 0;
+    try{ n = Object.keys(states||{}).length; }catch(e){}
+    if (!n) {
+      try{ if (DEBUG_UI) console.debug('[clawdbot] hass.states empty; using REST /api/states fallback'); }catch(e){}
+      states = await fetchStatesRest();
+    }
     _allIds = Object.keys(states).sort();
     buildMappingDatalist(hass);
     renderEntities(hass, qs('#filter').value);
