@@ -155,7 +155,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.38"
+PANEL_BUILD_ID = "89337ab.39"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -4848,7 +4848,8 @@ async def async_setup(hass, config):
         items = [it for it in items if isinstance(it, dict) and it.get("session_key") == session_key]
 
         import re as _re
-        bad_re = _re.compile(r"ANNOUNCE_\w+|\bNO_REPLY\b|\bHEARTBEAT_OK\b|agent-to-agent announce|auto-journal|auto\-journaling|session-memory hook|ANNOUNCE_SKIP", _re.I)
+        # Only flag hard internal control/plumbing tokens (avoid false positives on normal text).
+        bad_re = _re.compile(r"\bANNOUNCE_\w+\b|\bANNOUNCE_SKIP\b|\bNO_REPLY\b|\bHEARTBEAT_OK\b|agent-to-agent announce", _re.I)
 
         role_counts = {}
         fp = set()
