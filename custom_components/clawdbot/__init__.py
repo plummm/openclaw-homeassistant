@@ -1349,6 +1349,11 @@ PANEL_HTML = """<!doctype html>
     const parent = window.parent;
     if (!parent) throw new Error('No parent window');
 
+    // If opened as top-window (not embedded), we cannot access HA frontend connection.
+    if (window === window.top) {
+      throw new Error('Top-window mode: no parent hass connection');
+    }
+
     // Path 1: legacy global hassConnection promise (add timeout; some builds keep it pending)
     try{
       if (parent.hassConnection && parent.hassConnection.then) {
@@ -1404,6 +1409,19 @@ PANEL_HTML = """<!doctype html>
       }
     } catch(e) {}
 
+
+
+    // Path 4: explicit HA shadow DOM traversal (home-assistant → shadowRoot → home-assistant-main)
+    try{
+      const doc = parent.document;
+      const ha = doc && doc.querySelector ? doc.querySelector('home-assistant') : null;
+      const main = ha && ha.shadowRoot && ha.shadowRoot.querySelector ? ha.shadowRoot.querySelector('home-assistant-main') : null;
+      if (main) {
+        const hass = main.hass || main._hass || null;
+        const conn = hass && hass.connection ? hass.connection : null;
+        if (hass && conn) return { conn, hass };
+      }
+    } catch(e) {}
     throw new Error('Unable to access Home Assistant frontend connection from iframe');
   }
 
