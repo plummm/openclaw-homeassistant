@@ -196,9 +196,12 @@ PANEL_HTML = """<!doctype html>
     .chat-head-right{display:flex;align-items:center;gap:10px;}
     .chat-session{height:40px;min-width:180px;max-width:520px;width:52vw;border-radius:12px;padding:0 12px;flex:1;
       border:1px solid color-mix(in srgb, var(--divider-color) 78%, #000 14%);
-      background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 72%, transparent);
+      background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent);
       color:var(--primary-text-color);
+      appearance:auto;
+      -webkit-appearance:menulist;
     }
+    .chat-session:focus{border-color:var(--mdc-theme-primary, var(--primary-color));box-shadow:0 0 0 3px color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 22%, transparent);}
     .chat-load-top{display:flex;justify-content:center;margin:0 0 10px 0;}
     .chat-load-top .btn{height:32px;font-size:12px;padding:0 12px;border-radius:999px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 70%, transparent);}
     @media (max-width: 680px){ .chat-bubble{max-width:90%;} .chat-shell{height:72vh;} }
@@ -338,7 +341,7 @@ PANEL_HTML = """<!doctype html>
     </div>
     <div class=\"chat-shell\">
       <div id=\"chatList\" class=\"chat-list\"></div>
-      <div id=\"chatTyping\" class=\"muted\" style=\"font-size:12px;padding:6px 12px;min-height:18px\"></div>\n      <div class=\"chat-input\">
+      <div id=\"chatTyping\" class=\"muted\" style=\"font-size:12px;padding:6px 12px;min-height:20px;line-height:20px\"></div>\n      <div class=\"chat-input\">
         <input id=\"chatComposer\" placeholder=\"Ask Clawdbot…\"/>
         <button class=\"btn primary\" id=\"chatComposerSend\" style=\"min-width:96px\">Send</button>
       </div>
