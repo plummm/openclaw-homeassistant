@@ -62,6 +62,7 @@ SERVICE_SET_MAPPING = "set_mapping"
 SERVICE_REFRESH_HOUSE_MEMORY = "refresh_house_memory"
 SERVICE_NOTIFY_EVENT = "notify_event"
 SERVICE_CHAT_FETCH = "chat_fetch"
+SERVICE_CHAT_POLL = "chat_poll"
 
 
 async def _gw_post(session: aiohttp.ClientSession, url: str, token: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -765,60 +766,28 @@ PANEL_HTML = """<!doctype html>
       return;
     }
 
-    let appended = [];
     const currentSession = chatSessionKey;
     try{
-      const items = await fetchSessionsHistory(50);
-      if (currentSession !== chatSessionKey) {
-        scheduleChatPoll(2000);
-        return;
-      }
-      const seen = chatLastSeenIds || new Set();
-      for (const it of items){
-        if (!it || !it.id) continue;
-        if (seen.has(it.id)) continue;
-        seen.add(it.id);
-        if (it.role !== 'agent') continue;
-        const text = String(it.text || '');
-        if (!text.trim()) continue;
-        chatItems.push({
-          id: it.id,
-          ts: it.ts,
-          role: 'agent',
-          session_key: it.session_key || currentSession,
-          text,
-        });
-        appended.push(it);
-      }
-      chatLastSeenIds = seen;
+      const pollRes = await callService('clawdbot','chat_poll',{ session_key: currentSession, limit: 50 });
+      chatLastPollTs = Date.now();
+      chatLastPollAppended = (pollRes && pollRes.appended != null) ? pollRes.appended : 0;
+      chatLastPollError = null;
+
+      // Refresh from HA chat_history API (authoritative for panel)
+      await loadChatLatest();
+      renderChat({ preserveScroll: true });
+
+      if (DEBUG_UI) console.debug('[clawdbot chat] poll ok', {session: currentSession, appended: chatLastPollAppended});
     } catch(e){
+      chatLastPollTs = Date.now();
+      chatLastPollAppended = 0;
       chatLastPollError = String(e && (e.message || e)).slice(0, 120);
       if (DEBUG_UI) console.debug('[clawdbot chat] poll error', e);
-      // keep polling, best-effort only
     }
 
-    chatLastPollTs = Date.now();
-    chatLastPollAppended = appended.length;
-    if (appended.length) chatLastPollError = null;
     updateChatPollDebug();
-    if (DEBUG_UI) console.debug('[clawdbot chat] poll ok', {session: currentSession, appended: appended.length});
 
-    if (appended.length) {
-      boostChatPolling();
-      for (const it of appended){
-        try{
-          await callService('clawdbot','chat_append',{
-            role: 'agent',
-            text: String(it.text || ''),
-            session_key: it.session_key || currentSession,
-            id: it.id,
-            ts: it.ts,
-          });
-        } catch(e){}
-      }
-      renderChat({ preserveScroll: true });
-    }
-
+    if (chatLastPollAppended) boostChatPolling();
     const delay = (Date.now() < chatPollBoostUntil) ? 2000 : 5000;
     scheduleChatPoll(delay);
   }
@@ -2601,6 +2570,166 @@ async def async_setup(hass, config):
         await store.async_save(items)
         cfg["chat_history"] = items
 
+    async def handle_chat_poll(call):
+        """Poll gateway sessions_history and append new agent messages into the HA chat store.
+
+        This is the reliable path for the iframe panel because it avoids panel→/api auth boundaries.
+        """
+        if not token:
+            raise RuntimeError("clawdbot.token is required to use services")
+
+        hass = call.hass
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("chat_store")
+        if store is None:
+            raise RuntimeError("chat history store not initialized")
+
+        session_key_local = call.data.get("session_key") or cfg.get("target") or DEFAULT_SESSION_KEY
+        if not isinstance(session_key_local, str) or not session_key_local:
+            session_key_local = DEFAULT_SESSION_KEY
+
+        limit = 50
+        try:
+            limit = int(call.data.get("limit", 50))
+        except Exception:
+            limit = 50
+        if limit < 1:
+            limit = 1
+        if limit > 100:
+            limit = 100
+
+        payload = {"tool": "sessions_history", "args": {"sessionKey": session_key_local, "limit": limit}}
+        res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
+
+        # Reuse the same parsing logic as the sessions_history API view (tail+diff).
+        raw = res
+        for _ in range(3):
+            if isinstance(raw, dict) and "result" in raw and isinstance(raw.get("result"), (dict, list)):
+                raw = raw.get("result")
+            else:
+                break
+        if isinstance(raw, dict) and isinstance(raw.get("details"), dict):
+            details = raw.get("details")
+            if isinstance(details.get("messages"), list):
+                raw = details
+        if isinstance(raw, dict) and not isinstance(raw.get("messages"), list) and isinstance(raw.get("content"), list):
+            try:
+                import json
+
+                txt = raw.get("content")[0].get("text") if raw.get("content") else None
+                if isinstance(txt, str) and txt.strip().startswith("{"):
+                    parsed = json.loads(txt)
+                    if isinstance(parsed, dict):
+                        raw = parsed
+            except Exception:
+                pass
+
+        messages = None
+        if isinstance(raw, list):
+            messages = raw
+        elif isinstance(raw, dict):
+            for key in ("items", "messages", "history", "data", "result"):
+                value = raw.get(key)
+                if isinstance(value, list):
+                    messages = value
+                    break
+        if messages is None:
+            messages = []
+
+        # Only append agent messages (assistant) to avoid user duplication.
+        now_ms = int(time.time() * 1000)
+        candidates = []
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            role_raw = msg.get("role") or msg.get("author")
+            if role_raw != "assistant":
+                continue
+
+            content = msg.get("content")
+            parts = []
+            signature = None
+
+            def _pull_text(part_obj):
+                nonlocal signature
+                if not isinstance(part_obj, dict):
+                    return
+                if part_obj.get("type") != "text":
+                    return
+                txt = part_obj.get("text")
+                if txt is None:
+                    txt = part_obj.get("content")
+                if txt is None:
+                    txt = ""
+                parts.append(str(txt))
+                if signature is None:
+                    sig = part_obj.get("textSignature")
+                    if sig:
+                        signature = str(sig)
+
+            if isinstance(content, list):
+                for part in content:
+                    _pull_text(part)
+            elif isinstance(content, dict):
+                if isinstance(content.get("parts"), list):
+                    for part in content.get("parts"):
+                        _pull_text(part)
+                else:
+                    _pull_text(content)
+            elif isinstance(content, str):
+                parts.append(content)
+
+            text = "".join(parts)
+            if not text.strip():
+                continue
+
+            ts_ms = None
+            for key in ("timestamp", "ts", "time", "createdAt", "created_at"):
+                if key in msg:
+                    ts_ms = msg.get(key)
+                    break
+            try:
+                ts_ms = int(ts_ms) if ts_ms is not None else None
+            except Exception:
+                ts_ms = None
+            if ts_ms is None:
+                ts_ms = now_ms
+
+            item_id = signature or hashlib.sha256(
+                f"{session_key_local}{ts_ms}agent{text}".encode("utf-8")
+            ).hexdigest()
+
+            candidates.append(
+                {
+                    "id": item_id,
+                    "ts": _iso_from_ms(ts_ms),
+                    "role": "agent",
+                    "session_key": session_key_local,
+                    "text": text,
+                }
+            )
+
+        current = cfg.get("chat_history", []) or []
+        if not isinstance(current, list):
+            current = []
+        seen_ids = {it.get("id") for it in current if isinstance(it, dict) and it.get("id")}
+
+        appended = 0
+        for it in candidates:
+            if it["id"] in seen_ids:
+                continue
+            current.append(it)
+            seen_ids.add(it["id"])
+            appended += 1
+
+        if appended:
+            if len(current) > 500:
+                current = current[-500:]
+            await store.async_save(current)
+            cfg["chat_history"] = current
+
+        return {"appended": appended, "last_ts": candidates[-1]["ts"] if candidates else None}
+
     async def handle_chat_fetch(call):
         hass = call.hass
         cfg = hass.data.get(DOMAIN, {})
@@ -2782,6 +2911,7 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, SERVICE_HA_CALL_SERVICE, handle_ha_call_service)
     hass.services.async_register(DOMAIN, "chat_append", handle_chat_append)
     hass.services.async_register(DOMAIN, SERVICE_CHAT_FETCH, handle_chat_fetch)
+    hass.services.async_register(DOMAIN, SERVICE_CHAT_POLL, handle_chat_poll, supports_response=SupportsResponse.ONLY)
 
     _LOGGER.info(
         "Clawdbot services registered (%s.%s, %s.%s, %s.%s, %s.%s)",

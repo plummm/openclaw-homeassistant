@@ -70,3 +70,18 @@ chat_append:
       required: false
       selector:
         text:
+
+chat_poll:
+  name: Poll OpenClaw for new assistant replies (server-side)
+  description: Calls OpenClaw sessions_history, sanitizes + dedupes, and appends new agent messages into the HA chat store.
+  fields:
+    session_key:
+      required: false
+      selector:
+        text:
+    limit:
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 100
