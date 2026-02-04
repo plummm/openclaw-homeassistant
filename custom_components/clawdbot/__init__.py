@@ -415,6 +415,7 @@ PANEL_HTML = """<!doctype html>
         <button class=\"btn\" id=\"refreshBtn\">Refresh entities</button>
       </div>
       <div class=\"muted\" id=\"statusDetail\"></div>
+      <div class="muted" id="statusHint" style="margin-top:6px"></div>
     </div>
 
     <div class=\"card\">
@@ -1398,13 +1399,15 @@ PANEL_HTML = """<!doctype html>
     throw new Error('Unable to access Home Assistant frontend connection from iframe');
   }
 
-  function setStatus(ok, text, detail){
+  function setStatus(ok, text, detail, hint){
     const el = qs('#status');
     el.textContent = text;
     el.className = ok ? 'ok' : 'bad';
     const pill = document.getElementById('connPill');
     if (pill){ pill.textContent = ok ? 'connected' : 'error'; pill.className = 'pill ' + (ok ? 'ok' : 'bad'); }
     qs('#statusDetail').textContent = detail || '';
+    const hintEl = qs('#statusHint');
+    if (hintEl) hintEl.textContent = hint || '';
   }
 
 
@@ -1840,7 +1843,7 @@ PANEL_HTML = """<!doctype html>
 
     qs('#tabCockpit').onclick();
 
-    try{ const { hass } = await getHass(); setStatus(true,'connected',''); renderSuggestions(hass); renderMappedValues(hass); renderRecommendations(hass); } catch(e){ setStatus(false,'error', String(e)); }
+    try{ const { hass } = await getHass(); setStatus(true,'connected',''); renderSuggestions(hass); renderMappedValues(hass); renderRecommendations(hass); } catch(e){ const hint = (window === window.top) ? 'Tip: open via the Home Assistant sidebar panel (iframe) to access hass connection.' : ''; setStatus(false,'error', String(e), hint); }
   }
 
   init();
