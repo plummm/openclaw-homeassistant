@@ -174,25 +174,25 @@ PANEL_HTML = """<!doctype html>
     .btn:disabled{opacity:0.5;cursor:not-allowed;filter:none;}
     .btn.primary{border-color:var(--mdc-theme-primary, var(--primary-color));background:var(--mdc-theme-primary, var(--primary-color));color:var(--text-primary-color, #fff);}
     .btn.primary:hover{filter:brightness(0.95);}
-    .tabs{display:inline-flex;gap:0;margin-top:12px;margin-bottom:14px;
+    .tabs{display:inline-flex;align-items:center;gap:0;margin-top:12px;margin-bottom:14px;
       padding:3px;border-radius:14px;
       background:color-mix(in srgb, var(--secondary-background-color) 92%, var(--cb-card-bg));
       border:1px solid var(--cb-border);
       box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--divider-color) 75%, transparent);
     }
-    .tab{height:40px;width:110px;padding:0 12px;border:none;border-radius:10px;
-      background:color-mix(in srgb, var(--secondary-background-color) 82%, var(--cb-card-bg));
+    .tab{height:40px;min-width:96px;padding:0 14px;border:none;border-radius:10px;
+      background:transparent;
       color:var(--primary-text-color);
       cursor:pointer;display:flex;flex:0 0 auto;align-items:center;justify-content:center;
-      font-weight:650;
+      font-weight:700;
     }
     .tab + .tab{border-left:1px solid color-mix(in srgb, var(--divider-color) 70%, transparent);}
-    .tab:hover{background:color-mix(in srgb, var(--secondary-background-color) 70%, var(--primary-background-color));}
+    .tab:hover{background:color-mix(in srgb, var(--secondary-background-color) 78%, var(--cb-card-bg));}
     .tab.active{
-      background:color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 12%, var(--cb-card-bg));
+      background:color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 18%, var(--cb-card-bg));
       color:var(--primary-text-color);
       position:relative;
-      box-shadow:0 2px 10px rgba(0,0,0,.12), inset 0 0 0 1px var(--cb-border-strong);
+      box-shadow:inset 0 0 0 1px var(--cb-border-strong);
     }
     .tab.active::after{
       content:"";position:absolute;left:12px;right:12px;bottom:6px;height:3px;border-radius:999px;
@@ -252,7 +252,28 @@ PANEL_HTML = """<!doctype html>
   <h1>Clawdbot</h1>
   <div class=\"muted\" style=\"margin:0 0 10px 0;\">Home Assistant panel (served by HA). Uses HA auth to call HA services which relay to OpenClaw.</div>
 
-  <script>window.__CLAWDBOT_CONFIG__ = __CONFIG_JSON__;</script>
+  <script>
+    window.__CLAWDBOT_CONFIG__ = __CONFIG_JSON__;
+    // Theme binding: copy HA CSS variables from parent document into this iframe.
+    // CSS custom properties do not inherit across iframe boundaries.
+    (function syncThemeVars(){
+      try{
+        const p = window.parent && window.parent.document;
+        if (!p) return;
+        const src = window.parent.getComputedStyle(p.documentElement);
+        const dstEl = document.documentElement;
+        const keys = [
+          '--primary-background-color','--secondary-background-color','--card-background-color','--ha-card-background',
+          '--primary-text-color','--secondary-text-color','--divider-color','--primary-color','--mdc-theme-primary',
+          '--ha-card-border-radius','--ha-card-box-shadow','--success-color','--error-color'
+        ];
+        for (const k of keys){
+          const v = src.getPropertyValue(k);
+          if (v && v.trim()) dstEl.style.setProperty(k, v.trim());
+        }
+      } catch(e) {}
+    })();
+  </script>
 
   <div class=\"tabs\">
     <button type=\"button\" class=\"tab\" id=\"tabSetup\">Setup</button>
