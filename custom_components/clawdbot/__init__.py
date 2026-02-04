@@ -177,8 +177,8 @@ PANEL_HTML = """<!doctype html>
     .choice input{margin-top:3px;}
     .choice-main{font-size:13px;}
     .choice-meta{font-size:12px;color:var(--secondary-text-color);}
-    .chat-shell{display:flex;flex-direction:column;height:min(68vh,720px);border:1px solid var(--divider-color);border-radius:16px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent);box-shadow:0 6px 18px rgba(0,0,0,.06);overflow:hidden;}
-    .chat-list{flex:1;overflow:auto;padding:0 16px 16px 16px;position:relative;background:linear-gradient(180deg, color-mix(in srgb, var(--secondary-background-color) 90%, transparent) 0%, transparent 65%);} 
+    .chat-shell{display:flex;flex-direction:column;height:min(68vh,720px);min-height:0;border:1px solid var(--divider-color);border-radius:16px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent);box-shadow:0 6px 18px rgba(0,0,0,.06);overflow:hidden;}
+    .chat-list{flex:1;min-height:0;overflow:auto;padding:0 16px 16px 16px;position:relative;background:linear-gradient(180deg, color-mix(in srgb, var(--secondary-background-color) 90%, transparent) 0%, transparent 65%);} 
     .chat-stack{display:flex;flex-direction:column;gap:12px;min-height:100%;justify-content:flex-end;}
     .chat-row{display:flex;align-items:flex-end;gap:10px;}
     .chat-row.user{justify-content:flex-end;}
@@ -194,7 +194,7 @@ PANEL_HTML = """<!doctype html>
     .chat-load{position:sticky;top:0;z-index:2;display:flex;justify-content:center;margin:0;padding:0;
       background:linear-gradient(180deg, color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent) 0%, transparent 100%);
     }
-    .chat-load .btn{height:32px;font-size:12px;padding:0 10px;border-radius:999px;margin:8px 0;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 70%, transparent);}
+    .chat-load .btn{height:32px;font-size:12px;padding:0 12px;border-radius:999px;margin:0;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 70%, transparent);}
     @media (max-width: 680px){ .chat-bubble{max-width:90%;} .chat-shell{height:72vh;} }
   </style>
 </head>
