@@ -191,10 +191,8 @@ PANEL_HTML = """<!doctype html>
     .chat-input input{flex:1;min-width:220px;height:46px;}
     .chat-bubble pre{margin:8px 0 0 0;padding:10px 12px;border-radius:12px;background:color-mix(in srgb, var(--primary-background-color) 65%, transparent);border:1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);overflow:auto;}
     .chat-bubble code{background:color-mix(in srgb, var(--primary-background-color) 70%, transparent);padding:2px 6px;border-radius:8px;}
-    .chat-load{position:sticky;top:0;z-index:2;display:flex;justify-content:center;margin:0;padding:0;
-      background:linear-gradient(180deg, color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent) 0%, transparent 100%);
-    }
-    .chat-load .btn{height:32px;font-size:12px;padding:0 12px;border-radius:999px;margin:0;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 70%, transparent);}
+    .chat-load-top{display:flex;justify-content:center;margin:0 0 10px 0;}
+    .chat-load-top .btn{height:32px;font-size:12px;padding:0 12px;border-radius:999px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 70%, transparent);}
     @media (max-width: 680px){ .chat-bubble{max-width:90%;} .chat-shell{height:72vh;} }
   </style>
 </head>
@@ -315,6 +313,9 @@ PANEL_HTML = """<!doctype html>
   </div>
 
   <div id=\"viewChat\" class=\"hidden\">
+    <div class=\"chat-load-top\" id=\"chatLoadTop\">
+      <button class=\"btn\" id=\"chatLoadOlderBtn\">Load older</button>
+    </div>
     <div class=\"chat-shell\">
       <div id=\"chatList\" class=\"chat-list\"></div>
       <div class=\"chat-input\">
@@ -365,6 +366,16 @@ PANEL_HTML = """<!doctype html>
     return gap < 6;
   }
 
+  function updateLoadOlderTop(){
+    const wrap = qs('#chatLoadTop');
+    const btn = qs('#chatLoadOlderBtn');
+    if (!wrap || !btn) return;
+    const show = !!(chatHasOlder || chatLoadingOlder);
+    wrap.style.display = show ? 'flex' : 'none';
+    btn.textContent = chatLoadingOlder ? 'Loading…' : 'Load older';
+    btn.disabled = !!chatLoadingOlder;
+  }
+
   function renderChat(opts){
     const list = qs('#chatList');
     if (!list) return;
@@ -374,19 +385,6 @@ PANEL_HTML = """<!doctype html>
     const prevScrollHeight = list.scrollHeight;
     const prevScrollTop = list.scrollTop;
     list.innerHTML = '';
-
-    // Load-older control must be the first child inside the scroll container.
-    if (chatHasOlder || chatLoadingOlder) {
-      const loadWrap = document.createElement('div');
-      loadWrap.className = 'chat-load';
-      const btn = document.createElement('button');
-      btn.className = 'btn';
-      btn.textContent = chatLoadingOlder ? 'Loading…' : 'Load older';
-      btn.disabled = chatLoadingOlder;
-      btn.onclick = () => { loadOlderChat(); };
-      loadWrap.appendChild(btn);
-      list.appendChild(loadWrap);
-    }
 
     const stack = document.createElement('div');
     stack.className = 'chat-stack';
@@ -425,6 +423,8 @@ PANEL_HTML = """<!doctype html>
       row.appendChild(bubble);
       stack.appendChild(row);
     }
+    updateLoadOlderTop();
+
     if (preserveScroll) {
       const nextScrollHeight = list.scrollHeight;
       list.scrollTop = nextScrollHeight - prevScrollHeight + prevScrollTop;
@@ -1234,6 +1234,8 @@ PANEL_HTML = """<!doctype html>
 
     const composer = qs('#chatComposer');
     const composerSend = qs('#chatComposerSend');
+    const loadOlderBtn = qs('#chatLoadOlderBtn');
+    if (loadOlderBtn) loadOlderBtn.onclick = () => { loadOlderChat(); };
     const setSendEnabled = () => {
       if (!composer || !composerSend) return;
       composerSend.disabled = !String(composer.value||'').trim();
