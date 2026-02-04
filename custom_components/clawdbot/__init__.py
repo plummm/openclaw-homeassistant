@@ -1901,8 +1901,18 @@ class ClawdbotSessionsHistoryApiView(HomeAssistantView):
         res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
 
         raw = res
-        if isinstance(raw, dict) and "result" in raw:
-            raw = raw.get("result")
+        # Some gateway responses double-wrap result/result.
+        for _ in range(3):
+            if isinstance(raw, dict) and "result" in raw and isinstance(raw.get("result"), (dict, list)):
+                raw = raw.get("result")
+            else:
+                break
+
+        if request.query.get("debug") == "1":
+            try:
+                _LOGGER.info("sessions_history debug: top-level type=%s keys=%s", type(raw), list(raw.keys()) if isinstance(raw, dict) else None)
+            except Exception:
+                pass
 
         # OpenClaw /tools/invoke typically returns {content:[...], details:{...}}
         if isinstance(raw, dict) and isinstance(raw.get("details"), dict):
@@ -2039,7 +2049,31 @@ class ClawdbotSessionStatusApiView(HomeAssistantView):
 
         payload = {"tool": "session_status", "args": {"sessionKey": session_key}}
         res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
-        return web.json_response({"ok": True, "result": res})
+
+        # Sanitize heavily: never return raw status cards (may include auth snippets).
+        raw = res
+        if isinstance(raw, dict) and "result" in raw:
+            raw = raw.get("result")
+        if isinstance(raw, dict) and "result" in raw:
+            raw = raw.get("result")
+
+        usage = None
+        busy = None
+        if isinstance(raw, dict):
+            usage = raw.get("usage") or raw.get("Usage")
+            busy = raw.get("busy") if "busy" in raw else raw.get("in_flight")
+        if isinstance(raw, dict) and isinstance(raw.get("data"), dict):
+            d = raw.get("data")
+            usage = usage or d.get("usage")
+            busy = busy if busy is not None else d.get("busy")
+
+        safe_usage = {}
+        if isinstance(usage, dict):
+            for k in ("totalTokens", "input", "output", "cacheRead", "cacheWrite"):
+                if k in usage:
+                    safe_usage[k] = usage.get(k)
+
+        return web.json_response({"ok": True, "session_key": session_key, "busy": bool(busy) if busy is not None else None, "usage": safe_usage or None})
 
 
 class ClawdbotSessionsSendApiView(HomeAssistantView):
