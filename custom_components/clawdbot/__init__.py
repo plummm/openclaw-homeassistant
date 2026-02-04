@@ -1362,13 +1362,13 @@ PANEL_HTML = """<!doctype html>
           parent.hassConnection,
           new Promise((_, rej) => setTimeout(() => rej(new Error('hassConnection timeout')), timeoutMs)),
         ]);
-        if (hc && hc.conn) return { conn: hc.conn, hass: hc.hass };
+        if (hc && hc.conn) { try{ if (DEBUG_UI) console.debug('[clawdbot] getHass via hassConnection', !!(hc.hass && hc.hass.states)); }catch(e){}; return { conn: hc.conn, hass: hc.hass }; }
       }
     } catch(e) {}
 
     // Path 2: legacy global hass
     try{
-      if (parent.hass && parent.hass.connection) return { conn: parent.hass.connection, hass: parent.hass };
+      if (parent.hass && parent.hass.connection) { try{ if (DEBUG_UI) console.debug('[clawdbot] getHass via parent.hass', !!(parent.hass && parent.hass.states)); }catch(e){}; return { conn: parent.hass.connection, hass: parent.hass }; }
     } catch(e) {}
 
     // Path 3: query DOM for HA root element, then read hass / hassConnection
@@ -1388,15 +1388,15 @@ PANEL_HTML = """<!doctype html>
               r.hassConnection,
               new Promise((_, rej) => setTimeout(() => rej(new Error('hassConnection timeout')), timeoutMs)),
             ]);
-            if (hc && hc.conn) return { conn: hc.conn, hass: hc.hass };
+            if (hc && hc.conn) { try{ if (DEBUG_UI) console.debug('[clawdbot] getHass via root.hassConnection', !!(hc.hass && hc.hass.states)); }catch(e){}; return { conn: hc.conn, hass: hc.hass }; }
           }
         } catch(e) {}
         try{
-          if (r.hass && r.hass.connection) return { conn: r.hass.connection, hass: r.hass };
+          if (r.hass && r.hass.connection) { try{ if (DEBUG_UI) console.debug('[clawdbot] getHass via root.hass', !!(r.hass && r.hass.states)); }catch(e){}; return { conn: r.hass.connection, hass: r.hass }; }
         } catch(e) {}
         // some HA builds tuck hass on appEl._hass
         try{
-          if (r._hass && r._hass.connection) return { conn: r._hass.connection, hass: r._hass };
+          if (r._hass && r._hass.connection) { try{ if (DEBUG_UI) console.debug('[clawdbot] getHass via root._hass', !!(r._hass && r._hass.states)); }catch(e){}; return { conn: r._hass.connection, hass: r._hass }; }
         } catch(e) {}
         // shadowRoot hop
         try{
@@ -1419,7 +1419,7 @@ PANEL_HTML = """<!doctype html>
       if (main) {
         const hass = main.hass || main._hass || null;
         const conn = hass && hass.connection ? hass.connection : null;
-        if (hass && conn) return { conn, hass };
+        if (hass && conn) { try{ if (DEBUG_UI) console.debug('[clawdbot] getHass via shadowRoot', !!(hass && hass.states), !!(hass && hass.connection)); }catch(e){}; return { conn, hass }; }
       }
     } catch(e) {}
     throw new Error('Unable to access Home Assistant frontend connection from iframe');
@@ -1645,6 +1645,8 @@ PANEL_HTML = """<!doctype html>
   }
 
   async function refreshEntities(){
+    try{ if (DEBUG_UI) console.debug('[clawdbot] refreshEntities start'); }catch(e) {}
+
     const { hass } = await getHass();
     const states = hass && hass.states ? hass.states : {};
     _allIds = Object.keys(states).sort();
