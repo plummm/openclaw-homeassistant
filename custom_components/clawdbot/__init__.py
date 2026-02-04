@@ -20,6 +20,8 @@ Notes:
 
 from __future__ import annotations
 
+import datetime as dt
+import hashlib
 import logging
 import time
 from typing import Any
@@ -60,6 +62,7 @@ SERVICE_SET_MAPPING = "set_mapping"
 SERVICE_REFRESH_HOUSE_MEMORY = "refresh_house_memory"
 SERVICE_NOTIFY_EVENT = "notify_event"
 SERVICE_CHAT_FETCH = "chat_fetch"
+SERVICE_SESSIONS_HISTORY = "sessions_history"
 
 
 async def _gw_post(session: aiohttp.ClientSession, url: str, token: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -84,6 +87,10 @@ def _derive_gateway_origin(panel_url: str) -> str:
     except Exception:
         pass
     return panel_url
+
+
+def _iso_from_ms(ts_ms: int) -> str:
+    return dt.datetime.fromtimestamp(ts_ms / 1000, tz=dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 MAPPING_STORE_KEY = "clawdbot_mapping"
@@ -363,6 +370,10 @@ PANEL_HTML = """<!doctype html>
   let chatHasOlder = false;
   let chatLoadingOlder = false;
   let chatSessionKey = null;
+  let chatPollingActive = false;
+  let chatPollTimer = null;
+  let chatLastSeenIds = new Set();
+  let chatPollBoostUntil = 0;
   const DEBUG_UI = (() => {
     try{
       const qs1 = new URLSearchParams(window.location.search || '');
@@ -488,6 +499,12 @@ PANEL_HTML = """<!doctype html>
     // Dev/test toggle: enable `?debug=1` to force showing paging control for UI QA.
     if (DEBUG_UI && (chatItems && chatItems.length >= 1)) chatHasOlder = true;
 
+    syncChatSeenIds();
+  }
+
+  function syncChatSeenIds(){
+    const ids = (chatItems || []).map((it)=>it && it.id).filter(Boolean);
+    chatLastSeenIds = new Set(ids);
   }
 
   async function hassFetch(path, opts){
@@ -504,6 +521,15 @@ PANEL_HTML = """<!doctype html>
       return parent.hass.callApi('GET', apiPath);
     }
     throw new Error('Unable to fetch with Home Assistant auth');
+  }
+
+  async function fetchSessionsHistory(limit){
+    const params = new URLSearchParams();
+    if (chatSessionKey) params.set('session_key', chatSessionKey);
+    params.set('limit', String(limit || 20));
+    const resp = await hassFetch('/api/clawdbot/sessions_history?' + params.toString());
+    const data = resp && resp.json ? await resp.json() : resp;
+    return (data && Array.isArray(data.items)) ? data.items : [];
   }
 
   function setTyping(on){
@@ -599,6 +625,7 @@ PANEL_HTML = """<!doctype html>
       const data = resp && resp.json ? await resp.json() : resp;
       chatItems = (data && Array.isArray(data.items)) ? data.items : [];
       chatHasOlder = !!(data && data.has_older);
+      syncChatSeenIds();
     } catch(e){
       // ignore
     }
@@ -637,12 +664,94 @@ PANEL_HTML = """<!doctype html>
         chatItems = prepend.concat(chatItems || []);
       }
       chatHasOlder = !!(data && data.has_older);
+      syncChatSeenIds();
     } catch(e){
       console.warn('chat_history fetch failed', e);
     } finally {
       chatLoadingOlder = false;
       renderChat({ preserveScroll: true });
     }
+  }
+
+  function stopChatPolling(){
+    chatPollingActive = false;
+    if (chatPollTimer) {
+      clearTimeout(chatPollTimer);
+      chatPollTimer = null;
+    }
+  }
+
+  function startChatPolling(){
+    if (chatPollingActive) return;
+    chatPollingActive = true;
+    scheduleChatPoll(1000);
+  }
+
+  function boostChatPolling(){
+    chatPollBoostUntil = Date.now() + 30000;
+  }
+
+  function scheduleChatPoll(delayMs){
+    if (!chatPollingActive) return;
+    if (chatPollTimer) clearTimeout(chatPollTimer);
+    chatPollTimer = setTimeout(pollSessionsHistory, Math.max(500, delayMs || 0));
+  }
+
+  async function pollSessionsHistory(){
+    if (!chatPollingActive) return;
+    if (!chatSessionKey) {
+      scheduleChatPoll(5000);
+      return;
+    }
+
+    let appended = [];
+    const currentSession = chatSessionKey;
+    try{
+      const items = await fetchSessionsHistory(50);
+      if (currentSession !== chatSessionKey) {
+        scheduleChatPoll(2000);
+        return;
+      }
+      const seen = chatLastSeenIds || new Set();
+      for (const it of items){
+        if (!it || !it.id) continue;
+        if (seen.has(it.id)) continue;
+        seen.add(it.id);
+        if (it.role !== 'agent') continue;
+        const text = String(it.text || '');
+        if (!text.trim()) continue;
+        chatItems.push({
+          id: it.id,
+          ts: it.ts,
+          role: 'agent',
+          session_key: it.session_key || currentSession,
+          text,
+        });
+        appended.push(it);
+      }
+      chatLastSeenIds = seen;
+    } catch(e){
+      // keep polling, best-effort only
+    }
+
+    if (appended.length) {
+      boostChatPolling();
+      for (const it of appended){
+        try{
+          await callService('clawdbot','chat_append',{
+            role: 'agent',
+            text: String(it.text || ''),
+            session_key: it.session_key || currentSession,
+            id: it.id,
+            ts: it.ts,
+          });
+        } catch(e){}
+      }
+      renderChat({ preserveScroll: true });
+    }
+
+    const delay = (Date.now() < chatPollBoostUntil) ? 2000 : 5000;
+    scheduleChatPoll(delay);
   }
 
 
@@ -1271,6 +1380,9 @@ PANEL_HTML = """<!doctype html>
         await loadChatLatest();
         renderChat({ autoScroll: true });
         await refreshTokenUsage();
+        startChatPolling();
+      } else {
+        stopChatPolling();
       }
     }
 
@@ -1369,6 +1481,7 @@ PANEL_HTML = """<!doctype html>
       await loadChatLatest();
       renderChat({ autoScroll: true });
       await refreshTokenUsage();
+      if (chatPollingActive) scheduleChatPoll(1000);
     };
 
     const newSessionBtn = qs('#chatNewSessionBtn');
@@ -1390,6 +1503,7 @@ PANEL_HTML = """<!doctype html>
           await loadChatLatest();
           renderChat({ autoScroll: true });
           await refreshTokenUsage();
+          if (chatPollingActive) scheduleChatPoll(1000);
         }
       } catch(e){
         console.warn('sessions_spawn failed', e);
@@ -1414,6 +1528,8 @@ PANEL_HTML = """<!doctype html>
       chatItems.push({ role: 'user', text, ts, session_key: chatSessionKey });
       input.value = '';
       renderChat({ autoScroll: true });
+      boostChatPolling();
+      if (chatPollingActive) scheduleChatPoll(1000);
 
       // deterministic in-flight indicator while the gateway call is pending
       setTyping(true);
@@ -1750,6 +1866,137 @@ class ClawdbotSessionsApiView(HomeAssistantView):
         return web.json_response({"ok": True, "result": res})
 
 
+class ClawdbotSessionsHistoryApiView(HomeAssistantView):
+    """Authenticated API for polling OpenClaw session history (sanitized)."""
+
+    url = "/api/clawdbot/sessions_history"
+    name = "api:clawdbot:sessions_history"
+    requires_auth = True
+
+    async def get(self, request):
+        from aiohttp import web
+
+        hass = request.app["hass"]
+        cfg = hass.data.get(DOMAIN, {})
+        token = cfg.get("token")
+        gateway_origin = cfg.get("gateway_origin")
+        session: aiohttp.ClientSession = cfg.get("session")
+        if not token or not gateway_origin or session is None:
+            return web.json_response({"ok": False, "error": "gateway not configured"}, status=400)
+
+        session_key = request.query.get("session_key")
+        if not session_key:
+            return web.json_response({"ok": False, "error": "session_key required"}, status=400)
+
+        limit = 20
+        try:
+            limit = int(request.query.get("limit", 20))
+        except Exception:
+            limit = 20
+        if limit < 1:
+            limit = 1
+        if limit > 100:
+            limit = 100
+
+        payload = {"tool": "sessions_history", "args": {"sessionKey": session_key, "limit": limit}}
+        res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
+
+        raw = res
+        if isinstance(raw, dict) and "result" in raw:
+            raw = raw.get("result")
+
+        messages = None
+        if isinstance(raw, list):
+            messages = raw
+        elif isinstance(raw, dict):
+            for key in ("items", "messages", "history", "data", "result"):
+                value = raw.get(key)
+                if isinstance(value, list):
+                    messages = value
+                    break
+        if messages is None:
+            messages = []
+
+        items = []
+        now_ms = int(time.time() * 1000)
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+
+            role_raw = msg.get("role") or msg.get("author")
+            if role_raw == "assistant":
+                role = "agent"
+            elif role_raw == "user":
+                role = "user"
+            else:
+                continue
+
+            content = msg.get("content")
+            parts = []
+            signature = None
+
+            def _pull_text(part_obj):
+                nonlocal signature
+                if not isinstance(part_obj, dict):
+                    return
+                if part_obj.get("type") != "text":
+                    return
+                txt = part_obj.get("text")
+                if txt is None:
+                    txt = part_obj.get("content")
+                if txt is None:
+                    txt = ""
+                parts.append(str(txt))
+                if signature is None:
+                    sig = part_obj.get("textSignature")
+                    if sig:
+                        signature = str(sig)
+
+            if isinstance(content, list):
+                for part in content:
+                    _pull_text(part)
+            elif isinstance(content, dict):
+                if isinstance(content.get("parts"), list):
+                    for part in content.get("parts"):
+                        _pull_text(part)
+                else:
+                    _pull_text(content)
+            elif isinstance(content, str):
+                parts.append(content)
+
+            text = "".join(parts)
+            if not text.strip():
+                continue
+
+            ts_ms = None
+            for key in ("timestamp", "ts", "time", "createdAt", "created_at"):
+                if key in msg:
+                    ts_ms = msg.get(key)
+                    break
+            try:
+                ts_ms = int(ts_ms) if ts_ms is not None else None
+            except Exception:
+                ts_ms = None
+            if ts_ms is None:
+                ts_ms = now_ms
+
+            item_id = signature or hashlib.sha256(
+                f"{session_key}{ts_ms}{role}{text}".encode("utf-8")
+            ).hexdigest()
+
+            items.append(
+                {
+                    "id": item_id,
+                    "ts": _iso_from_ms(ts_ms),
+                    "role": role,
+                    "session_key": session_key,
+                    "text": text,
+                }
+            )
+
+        return web.json_response({"ok": True, "items": items})
+
+
 class ClawdbotSessionStatusApiView(HomeAssistantView):
     """Authenticated API for best-effort token usage display."""
 
@@ -1999,6 +2246,7 @@ async def async_setup(hass, config):
         hass.http.register_view(ClawdbotHouseMemoryApiView)
         hass.http.register_view(ClawdbotChatHistoryApiView)
         hass.http.register_view(ClawdbotSessionsApiView)
+        hass.http.register_view(ClawdbotSessionsHistoryApiView)
         hass.http.register_view(ClawdbotSessionStatusApiView)
         hass.http.register_view(ClawdbotSessionsSendApiView)
         hass.http.register_view(ClawdbotSessionsSpawnApiView)
@@ -2179,6 +2427,8 @@ async def async_setup(hass, config):
         role = call.data.get("role")
         text = call.data.get("text")
         session = call.data.get("session_key") or cfg.get("target") or DEFAULT_SESSION_KEY
+        provided_id = call.data.get("id")
+        provided_ts = call.data.get("ts")
 
         if role not in {"user", "agent"}:
             raise RuntimeError("role must be one of: user, agent")
@@ -2187,9 +2437,14 @@ async def async_setup(hass, config):
         if not isinstance(session, str) or not session:
             session = DEFAULT_SESSION_KEY
 
+        item_id = str(provided_id) if provided_id else str(time.time_ns())
+        item_ts = str(provided_ts).strip() if provided_ts is not None else ""
+        if not item_ts:
+            item_ts = dt.datetime.now(tz=dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
         item = {
-            "id": str(time.time_ns()),
-            "ts": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+            "id": item_id,
+            "ts": item_ts,
             "role": role,
             "session_key": session,
             "text": text,
@@ -2198,6 +2453,9 @@ async def async_setup(hass, config):
         items = cfg.get("chat_history", []) or []
         if not isinstance(items, list):
             items = []
+        for it in items:
+            if isinstance(it, dict) and it.get("id") == item_id:
+                return
         items.append(item)
         if len(items) > 500:
             items = items[-500:]

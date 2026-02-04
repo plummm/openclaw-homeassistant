@@ -45,3 +45,28 @@ ha_call_service:
       required: false
       selector:
         object:
+
+chat_append:
+  name: Append a chat message
+  description: Add a chat message to the local history store (used by the panel).
+  fields:
+    role:
+      required: true
+      selector:
+        text:
+    text:
+      required: true
+      selector:
+        text:
+    session_key:
+      required: false
+      selector:
+        text:
+    id:
+      required: false
+      selector:
+        text:
+    ts:
+      required: false
+      selector:
+        text:
