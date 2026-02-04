@@ -63,6 +63,7 @@ SERVICE_REFRESH_HOUSE_MEMORY = "refresh_house_memory"
 SERVICE_NOTIFY_EVENT = "notify_event"
 SERVICE_CHAT_FETCH = "chat_fetch"
 SERVICE_CHAT_POLL = "chat_poll"
+SERVICE_CHAT_SEND = "chat_send"
 
 
 async def _gw_post(session: aiohttp.ClientSession, url: str, token: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1594,13 +1595,7 @@ PANEL_HTML = """<!doctype html>
       // deterministic in-flight indicator while the gateway call is pending
       setTyping(true);
       try{
-        const resp = await hassFetch('/api/clawdbot/sessions_send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_key: chatSessionKey, message: text }),
-        });
-        // ignore response content (best-effort)
-        if (resp && resp.json) { try{ await resp.json(); } catch(e){} }
+        await callService('clawdbot','chat_send',{ session_key: chatSessionKey, message: text });
       } catch(e){
         console.warn('sessions_send failed', e);
       } finally {
@@ -2591,6 +2586,59 @@ async def async_setup(hass, config):
         await store.async_save(items)
         cfg["chat_history"] = items
 
+    async def handle_chat_send(call):
+        """Send a user message into an OpenClaw session (server-side).
+
+        Panel cannot reliably POST /api/* due to HA auth boundaries, so it must call a HA service.
+        """
+        if not token:
+            raise RuntimeError("clawdbot.token is required to use services")
+
+        message = call.data.get("message")
+        if not isinstance(message, str) or not message.strip():
+            raise RuntimeError("message is required")
+
+        hass = call.hass
+        cfg = hass.data.get(DOMAIN, {})
+
+        session_key_local = call.data.get("session_key") or call.data.get("session") or cfg.get("target") or DEFAULT_SESSION_KEY
+        if not isinstance(session_key_local, str) or not session_key_local:
+            session_key_local = DEFAULT_SESSION_KEY
+
+        _LOGGER.info(
+            "chat_send -> gateway sessions_send (session=%s, len=%s)",
+            session_key_local,
+            len(message),
+        )
+        payload = {"tool": "sessions_send", "args": {"sessionKey": session_key_local, "message": message}}
+        res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
+        # Keep the response small in logs; also helps debugging when gateway rejects.
+        _LOGGER.debug("chat_send gateway response: %s", str(res)[:500])
+
+        # Also append to local store so the panel stays consistent even if gateway is delayed.
+        try:
+            store: Store = cfg.get("chat_store")
+            if store is not None:
+                now = dt.datetime.now(tz=dt.timezone.utc).isoformat().replace("+00:00", "Z")
+                item_id = hashlib.sha256(
+                    f"{session_key_local}{now}user{message}".encode("utf-8")
+                ).hexdigest()
+                items = cfg.get("chat_history", []) or []
+                if isinstance(items, list) and not any(isinstance(it, dict) and it.get("id") == item_id for it in items):
+                    items.append({
+                        "id": item_id,
+                        "ts": now,
+                        "role": "user",
+                        "session_key": session_key_local,
+                        "text": message,
+                    })
+                    if len(items) > 500:
+                        items = items[-500:]
+                    await store.async_save(items)
+                    cfg["chat_history"] = items
+        except Exception:
+            pass
+
     async def handle_chat_poll(call):
         """Poll gateway sessions_history and append new agent messages into the HA chat store.
 
@@ -2933,6 +2981,7 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, SERVICE_HA_CALL_SERVICE, handle_ha_call_service)
     hass.services.async_register(DOMAIN, "chat_append", handle_chat_append)
     hass.services.async_register(DOMAIN, SERVICE_CHAT_FETCH, handle_chat_fetch)
+    hass.services.async_register(DOMAIN, SERVICE_CHAT_SEND, handle_chat_send)
     _LOGGER.info("Registering service: %s.%s", DOMAIN, SERVICE_CHAT_POLL)
     # Fire-and-forget: panel calls this service; backend updates Store. No service response needed.
     hass.services.async_register(DOMAIN, SERVICE_CHAT_POLL, handle_chat_poll)

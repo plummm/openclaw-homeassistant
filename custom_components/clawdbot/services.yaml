@@ -85,3 +85,16 @@ chat_poll:
         number:
           min: 1
           max: 100
+
+chat_send:
+  name: Send a message to OpenClaw session (server-side)
+  description: Sends a user message to OpenClaw via sessions_send (avoids panel HTTP auth issues).
+  fields:
+    session_key:
+      required: false
+      selector:
+        text:
+    message:
+      required: true
+      selector:
+        text:
