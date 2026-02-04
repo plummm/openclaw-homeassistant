@@ -155,7 +155,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.37"
+PANEL_BUILD_ID = "89337ab.38"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -4884,6 +4884,86 @@ async def async_setup(hass, config):
         }
 
     hass.services.async_register(DOMAIN, "chat_debug_stats", handle_chat_debug_stats, supports_response=SupportsResponse.ONLY)
+
+    async def handle_chat_store_sanitize(call):
+        """Sanitize chat store for a session: remove control/plumbing lines and dedupe."""
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("chat_store")
+        if store is None:
+            raise HomeAssistantError("chat history store not initialized")
+        rt = _runtime(hass)
+        session_key = call.data.get("session_key") or rt.get("session_key") or DEFAULT_SESSION_KEY
+        if not isinstance(session_key, str) or not session_key:
+            session_key = DEFAULT_SESSION_KEY
+
+        items = await store.async_load() or []
+        if not isinstance(items, list):
+            items = []
+        items = [it for it in items if isinstance(it, dict)]
+
+        import re as _re
+        bad_re = _re.compile(r"\bANNOUNCE_\w+\b|\bNO_REPLY\b|\bHEARTBEAT_OK\b|agent-to-agent announce", _re.I)
+        ws_re = _re.compile(r"\s+")
+
+        def _norm(t: str) -> str:
+            return ws_re.sub(" ", (t or "")).strip()
+
+        def _fp(session: str, role: str, text: str, ts: str) -> str:
+            import hashlib
+            bucket = 0
+            try:
+                from homeassistant.util import dt as dt_util
+
+                dt_obj = dt_util.parse_datetime(str(ts).replace("Z", "+00:00"))
+                if dt_obj is not None:
+                    bucket = int(dt_obj.timestamp() // 2)
+            except Exception:
+                pass
+            base = f"{session}|{role}|{_norm(text)}|{bucket}"
+            return hashlib.sha256(base.encode("utf-8")).hexdigest()
+
+        # Keep items from other sessions untouched; sanitize only selected session.
+        kept_other = [it for it in items if it.get("session_key") != session_key]
+        target = [it for it in items if it.get("session_key") == session_key]
+
+        out = []
+        seen = set()
+        removed_bad = 0
+        removed_dup = 0
+        for it in target:
+            txt = it.get("text")
+            if isinstance(txt, str) and bad_re.search(txt):
+                removed_bad += 1
+                continue
+            fp = it.get("fingerprint")
+            if not fp:
+                try:
+                    fp = _fp(session_key, it.get("role") or "", txt or "", it.get("ts") or "")
+                    it["fingerprint"] = fp
+                except Exception:
+                    fp = None
+            if fp and fp in seen:
+                removed_dup += 1
+                continue
+            if fp:
+                seen.add(fp)
+            out.append(it)
+
+        merged = kept_other + out
+        # Keep last 500 overall (consistent with other trims)
+        merged = merged[-500:]
+        await store.async_save(merged)
+        cfg["chat_history"] = merged
+
+        return {
+            "ok": True,
+            "session_key": session_key,
+            "removed_bad": removed_bad,
+            "removed_dup": removed_dup,
+            "kept": len(out),
+        }
+
+    hass.services.async_register(DOMAIN, "chat_store_sanitize", handle_chat_store_sanitize, supports_response=SupportsResponse.ONLY)
 
     async def handle_build_info(call):
         # For deployment verification (no secrets)
