@@ -55,7 +55,7 @@
   let chatLastPollTs = null;
   let chatLastPollAppended = 0;
   let chatLastPollError = null;
-  const BUILD_ID = 'cda126c+debugstamp';
+  const BUILD_ID = ((window.__CLAWDBOT_CONFIG__||{}).build_id || 'unknown');
   const DEBUG_UI = (() => {
     try{
       const qs1 = new URLSearchParams(window.location.search || '');
@@ -1229,12 +1229,12 @@
   }
 
 
-  async function fetchStatesRest(){
+  async function fetchStatesRest(hass){
     // Fallback when hass.states is empty/unavailable in iframe context.
-    const r = await fetch('/api/states', {
-      credentials: 'include',
-      headers: { 'Accept': 'application/json' },
-    });
+    const token = (() => { try{ return (hass && hass.auth && hass.auth.data && hass.auth.data.access_token) || (hass && hass.auth && hass.auth.accessToken) || null; } catch(e){ return null; } })();
+    const headers = { 'Accept': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const r = await fetch('/api/states', { credentials: 'include', headers });
     let len = null;
     if (!r.ok) {
       try{ if (DEBUG_UI) console.debug('[clawdbot] /api/states status', r.status); }catch(e){}
@@ -1262,7 +1262,7 @@
     if (!n) {
       try{ if (DEBUG_UI) console.debug('[clawdbot] hass.states empty; using REST /api/states fallback'); }catch(e){}
       try{
-        states = await fetchStatesRest();
+        states = await fetchStatesRest(hass);
       } catch(e){
         setStatus(false,'error', String(e));
         throw e;
