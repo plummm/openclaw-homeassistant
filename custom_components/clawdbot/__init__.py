@@ -155,7 +155,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.27"
+PANEL_BUILD_ID = "89337ab.28"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -3517,7 +3517,7 @@ async def async_setup(hass, config):
         if isinstance(obj, str):
             return obj if obj.strip() else None
         if isinstance(obj, dict):
-            for k in ("sessionKey", "session_key", "key"):
+            for k in ("sessionKey", "session_key", "key", "childSessionKey", "child_session_key"):
                 v = obj.get(k)
                 if isinstance(v, str) and v.strip():
                     return v.strip()
