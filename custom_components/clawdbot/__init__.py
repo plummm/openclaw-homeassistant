@@ -141,6 +141,8 @@ PANEL_HTML = """<!doctype html>
       box-shadow:0 0 0 3px color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 22%, transparent);
     }
     code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;}
+    h1{font-size:22px;line-height:1.2;font-weight:800;margin:0 0 6px 0;}
+    h2{font-size:16px;line-height:1.25;font-weight:800;margin:0 0 8px 0;}
     .surface{
       /* Outer container: keep subtle separation from page bg */
       background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 82%, transparent);
@@ -193,11 +195,11 @@ PANEL_HTML = """<!doctype html>
     .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
     .setup-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start;}
     @media (max-width: 860px){ .setup-grid{grid-template-columns:1fr;} }
-    .ent{display:flex;gap:10px;align-items:center;justify-content:space-between;border-bottom:1px solid #f0f0f0;padding:6px 0;}
+    .ent{display:flex;gap:10px;align-items:center;justify-content:space-between;border-bottom:1px solid var(--divider-color);padding:6px 0;}
     .ent:last-child{border-bottom:none;}
-    .ent-id{font-weight:600;}
-    .ent-state{color:#444;}
-    .suggest-card{border:1px solid #eef2f7;border-radius:12px;padding:10px;background:var(--secondary-background-color);}
+    .ent-id{font-weight:650;}
+    .ent-state{color:var(--secondary-text-color);}
+    .suggest-card{border:1px solid var(--divider-color);border-radius:12px;padding:10px;background:var(--secondary-background-color);}
     .choice{display:flex;gap:8px;align-items:flex-start;padding:4px 0;}
     .choice input{margin-top:3px;}
     .choice-main{font-size:13px;}
@@ -235,7 +237,7 @@ PANEL_HTML = """<!doctype html>
 </head>
 <body>
   <div class=\"surface\">
-  <h1 style=\"margin:0 0 4px 0;\">Clawdbot</h1>
+  <h1>Clawdbot</h1>
   <div class=\"muted\" style=\"margin:0 0 10px 0;\">Home Assistant panel (served by HA). Uses HA auth to call HA services which relay to OpenClaw.</div>
 
   <script>window.__CLAWDBOT_CONFIG__ = __CONFIG_JSON__;</script>
