@@ -286,6 +286,7 @@ PANEL_HTML = """<!doctype html>
 <body>
   <div class=\"surface\">
   <h1>Clawdbot</h1>
+  <div class="muted" id="debugStamp" style="display:none;margin:6px 0 0 0"></div>
   <div class=\"muted\" style=\"margin:0 0 10px 0;\">Home Assistant panel (served by HA). Uses HA auth to call HA services which relay to OpenClaw.</div>
 
   <script>
@@ -486,6 +487,7 @@ PANEL_HTML = """<!doctype html>
   let chatLastPollTs = null;
   let chatLastPollAppended = 0;
   let chatLastPollError = null;
+  const BUILD_ID = 'cda126c+debugstamp';
   const DEBUG_UI = (() => {
     try{
       const qs1 = new URLSearchParams(window.location.search || '');
@@ -499,6 +501,19 @@ PANEL_HTML = """<!doctype html>
     }
   })();
 
+
+  let __dbgStep = 'boot';
+  function dbgStep(step, extra){
+    __dbgStep = step;
+    if (!DEBUG_UI) return;
+    try{ console.debug('[clawdbot] step', step, extra||''); }catch(e){}
+    try{
+      const el = qs('#debugStamp');
+      if (!el) return;
+      el.style.display = 'block';
+      el.textContent = `build:${BUILD_ID} step:${step}` + (extra ? ` (${extra})` : '');
+    } catch(e){}
+  }
   function escapeHtml(txt){
     return String(txt)
       .replaceAll('&','&amp;')
@@ -1420,7 +1435,8 @@ PANEL_HTML = """<!doctype html>
       if (main) {
         const hass = main.hass || main._hass || null;
         const conn = hass && hass.connection ? hass.connection : null;
-        if (hass && conn) { try{ if (DEBUG_UI) console.debug('[clawdbot] getHass via shadowRoot', !!(hass && hass.states), !!(hass && hass.connection)); }catch(e){}; return { conn, hass }; }
+        if (hass && conn) { try{ if (DEBUG_UI) dbgStep('got-hass-shadow');
+        console.debug('[clawdbot] getHass via shadowRoot', !!(hass && hass.states), !!(hass && hass.connection)); }catch(e){}; return { conn, hass }; }
       }
     } catch(e) {}
     throw new Error('Unable to access Home Assistant frontend connection from iframe');
@@ -1646,7 +1662,8 @@ PANEL_HTML = """<!doctype html>
   }
 
   async function refreshEntities(){
-    try{ if (DEBUG_UI) console.debug('[clawdbot] refreshEntities start'); }catch(e) {}
+    try{ if (DEBUG_UI) dbgStep('refresh-start');
+    console.debug('[clawdbot] refreshEntities start'); }catch(e) {}
 
     const { hass } = await getHass();
     const states = hass && hass.states ? hass.states : {};
@@ -1679,7 +1696,8 @@ PANEL_HTML = """<!doctype html>
 
   async function init(){
     try{ setStatus(false, 'checking…', 'initializing…', (window===window.top)?'Tip: open via the Home Assistant sidebar panel (iframe) to access hass connection.':''); } catch(e) {}
-    try{ if (DEBUG_UI) console.debug('[clawdbot] init start', {top: window===window.top}); } catch(e) {}
+    try{ if (DEBUG_UI) dbgStep('init-start');
+    console.debug('[clawdbot] init start', {top: window===window.top}); } catch(e) {}
     try {
     renderConfigSummary();
     fillConnectionInputs();
@@ -1707,7 +1725,8 @@ PANEL_HTML = """<!doctype html>
       setHidden(viewChat, which !== 'chat');
 
       if (which === 'cockpit') {
-    try{ if (DEBUG_UI) console.debug('[clawdbot] before getHass'); } catch(e) {}
+    try{ if (DEBUG_UI) dbgStep('before-getHass');
+    console.debug('[clawdbot] before getHass'); } catch(e) {}
         try{ const { hass } = await getHass(); await refreshEntities(); renderMappedValues(hass); renderHouseMemory(); renderRecommendations(hass); } catch(e){}
       }
       if (which === 'chat') {
@@ -1878,9 +1897,11 @@ PANEL_HTML = """<!doctype html>
 
     qs('#tabCockpit').onclick();
 
-    try{ const { hass } = await getHass(); setStatus(true,'connected',''); renderSuggestions(hass); renderMappedValues(hass); renderRecommendations(hass); } catch(e){ const hint = (window === window.top) ? 'Tip: open via the Home Assistant sidebar panel (iframe) to access hass connection.' : ''; setStatus(false,'error', String(e), hint); }
+    try{ const { hass } = await getHass(); dbgStep('connected');
+    setStatus(true,'connected',''); renderSuggestions(hass); renderMappedValues(hass); renderRecommendations(hass); } catch(e){ const hint = (window === window.top) ? 'Tip: open via the Home Assistant sidebar panel (iframe) to access hass connection.' : ''; setStatus(false,'error', String(e), hint); }
     } catch(e) {
-      try{ if (DEBUG_UI) console.error('[clawdbot] init fatal', e); } catch(_e) {}
+      try{ if (DEBUG_UI) dbgStep('init-fatal');
+      console.error('[clawdbot] init fatal', e); } catch(_e) {}
       const hint = (window === window.top) ? 'Tip: open via the Home Assistant sidebar panel (iframe) to access hass connection.' : '';
       try{ setStatus(false,'error', String(e), hint); } catch(_e) {}
     }
