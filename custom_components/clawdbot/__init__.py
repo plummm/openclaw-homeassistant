@@ -573,28 +573,28 @@ PANEL_HTML = """<!doctype html>
     return resp;
   }
 
+  function getParentHass(){
+    const p = window.parent;
+    const hass = p && p.hass;
+    if (!hass || typeof hass.callApi !== 'function') {
+      throw new Error('No HA auth context (parent.hass.callApi unavailable). Reload panel.');
+    }
+    return hass;
+  }
+
+  async function hassApiGet(apiPath){
+    const hass = getParentHass();
+    return hass.callApi('GET', apiPath);
+  }
+
   async function fetchSessionsHistory(limit){
     const params = new URLSearchParams();
     if (chatSessionKey) params.set('session_key', chatSessionKey);
     params.set('limit', String(limit || 20));
     const apiPath = 'clawdbot/sessions_history?' + params.toString();
 
-    // Preferred (Option A): use HA frontend API helper when available (handles auth).
-    try{
-      const p = window.parent;
-      if (p && p.hass && typeof p.hass.callApi === 'function') {
-        if (DEBUG_UI) console.debug('[clawdbot chat] fetchSessionsHistory via parent.hass.callApi', apiPath);
-        const data = await p.hass.callApi('GET', apiPath);
-        return (data && Array.isArray(data.items)) ? data.items : [];
-      }
-    } catch(e){
-      if (DEBUG_UI) console.debug('[clawdbot chat] callApi failed', e);
-    }
-
-    // Fallback: hassFetch (may use bearer/cookies depending on context)
-    const url = '/api/' + apiPath;
-    const resp = await hassFetch(url);
-    const data = resp && resp.json ? await resp.json() : resp;
+    // No iframe /api fallback: enforce parent.hass.callApi (auth-safe)
+    const data = await hassApiGet(apiPath);
     return (data && Array.isArray(data.items)) ? data.items : [];
   }
 
@@ -619,8 +619,8 @@ PANEL_HTML = """<!doctype html>
   async function refreshTokenUsage(){
     try{
       if (!chatSessionKey) { setTokenUsage('—'); return; }
-      const resp = await hassFetch('/api/clawdbot/session_status?session_key=' + encodeURIComponent(chatSessionKey));
-      const data = resp && resp.json ? await resp.json() : resp;
+      const apiPath = 'clawdbot/session_status?session_key=' + encodeURIComponent(chatSessionKey);
+      const data = await hassApiGet(apiPath);
       const r = data && data.result ? data.result : data;
       const usage = (r && (r.usage || r.Usage || r.data && r.data.usage)) || null;
       const total = usage && (usage.totalTokens || usage.total_tokens || usage.tokens || usage.total) ;
@@ -652,18 +652,8 @@ PANEL_HTML = """<!doctype html>
     ensureSessionSelectValue();
     try{
       const apiPath = 'clawdbot/sessions?limit=50';
-      let data;
-      try{
-        const p = window.parent;
-        if (p && p.hass && typeof p.hass.callApi === 'function') {
-          if (DEBUG_UI) console.debug('[clawdbot chat] refreshSessions via parent.hass.callApi', apiPath);
-          data = await p.hass.callApi('GET', apiPath);
-        }
-      } catch(e){}
-      if (!data) {
-        const resp = await hassFetch('/api/' + apiPath);
-        data = resp && resp.json ? await resp.json() : resp;
-      }
+      if (DEBUG_UI) console.debug('[clawdbot chat] refreshSessions via parent.hass.callApi', apiPath);
+      const data = await hassApiGet(apiPath);
 
       const r = data && data.result ? data.result : data;
       const sessions = (r && (r.sessions || r.items || r.result || r)) || [];
@@ -702,18 +692,8 @@ PANEL_HTML = """<!doctype html>
       if (chatSessionKey) params.set('session_key', chatSessionKey);
       const apiPath = 'clawdbot/chat_history?' + params.toString();
 
-      let data;
-      try{
-        const p = window.parent;
-        if (p && p.hass && typeof p.hass.callApi === 'function') {
-          if (DEBUG_UI) console.debug('[clawdbot chat] loadChatLatest via parent.hass.callApi', apiPath);
-          data = await p.hass.callApi('GET', apiPath);
-        }
-      } catch(e){}
-      if (!data) {
-        const resp = await hassFetch('/api/' + apiPath);
-        data = resp && resp.json ? await resp.json() : resp;
-      }
+      if (DEBUG_UI) console.debug('[clawdbot chat] loadChatLatest via parent.hass.callApi', apiPath);
+      const data = await hassApiGet(apiPath);
 
       chatItems = (data && Array.isArray(data.items)) ? data.items : [];
       chatHasOlder = !!(data && data.has_older);
@@ -744,18 +724,8 @@ PANEL_HTML = """<!doctype html>
       params.set('before_id', beforeId);
       if (chatSessionKey) params.set('session_key', chatSessionKey);
       const apiPath = 'clawdbot/chat_history?' + params.toString();
-      let data;
-      try{
-        const p = window.parent;
-        if (p && p.hass && typeof p.hass.callApi === 'function') {
-          if (DEBUG_UI) console.debug('[clawdbot chat] loadOlderChat via parent.hass.callApi', apiPath);
-          data = await p.hass.callApi('GET', apiPath);
-        }
-      } catch(e){}
-      if (!data) {
-        const resp = await hassFetch('/api/' + apiPath);
-        data = resp && resp.json ? await resp.json() : resp;
-      }
+      if (DEBUG_UI) console.debug('[clawdbot chat] loadOlderChat via parent.hass.callApi', apiPath);
+      const data = await hassApiGet(apiPath);
       const items = (data && Array.isArray(data.items)) ? data.items : [];
       const existing = new Set((chatItems || []).map((it)=>it && it.id).filter(Boolean));
       const prepend = [];
@@ -785,13 +755,16 @@ PANEL_HTML = """<!doctype html>
     updateChatPollDebug();
   }
 
+  let chatLastPollDebugDetail = '';
+
   function updateChatPollDebug(){
     const el = qs('#chatPollDebug');
     if (!el) return;
     if (!DEBUG_UI) { el.style.display = 'none'; return; }
     const last = chatLastPollTs ? new Date(chatLastPollTs).toLocaleTimeString() : '—';
     const err = chatLastPollError ? (' err:' + chatLastPollError) : '';
-    el.textContent = `Polling: ${chatPollingActive ? 'on' : 'off'} · last: ${last} · +${chatLastPollAppended || 0}${err}`;
+    const detail = chatLastPollDebugDetail ? (' · ' + chatLastPollDebugDetail) : '';
+    el.textContent = `Polling: ${chatPollingActive ? 'on' : 'off'} · last: ${last} · +${chatLastPollAppended || 0}${err}${detail}`;
     el.style.display = 'inline';
   }
 
@@ -855,6 +828,7 @@ PANEL_HTML = """<!doctype html>
           role: it && it.role,
           ts: it && it.ts,
         }));
+        chatLastPollDebugDetail = `seen:${seenBefore.size} items:${(chatItems||[]).length} tail:${(tail[tail.length-1]&&tail[tail.length-1].key)||'—'}`;
         console.debug('[clawdbot chat] poll ok', {session: currentSession, appended: chatLastPollAppended, beforeIdsCount: seenBefore.size, afterItemsCount: (chatItems||[]).length, tail});
       }
     } catch(e){
