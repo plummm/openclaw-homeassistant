@@ -98,3 +98,22 @@ chat_send:
       required: true
       selector:
         text:
+
+chat_history_delta:
+  name: Fetch chat history from HA store (optionally since after_ts)
+  description: Returns chat_history items from the HA Store; use after_ts to get only new items.
+  fields:
+    session_key:
+      required: false
+      selector:
+        text:
+    after_ts:
+      required: false
+      selector:
+        text:
+    limit:
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 500

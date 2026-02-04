@@ -29,6 +29,7 @@ from typing import Any
 import aiohttp
 
 from homeassistant.components.http import HomeAssistantView
+from homeassistant.core import SupportsResponse
 from homeassistant.helpers.storage import Store
 from homeassistant.exceptions import HomeAssistantError
 
@@ -64,6 +65,7 @@ SERVICE_NOTIFY_EVENT = "notify_event"
 SERVICE_CHAT_FETCH = "chat_fetch"
 SERVICE_CHAT_POLL = "chat_poll"
 SERVICE_CHAT_SEND = "chat_send"
+SERVICE_CHAT_HISTORY_DELTA = "chat_history_delta"
 
 
 async def _gw_post(session: aiohttp.ClientSession, url: str, token: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -576,18 +578,19 @@ PANEL_HTML = """<!doctype html>
     return resp;
   }
 
-  function getParentHass(){
-    const p = window.parent;
-    const hass = p && p.hass;
-    if (!hass || typeof hass.callApi !== 'function') {
-      throw new Error('No HA auth context (parent.hass.callApi unavailable). Reload panel.');
+  async function callServiceResponse(domain, service, data){
+    const { conn } = await getHass();
+    const payload = data || {};
+    if (!conn || typeof conn.sendMessagePromise !== 'function') {
+      throw new Error('No HA websocket connection available for service response');
     }
-    return hass;
-  }
-
-  async function hassApiGet(apiPath){
-    const hass = getParentHass();
-    return hass.callApi('GET', apiPath);
+    return conn.sendMessagePromise({
+      type: 'call_service',
+      domain,
+      service,
+      service_data: payload,
+      return_response: true,
+    });
   }
 
   async function fetchSessionsHistory(limit){
@@ -622,8 +625,8 @@ PANEL_HTML = """<!doctype html>
   async function refreshTokenUsage(){
     try{
       if (!chatSessionKey) { setTokenUsage('—'); return; }
-      const apiPath = 'clawdbot/session_status?session_key=' + encodeURIComponent(chatSessionKey);
-      const data = await hassApiGet(apiPath);
+      const resp = await hassFetch('/api/clawdbot/session_status?session_key=' + encodeURIComponent(chatSessionKey));
+      const data = resp && resp.json ? await resp.json() : resp;
       const r = data && data.result ? data.result : data;
       const usage = (r && (r.usage || r.Usage || r.data && r.data.usage)) || null;
       const total = usage && (usage.totalTokens || usage.total_tokens || usage.tokens || usage.total) ;
@@ -655,8 +658,16 @@ PANEL_HTML = """<!doctype html>
     ensureSessionSelectValue();
     try{
       const apiPath = 'clawdbot/sessions?limit=50';
-      if (DEBUG_UI) console.debug('[clawdbot chat] refreshSessions via parent.hass.callApi', apiPath);
-      const data = await hassApiGet(apiPath);
+      // Use parent callApi when available, otherwise fall back to authenticated fetch
+      let data;
+      try{
+        const p = window.parent;
+        if (p && p.hass && typeof p.hass.callApi === 'function') data = await p.hass.callApi('GET', apiPath);
+      }catch(e){}
+      if (!data) {
+        const resp = await hassFetch('/api/' + apiPath);
+        data = resp && resp.json ? await resp.json() : resp;
+      }
 
       const r = data && data.result ? data.result : data;
       const sessions = (r && (r.sessions || r.items || r.result || r)) || [];
@@ -704,9 +715,9 @@ PANEL_HTML = """<!doctype html>
       if (chatSessionKey) params.set('session_key', chatSessionKey);
       const apiPath = 'clawdbot/chat_history?' + params.toString();
 
-      if (DEBUG_UI) console.debug('[clawdbot chat] loadChatLatest via parent.hass.callApi', apiPath);
-      const data = await hassApiGet(apiPath);
-
+      // Use service response to avoid iframe auth/context issues.
+      const resp = await callServiceResponse('clawdbot','chat_history_delta', { session_key: chatSessionKey, limit: 50 });
+      const data = (resp && resp.response) ? resp.response : resp;
       chatItems = (data && Array.isArray(data.items)) ? data.items : [];
       chatHasOlder = !!(data && data.has_older);
       syncChatSeenIds();
@@ -735,9 +746,9 @@ PANEL_HTML = """<!doctype html>
       params.set('limit', '50');
       params.set('before_id', beforeId);
       if (chatSessionKey) params.set('session_key', chatSessionKey);
-      const apiPath = 'clawdbot/chat_history?' + params.toString();
-      if (DEBUG_UI) console.debug('[clawdbot chat] loadOlderChat via parent.hass.callApi', apiPath);
-      const data = await hassApiGet(apiPath);
+      // Older paging still uses HTTP (rare) - best effort
+      const resp = await hassFetch('/api/clawdbot/chat_history?' + params.toString());
+      const data = resp && resp.json ? await resp.json() : resp;
       const items = (data && Array.isArray(data.items)) ? data.items : [];
       const existing = new Set((chatItems || []).map((it)=>it && it.id).filter(Boolean));
       const prepend = [];
@@ -821,12 +832,8 @@ PANEL_HTML = """<!doctype html>
 
       // Incremental refresh: fetch only items newer than current max ts (avoids capped moving-window)
       const afterTs = maxChatTs();
-      const params = new URLSearchParams();
-      params.set('limit', '200');
-      if (currentSession) params.set('session_key', currentSession);
-      if (afterTs) params.set('after_ts', afterTs);
-      const apiPath = 'clawdbot/chat_history?' + params.toString();
-      const data = await hassApiGet(apiPath);
+      const resp = await callServiceResponse('clawdbot','chat_history_delta', { session_key: currentSession, after_ts: afterTs || null, limit: 200 });
+      const data = (resp && resp.response) ? resp.response : resp;
       const newer = (data && Array.isArray(data.items)) ? data.items : [];
 
       // Merge new items onto existing list
@@ -2973,6 +2980,49 @@ async def async_setup(hass, config):
         # Fire-and-forget service; caller can diff chat_history to infer changes.
         return
 
+    async def handle_chat_history_delta(call):
+        """Return chat history items (optionally since after_ts) from the HA Store.
+
+        This is used by the iframe panel to avoid relying on parent.hass.callApi.
+        """
+        hass = call.hass
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("chat_store")
+        if store is None:
+            raise RuntimeError("chat history store not initialized")
+
+        limit = 50
+        try:
+            limit = int(call.data.get("limit", 50))
+        except Exception:
+            limit = 50
+        if limit < 1:
+            limit = 1
+        if limit > 500:
+            limit = 500
+
+        session_key = call.data.get("session_key") or cfg.get("target") or DEFAULT_SESSION_KEY
+        after_ts = call.data.get("after_ts") or call.data.get("since_ts")
+
+        items = await store.async_load() or []
+        if not isinstance(items, list):
+            items = []
+        items = [it for it in items if isinstance(it, dict)]
+        if session_key:
+            items = [it for it in items if it.get("session_key") == session_key]
+
+        items.sort(key=lambda it: str(it.get("ts") or ""))
+
+        if after_ts:
+            newer = [it for it in items if str(it.get("ts") or "") > str(after_ts)]
+            page = newer[:limit]
+            return {"items": page, "has_older": False}
+
+        # default: last N
+        page = items[-limit:] if len(items) > limit else items
+        has_older = len(items) > len(page)
+        return {"items": page, "has_older": has_older}
+
     async def handle_chat_fetch(call):
         hass = call.hass
         cfg = hass.data.get(DOMAIN, {})
@@ -3155,6 +3205,7 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, "chat_append", handle_chat_append)
     hass.services.async_register(DOMAIN, SERVICE_CHAT_FETCH, handle_chat_fetch)
     hass.services.async_register(DOMAIN, SERVICE_CHAT_SEND, handle_chat_send)
+    hass.services.async_register(DOMAIN, SERVICE_CHAT_HISTORY_DELTA, handle_chat_history_delta, supports_response=SupportsResponse.ONLY)
     _LOGGER.info("Registering service: %s.%s", DOMAIN, SERVICE_CHAT_POLL)
     # Fire-and-forget: panel calls this service; backend updates Store. No service response needed.
     hass.services.async_register(DOMAIN, SERVICE_CHAT_POLL, handle_chat_poll)
