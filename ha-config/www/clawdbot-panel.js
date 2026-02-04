@@ -2013,12 +2013,10 @@ async function fetchStatesRest(hass){
       const text = input.value.trim();
       if (!text) return;
 
-      // optimistic append to local history store
+      // Append to HA-side chat store (single source of truth). Avoid local push to prevent duplicates.
       try{ await callService('clawdbot','chat_append',{ role:'user', text, session_key: chatSessionKey }); } catch(e){}
-      const now = new Date();
-      const ts = now.toISOString();
-      chatItems.push({ role: 'user', text, ts, session_key: chatSessionKey });
       input.value = '';
+      try{ await loadChatLatest(); } catch(e){}
       renderChat({ autoScroll: true });
       boostChatPolling();
       if (chatPollingActive) scheduleChatPoll(CHAT_POLL_INITIAL_MS);

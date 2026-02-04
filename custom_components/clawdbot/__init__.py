@@ -155,7 +155,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.32"
+PANEL_BUILD_ID = "89337ab.33"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -3382,7 +3382,15 @@ async def async_setup(hass, config):
             "Agent-to-agent announce step.",
             "agent-to-agent announce step.",
         )
+        control_markers = (
+            "ANNOUNCE_SKIP",
+            "HEARTBEAT_OK",
+            "NO_REPLY",
+        )
+        # Drop internal plumbing/control lines from user-visible history.
         if any(m in text for m in plumbing_markers):
+            return
+        if any(m in text for m in control_markers):
             return
 
         try:
@@ -3751,6 +3759,18 @@ async def async_setup(hass, config):
 
             text = "".join(parts)
             if not text.strip():
+                continue
+
+            # Filter internal control/meta lines that should never surface in HA chat UI.
+            txt_norm = text.strip()
+            blocked_substrings = (
+                "ANNOUNCE_SKIP",
+                "HEARTBEAT_OK",
+                "NO_REPLY",
+                "Agent-to-agent announce step.",
+                "agent-to-agent announce step.",
+            )
+            if any(s in txt_norm for s in blocked_substrings):
                 continue
 
             ts_ms = None
