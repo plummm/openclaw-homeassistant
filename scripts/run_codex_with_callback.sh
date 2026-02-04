@@ -7,6 +7,11 @@ set -euo pipefail
 #   ./scripts/run_codex_with_callback.sh "<prompt>"
 
 mode="--full-auto"
+plan_flag=""
+if [[ "${1:-}" == "--plan" ]]; then
+  plan_flag="--plan"
+  shift
+fi
 if [[ "${1:-}" == "--full-auto" || "${1:-}" == "--yolo" || "${1:-}" == "--sandbox" ]]; then
   mode="$1"
   shift
@@ -20,6 +25,9 @@ fi
 
 rc=0
 set +e
+if [[ -n "$plan_flag" ]]; then
+  prompt="/plan\n\n${prompt}\n\nThen critique your plan (risks/missing requirements) and revise it. After that, execute the revised plan to completion."
+fi
 codex exec "$mode" "$prompt"
 rc=$?
 set -e
