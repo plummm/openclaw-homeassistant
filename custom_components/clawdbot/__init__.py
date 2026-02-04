@@ -1426,7 +1426,9 @@ PANEL_HTML = """<!doctype html>
   }
 
   function setStatus(ok, text, detail, hint){
+    try{ if (DEBUG_UI) console.debug('[clawdbot] setStatus', {ok, text, detail, hint}); } catch(e) {}
     const el = qs('#status');
+    if (!el) return;
     el.textContent = text;
     el.className = ok ? 'ok' : 'bad';
     const pill = document.getElementById('connPill');
@@ -1673,6 +1675,7 @@ PANEL_HTML = """<!doctype html>
   }
 
   async function init(){
+    try{ setStatus(false, 'checking…', 'initializing…', (window===window.top)?'Tip: open via the Home Assistant sidebar panel (iframe) to access hass connection.':''); } catch(e) {}
     renderConfigSummary();
     fillConnectionInputs();
     fillMappingInputs();
