@@ -1895,7 +1895,11 @@ class ClawdbotChatHistoryApiView(HomeAssistantView):
 
         hass = request.app["hass"]
         cfg = hass.data.get(DOMAIN, {})
-        items = cfg.get("chat_history", []) or []
+        store: Store = cfg.get("chat_store")
+        if store is not None:
+            items = await store.async_load() or []
+        else:
+            items = cfg.get("chat_history", []) or []
         if not isinstance(items, list):
             items = []
         items = [it for it in items if isinstance(it, dict)]
@@ -2874,10 +2878,12 @@ async def async_setup(hass, config):
                 }
             )
 
-        current = cfg.get("chat_history", []) or []
+        # Always load from Store to avoid stale cfg cache / cross-task drift.
+        current = await store.async_load() or []
         if not isinstance(current, list):
             current = []
-        seen_ids = {it.get("id") for it in current if isinstance(it, dict) and it.get("id")}
+        current = [it for it in current if isinstance(it, dict)]
+        seen_ids = {it.get("id") for it in current if it.get("id")}
 
         store_len_before = len(current)
         appended = 0
@@ -2889,10 +2895,21 @@ async def async_setup(hass, config):
             appended += 1
 
         if appended:
+            # Ensure stable ordering by timestamp (oldest->newest) before trimming.
+            def _ts(it):
+                try:
+                    return str(it.get("ts") or "")
+                except Exception:
+                    return ""
+
+            current.sort(key=_ts)
             if len(current) > 500:
                 current = current[-500:]
             await store.async_save(current)
             cfg["chat_history"] = current
+        else:
+            # Keep cfg mirror warm even when no append occurs.
+            cfg["chat_history"] = current[-500:]
 
         _LOGGER.info(
             "chat_poll: fetched=%s roles=%s candidates=%s appended=%s store_len=%s->%s session=%s",
