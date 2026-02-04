@@ -155,7 +155,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.23"
+PANEL_BUILD_ID = "89337ab.24"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -2956,6 +2956,9 @@ async def async_setup(hass, config):
         "session": session,
         "overrides_store": overrides_store,
         "overrides": overrides,
+        # Chat ingest guardrails
+        "chat_dedupe": {},  # {fingerprint: ts_epoch}
+        "chat_last_agent_text": {},  # {session_key: {"text": str, "ts": epoch}}
     }
     hass.data[DOMAIN]["runtime"] = runtime
 
@@ -3372,12 +3375,38 @@ async def async_setup(hass, config):
         if not item_ts:
             item_ts = dt.datetime.now(tz=dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
+        # Guardrails: drop internal plumbing lines + role-flip echoes.
+        plumbing_markers = (
+            "Agent-to-agent announce step.",
+            "agent-to-agent announce step.",
+        )
+        if any(m in text for m in plumbing_markers):
+            return
+
+        try:
+            import datetime as _dt
+
+            rt = _runtime(hass)
+            last = (rt.get("chat_last_agent_text") or {}).get(session) if isinstance(rt.get("chat_last_agent_text"), dict) else None
+            if role == "user" and isinstance(last, dict) and last.get("text") == text:
+                # If a user message exactly matches the last agent message within 10s, it's almost certainly an echo-loop.
+                try:
+                    last_ts = float(last.get("ts") or 0)
+                except Exception:
+                    last_ts = 0
+                now_ts = __import__("time").time()
+                if last_ts and (now_ts - last_ts) <= 10:
+                    return
+        except Exception:
+            pass
+
         item = {
             "id": item_id,
             "ts": item_ts,
             "role": role,
             "session_key": session,
             "text": text,
+            "source": "panel",
         }
 
         items = cfg.get("chat_history", []) or []
@@ -3392,6 +3421,18 @@ async def async_setup(hass, config):
 
         await store.async_save(items)
         cfg["chat_history"] = items
+
+        # Track last agent text to detect role-flip echoes.
+        try:
+            rt = _runtime(hass)
+            if role == "agent":
+                d = rt.get("chat_last_agent_text")
+                if not isinstance(d, dict):
+                    d = {}
+                    rt["chat_last_agent_text"] = d
+                d[session] = {"text": text, "ts": __import__("time").time()}
+        except Exception:
+            pass
 
     async def handle_chat_send(call):
         """Send a user message into an OpenClaw session (server-side).
@@ -3547,9 +3588,9 @@ async def async_setup(hass, config):
         return {"result": res}
 
     async def handle_chat_poll(call):
-        """Poll gateway sessions_history and append new agent messages into the HA chat store.
+        """Poll gateway sessions_history and append new messages into the HA chat store.
 
-        This is the reliable path for the iframe panel because it avoids panel→/api auth boundaries.
+        Guardrails: dedupe, ignore role-flip echoes, and filter internal plumbing text.
         """
         hass = call.hass
         session, gateway_origin, token, default_session_key = _runtime_gateway_parts(hass)
@@ -3558,6 +3599,8 @@ async def async_setup(hass, config):
         store: Store = cfg.get("chat_store")
         if store is None:
             raise RuntimeError("chat history store not initialized")
+
+        rt = _runtime(hass)
 
         session_key_local = call.data.get("session_key") or default_session_key
         if not isinstance(session_key_local, str) or not session_key_local:
@@ -3689,6 +3732,7 @@ async def async_setup(hass, config):
                     "role": "agent",
                     "session_key": session_key_local,
                     "text": text,
+                    "source": "gateway_poll",
                 }
             )
 
@@ -3699,14 +3743,66 @@ async def async_setup(hass, config):
         current = [it for it in current if isinstance(it, dict)]
         seen_ids = {it.get("id") for it in current if it.get("id")}
 
+        # Dedupe guardrails (fingerprint TTL + track last agent text per session)
+        import re as _re
+        dedupe = rt.get("chat_dedupe")
+        if not isinstance(dedupe, dict):
+            dedupe = {}
+            rt["chat_dedupe"] = dedupe
+        last_agent_map = rt.get("chat_last_agent_text")
+        if not isinstance(last_agent_map, dict):
+            last_agent_map = {}
+            rt["chat_last_agent_text"] = last_agent_map
+
+        def _fingerprint(item: dict, bucket_s: int = 5) -> str:
+            import hashlib as _hashlib
+            import time as _time
+            t = item.get("ts") or ""
+            # bucket by now if parse fails
+            try:
+                # ts is iso; we just bucket using current time for simplicity
+                b = int(_time.time() // bucket_s)
+            except Exception:
+                b = 0
+            base = f"{item.get('session_key')}|{item.get('role')}|{item.get('text')}|{b}"
+            return _hashlib.sha256(base.encode("utf-8")).hexdigest()
+
+        def _dedupe_ok(fp: str, ttl_s: int = 60) -> bool:
+            import time as _time
+            now = _time.time()
+            # cleanup lazily
+            for k, v in list(dedupe.items()):
+                try:
+                    if now - float(v) > ttl_s:
+                        dedupe.pop(k, None)
+                except Exception:
+                    dedupe.pop(k, None)
+            if fp in dedupe:
+                return False
+            dedupe[fp] = now
+            return True
+
+        plumbing_re = _re.compile(r"^agent-to-agent announce step\.?$", _re.I)
+
         store_len_before = len(current)
         appended = 0
         for it in candidates:
             if it["id"] in seen_ids:
                 continue
+            # Filter internal plumbing leaks
+            if isinstance(it.get("text"), str) and plumbing_re.match(it.get("text").strip()):
+                continue
+            fp = _fingerprint(it)
+            if not _dedupe_ok(fp):
+                continue
             current.append(it)
             seen_ids.add(it["id"])
             appended += 1
+            # update last-agent tracker
+            try:
+                last_agent_map[it.get("session_key") or DEFAULT_SESSION_KEY] = {"text": it.get("text"), "ts": __import__("time").time()}
+            except Exception:
+                pass
 
         if appended:
             # Ensure stable ordering by timestamp (oldest->newest) before trimming.
@@ -4647,6 +4743,17 @@ async def async_setup(hass, config):
 
     hass.services.async_register(DOMAIN, "chat_new_session", handle_chat_new_session, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "chat_list_sessions", handle_chat_list_sessions, supports_response=SupportsResponse.ONLY)
+
+    async def handle_build_info(call):
+        # For deployment verification (no secrets)
+        services = hass.services.async_services().get(DOMAIN, {})
+        return {
+            "ok": True,
+            "panel_build_id": PANEL_BUILD_ID,
+            "services": sorted(list(services.keys())),
+        }
+
+    hass.services.async_register(DOMAIN, "build_info", handle_build_info, supports_response=SupportsResponse.ONLY)
 
     hass.services.async_register(DOMAIN, SERVICE_SESSIONS_LIST, handle_sessions_list, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, SERVICE_SESSIONS_SPAWN, handle_sessions_spawn, supports_response=SupportsResponse.ONLY)
