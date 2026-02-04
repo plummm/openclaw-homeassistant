@@ -155,7 +155,8 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.30"
+PANEL_BUILD_ID = "89337ab.31"
+INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -4789,9 +4790,15 @@ async def async_setup(hass, config):
     async def handle_build_info(call):
         # For deployment verification (no secrets)
         services = hass.services.async_services().get(DOMAIN, {})
+        rt = _runtime(hass)
         return {
             "ok": True,
+            # Build ids:
+            # - panel_build_id: used for /local/clawdbot-panel.js?v=...
+            # - integration_build_id: python-side build stamp (commit sha)
             "panel_build_id": PANEL_BUILD_ID,
+            "integration_build_id": INTEGRATION_BUILD_ID,
+            "gateway_origin": rt.get("gateway_origin"),
             "services": sorted(list(services.keys())),
         }
 
