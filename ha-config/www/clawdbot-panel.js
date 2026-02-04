@@ -210,6 +210,7 @@ window.__clawdbotPanelInitError = null;
       fillConnectionInputs();
       renderConfigSummary();
       if (resultEl) resultEl.textContent = 'ok';
+      toast(kind === 'reset' ? 'Reset overrides to YAML defaults' : 'Saved overrides');
     } catch(e){
       if (resultEl) resultEl.textContent = 'error: ' + String(e);
     }
@@ -573,6 +574,281 @@ window.__clawdbotPanelInitError = null;
     set('mapLoad', m.load);
   }
 
+  function renderEntityConfig(hass){
+    // If missing mappings, compute suggestions and preview them (not persisted until Confirm all).
+    const current = mappingWithDefaults();
+    const suggested = computeAutoFill(hass);
+
+    const setTxt = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt || '—'; };
+
+    const info = (eid, isSuggested) => {
+      if (!eid) return { name: 'Not set', meta: '—' };
+      const st = hass && hass.states ? hass.states[eid] : null;
+      const name = st && st.attributes && st.attributes.friendly_name ? String(st.attributes.friendly_name) : eid;
+      const unit = st && st.attributes && st.attributes.unit_of_measurement ? String(st.attributes.unit_of_measurement) : '';
+      const value = st ? String(st.state) : '—';
+      const sug = isSuggested ? ' · Suggested' : '';
+      return {
+        name,
+        meta: `${eid}${st ? ` · ${value}${unit ? ' '+unit : ''}` : ''}${sug}`,
+      };
+    };
+
+    const show = (field, nameId, metaId) => {
+      const eid = current[field] || suggested[field] || null;
+      const isSug = !current[field] && !!suggested[field];
+      const v = info(eid, isSug);
+      setTxt(nameId, v.name);
+      setTxt(metaId, v.meta);
+
+      // Update button label (Select… vs Change…)
+      try{
+        const btn = document.querySelector(`button[data-pick="${field}"]`);
+        if (btn) btn.textContent = current[field] ? 'Change…' : 'Select…';
+      } catch(e){}
+    };
+
+    show('soc','cfgSocName','cfgSocMeta');
+    show('voltage','cfgVoltageName','cfgVoltageMeta');
+    show('solar','cfgSolarName','cfgSolarMeta');
+    show('load','cfgLoadName','cfgLoadMeta');
+
+    // Stash for Confirm all
+    window.__clawdbotSuggestedMapping = suggested;
+
+    // Confirm-all button UX: show only if at least one is unmapped.
+    try{
+      const allMapped = !!(current.soc && current.voltage && current.solar && current.load);
+      const btn = document.getElementById('btnConfirmAll');
+      const res = document.getElementById('confirmAllResult');
+      if (btn) {
+        btn.style.display = allMapped ? 'none' : '';
+      }
+      if (res && allMapped) {
+        res.textContent = '';
+      }
+    } catch(e){}
+  }
+
+  async function saveMapping(mapping){
+    await callService('clawdbot','set_mapping',{mapping});
+    setConfigMapping(mapping);
+    fillMappingInputs();
+    try{ await refreshEntities(); } catch(e){}
+  }
+
+  function toast(msg){
+    try{
+      const el = document.getElementById('toast');
+      if (!el) return;
+      el.textContent = String(msg || '');
+      el.classList.remove('hidden');
+      clearTimeout(window.__clawdbotToastTimer);
+      window.__clawdbotToastTimer = setTimeout(() => { try{ el.classList.add('hidden'); }catch(e){} }, 2200);
+    } catch(e){}
+  }
+
+  async function setMappingField(field, entityId){
+    const mapping = mappingWithDefaults();
+    mapping[field] = entityId || null;
+    await saveMapping(mapping);
+    toast(`Saved ${field} → ${entityId || 'cleared'}`);
+  }
+
+  function bindEntityConfigUi(){
+    // Select buttons
+    for (const btn of document.querySelectorAll('button[data-pick]')){
+      btn.onclick = () => openPicker(btn.getAttribute('data-pick'));
+    }
+    for (const btn of document.querySelectorAll('button[data-clear]')){
+      btn.onclick = async () => {
+        const key = btn.getAttribute('data-clear');
+        try{ await setMappingField(key, null); } catch(e){}
+      };
+    }
+
+    const confirmAll = document.getElementById('btnConfirmAll');
+    if (confirmAll) confirmAll.onclick = async () => {
+      const res = document.getElementById('confirmAllResult');
+      if (res) res.textContent = 'saving…';
+      confirmAll.disabled = true;
+      try{
+        const hass = window.__clawdbotHass || null;
+        const suggested = window.__clawdbotSuggestedMapping || computeAutoFill(hass);
+        await saveMapping(suggested);
+        if (res) res.textContent = 'saved';
+        toast('Saved entity configuration');
+      } catch(e){
+        if (res) res.textContent = 'error';
+      } finally {
+        confirmAll.disabled = false;
+      }
+    };
+
+    const advBtn = document.getElementById('btnMapSaveAdvanced');
+    if (advBtn) advBtn.onclick = async () => {
+      const res = document.getElementById('mapSaveAdvancedResult');
+      if (res) res.textContent = 'saving…';
+      try{
+        const mapping = {
+          soc: (document.getElementById('mapSoc')?.value || '').trim() || null,
+          voltage: (document.getElementById('mapVoltage')?.value || '').trim() || null,
+          solar: (document.getElementById('mapSolar')?.value || '').trim() || null,
+          load: (document.getElementById('mapLoad')?.value || '').trim() || null,
+        };
+        await saveMapping(mapping);
+        if (res) res.textContent = 'saved';
+        toast('Saved advanced mapping');
+      } catch(e){
+        if (res) res.textContent = 'error';
+      }
+    };
+  }
+
+  // Simple picker modal (type-to-search). Avoids rendering thousands of entities.
+  let _pickerField = null;
+  function openPicker(field){
+    _pickerField = field;
+    const modal = document.getElementById('pickerModal');
+    const title = document.getElementById('pickerTitle');
+    const search = document.getElementById('pickerSearch');
+    const hint = document.getElementById('pickerHint');
+    if (!modal || !search) return;
+    if (title) title.textContent = `Select entity for ${field}`;
+    if (hint) hint.textContent = 'Type to search. Showing top suggestions first.';
+    modal.classList.remove('hidden');
+    search.value = '';
+    renderPickerList('');
+    setTimeout(() => { try{ search.focus(); }catch(e){} }, 0);
+  }
+  function closePicker(){
+    const modal = document.getElementById('pickerModal');
+    if (modal) modal.classList.add('hidden');
+    _pickerField = null;
+  }
+  function bindPickerModal(){
+    const closeBtn = document.getElementById('pickerClose');
+    if (closeBtn) closeBtn.onclick = closePicker;
+    const modal = document.getElementById('pickerModal');
+    if (modal) modal.onclick = (e) => { if (e.target === modal) closePicker(); };
+    const search = document.getElementById('pickerSearch');
+    if (search) search.oninput = () => renderPickerList(search.value || '');
+  }
+
+  function pickerRules(field){
+    const rules={
+      soc: { label:'Battery SOC (%)', keywords:['soc','state_of_charge','battery_soc','clawdbot_test_battery_soc'], units:['%'], weak:['battery'] },
+      voltage: { label:'Battery Voltage (V)', keywords:['voltage','battery_voltage','batt_v','clawdbot_test_battery_voltage'], units:['v'], weak:['battery'] },
+      solar: { label:'Solar Power (W)', keywords:['solar','pv','photovoltaic','panel','clawdbot_test_solar_w'], units:['w'], weak:['power','input'] },
+      load: { label:'Load Power (W)', keywords:['load','consumption','house_power','ac_load','power','clawdbot_test_load_w'], units:['w'], weak:['total','sum'] },
+    };
+    return rules[field] || rules.soc;
+  }
+
+  function bestCandidate(field, hass){
+    const rules = pickerRules(field);
+    const states = hass && hass.states ? hass.states : {};
+    let best = null;
+    let bestScore = -999;
+    for (const [entity_id, st] of Object.entries(states)){
+      const meta={
+        entity_id,
+        name: (st && st.attributes && (st.attributes.friendly_name || st.attributes.device_class || '')) || '',
+        unit: (st && st.attributes && st.attributes.unit_of_measurement) || '',
+        state: st ? st.state : '',
+      };
+      const s = scoreEntity(meta, rules);
+      if (s > bestScore) { bestScore = s; best = meta; best.score = s; }
+    }
+    if (!best || bestScore <= 0) return null;
+    return best;
+  }
+
+  function computeAutoFill(hass){
+    const m = mappingWithDefaults();
+    const out = { ...m };
+    for (const k of ['soc','voltage','solar','load']){
+      if (!out[k]) {
+        const b = bestCandidate(k, hass);
+        if (b && b.entity_id) out[k] = b.entity_id;
+      }
+    }
+    return out;
+  }
+
+  function renderPickerList(query){
+    const listEl = document.getElementById('pickerList');
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    const field = _pickerField;
+    if (!field) return;
+
+    // Use latest hydrated hass if present
+    const hass = window.__clawdbotHass || null;
+    const states = hass && hass.states ? hass.states : {};
+    const q = String(query||'').trim().toLowerCase();
+    const rules = pickerRules(field);
+
+    // Candidate pool: _allIds limited and filtered by query (if any)
+    let ids = _allIds || [];
+    if (q) ids = ids.filter(id => id.toLowerCase().includes(q));
+
+    // Score and take top 50
+    const scored=[];
+    for (const id of ids){
+      const st = states[id];
+      const meta={
+        entity_id: id,
+        name: (st && st.attributes && (st.attributes.friendly_name||'')) || '',
+        unit: (st && st.attributes && st.attributes.unit_of_measurement) || '',
+        state: st ? st.state : '',
+      };
+      const s = scoreEntity(meta, rules) + (q ? 0 : 0); // base
+      if (q && !s) {
+        // still allow direct matches
+        scored.push({score: 0, ...meta});
+      } else {
+        scored.push({score: s, ...meta});
+      }
+    }
+    scored.sort((a,b)=>b.score-a.score);
+    const top = scored.slice(0, 50);
+
+    for (const it of top){
+      const row = document.createElement('div');
+      row.className = 'pick-item';
+      const main = document.createElement('div');
+      main.className = 'pick-main';
+      const name = document.createElement('div');
+      name.className = 'pick-name';
+      const fname = it.name ? String(it.name) : it.entity_id;
+      name.textContent = fname;
+      const meta = document.createElement('div');
+      meta.className = 'pick-meta';
+      const unit = it.unit ? (' '+it.unit) : '';
+      meta.textContent = `${it.entity_id} · ${it.state}${unit}`;
+      main.appendChild(name); main.appendChild(meta);
+      const btn = document.createElement('button');
+      btn.className = 'btn primary';
+      btn.textContent = 'Use';
+      btn.onclick = async (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        try{ await setMappingField(field, it.entity_id); } catch(e){}
+        closePicker();
+      };
+      row.appendChild(main);
+      row.appendChild(btn);
+      listEl.appendChild(row);
+    }
+
+    if (!top.length){
+      const empty = document.createElement('div');
+      empty.className = 'muted';
+      empty.textContent = 'No matches.';
+      listEl.appendChild(empty);
+    }
+  }
+
   function setConfigMapping(next){
     if (!window.__CLAWDBOT_CONFIG__) window.__CLAWDBOT_CONFIG__ = {};
     window.__CLAWDBOT_CONFIG__.mapping = next || {};
@@ -843,6 +1119,8 @@ window.__clawdbotPanelInitError = null;
     root.innerHTML='';
 
     const m = getMapping();
+    try{ if (DEBUG_UI) console.debug('[clawdbot] renderMappedValues mapping', m); } catch(e){}
+
     const rows = [
       { key:'soc', label:'Battery SOC', unitLabel:'(%)', entity_id: m.soc, hint:'battery' },
       { key:'voltage', label:'Battery Voltage', unitLabel:'(V)', entity_id: m.voltage, hint:'voltage' },
@@ -870,6 +1148,9 @@ window.__clawdbotPanelInitError = null;
           valText = 'Not available';
           subText = r.entity_id;
           subTitle = r.entity_id;
+          try{
+            if (DEBUG_UI) console.debug('[clawdbot] mapped entity missing in hass.states', { key: r.key, entity_id: r.entity_id, statesType: (hass && hass.states && (Array.isArray(hass.states)?'array':typeof hass.states)), statesCount: (hass && hass.states && typeof hass.states==='object') ? Object.keys(hass.states).length : null });
+          } catch(e){}
         } else {
           let raw = st.state;
           const n = toNum(raw);
@@ -949,13 +1230,41 @@ window.__clawdbotPanelInitError = null;
           parent.hassConnection,
           new Promise((_, rej) => setTimeout(() => rej(new Error('hassConnection timeout')), timeoutMs)),
         ]);
-        if (hc && hc.conn) { try{ if (DEBUG_UI) console.debug('[clawdbot] getHass via hassConnection', !!(hc.hass && hc.hass.states)); }catch(e){}; return { conn: hc.conn, hass: hc.hass }; }
+        if (hc && hc.conn) {
+          // IMPORTANT: some HA builds resolve hassConnection with {conn} but without {hass}.
+          // Do not return early in that case; keep the conn and continue searching for hass.
+          let hass = hc.hass || null;
+          if (!hass || !hass.states) {
+            try{ hass = (parent.hass && parent.hass.states) ? parent.hass : null; } catch(e) {}
+          }
+          if (hass && hass.states) {
+            try{ if (DEBUG_UI) console.debug('[clawdbot] getHass via hassConnection', true); }catch(e){}
+            return { conn: hc.conn, hass };
+          }
+          // Stash the conn and keep looking for hass via other paths.
+          parent.__clawdbotConn = hc.conn;
+        }
       }
     } catch(e) {}
 
     // Path 2: legacy global hass
     try{
-      if (parent.hass && parent.hass.connection) { try{ if (DEBUG_UI) console.debug('[clawdbot] getHass via parent.hass', !!(parent.hass && parent.hass.states)); }catch(e){}; return { conn: parent.hass.connection, hass: parent.hass }; }
+      if (parent.hass && parent.hass.connection) {
+        try{ if (DEBUG_UI) console.debug('[clawdbot] getHass via parent.hass', !!(parent.hass && parent.hass.states)); }catch(e){};
+        return { conn: parent.hass.connection, hass: parent.hass };
+      }
+    } catch(e) {}
+
+    // If we have a conn from Path1 but still no hass, try to synthesize hass via DOM and return.
+    try{
+      const fallbackConn = parent.__clawdbotConn || null;
+      if (fallbackConn) {
+        const doc = parent.document;
+        const ha = doc && doc.querySelector ? doc.querySelector('home-assistant') : null;
+        const main = ha && ha.shadowRoot && ha.shadowRoot.querySelector ? ha.shadowRoot.querySelector('home-assistant-main') : null;
+        const hass = (main && (main.hass || main._hass)) || (ha && (ha.hass || ha._hass)) || null;
+        if (hass && hass.states) return { conn: fallbackConn, hass };
+      }
     } catch(e) {}
 
     // Path 3: query DOM for HA root element, then read hass / hassConnection
@@ -1236,13 +1545,26 @@ window.__clawdbotPanelInitError = null;
   
   async function fetchStatesWs(conn){
     if (!conn || typeof conn.sendMessagePromise !== 'function') throw new Error('WS connection unavailable');
-    const arr = await conn.sendMessagePromise({ type: 'get_states' });
+
+    // Hard timeout so panel never silently hangs.
+    const WS_TIMEOUT_MS = 3000;
+
+    console.debug('[clawdbot] ws get_states send');
+    const list = await Promise.race([
+      conn.sendMessagePromise({ type: 'get_states' }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('WS get_states timeout after ' + WS_TIMEOUT_MS + 'ms')), WS_TIMEOUT_MS)),
+    ]);
+    console.debug('[clawdbot] ws get_states done');
+
+    // HA returns an array of state objects; normalize to a dict keyed by entity_id.
     const out = {};
-    if (Array.isArray(arr)) {
-      for (const it of arr) {
+    if (Array.isArray(list)) {
+      for (const it of list) {
         if (it && it.entity_id) out[it.entity_id] = it;
       }
     }
+
+    console.debug('[clawdbot] ws get_states normalized', {listIsArray: Array.isArray(list), listLen: Array.isArray(list)?list.length:null, outLen: Object.keys(out).length});
     return out;
   }
 
@@ -1270,20 +1592,51 @@ async function fetchStatesRest(hass){
     return out;
   }
 
+  function getParentHassStates(){
+    // Best-effort access to HA frontend state tree (same-origin iframe).
+    try{
+      const p = window.parent;
+      if (!p) return null;
+      if (p.hass && p.hass.states) return p.hass.states;
+      const doc = p.document;
+      const ha = doc && doc.querySelector ? doc.querySelector('home-assistant') : null;
+      const main = ha && ha.shadowRoot && ha.shadowRoot.querySelector ? ha.shadowRoot.querySelector('home-assistant-main') : null;
+      const hass = (main && (main.hass || main._hass)) || (ha && (ha.hass || ha._hass)) || null;
+      return hass && hass.states ? hass.states : null;
+    } catch(e){
+      return null;
+    }
+  }
+
   async function refreshEntities(){
     try{ if (DEBUG_UI) dbgStep('refresh-start');
     console.debug('[clawdbot] refreshEntities start'); }catch(e) {}
+
     const { hass, conn } = await getHass();
-    let states = (hass && hass.states) ? hass.states : {};
-    let n = 0;
-    try{ n = Object.keys(states||{}).length; }catch(e){}
-    if (!n) {
-      // Prefer websocket get_states when available (avoids REST 401 in iframe context)
-      try{
-        if (DEBUG_UI) console.debug('[clawdbot] hass.states empty; trying WS get_states');
-        states = await fetchStatesWs(conn);
-      } catch(e) {
-        try{ if (DEBUG_UI) console.debug('[clawdbot] WS get_states failed; falling back to REST', e); }catch(_e){}
+
+    // Export a handle immediately so we can introspect even if WS hangs.
+    try{ window.__clawdbotHass = hass; } catch(e){}
+
+    // Always refresh from websocket (with timeout inside fetchStatesWs).
+    let states = null;
+    try{
+      const preStates = (hass && hass.states) ? hass.states : null;
+      const preCount = (preStates && typeof preStates === 'object') ? Object.keys(preStates).length : null;
+      console.debug('[clawdbot] refreshEntities pre', { preType: Array.isArray(preStates)?'array':typeof preStates, preCount });
+    } catch(e){}
+
+    try{
+      console.debug('[clawdbot] refreshEntities WS get_states');
+      states = await fetchStatesWs(conn);
+    } catch(e) {
+      console.debug('[clawdbot] refreshEntities WS failed', String(e && (e.message||e)));
+      // Fallback A: parent hass.states (most reliable for embedded UI)
+      const parentStates = getParentHassStates();
+      if (parentStates && typeof parentStates === 'object') {
+        console.debug('[clawdbot] refreshEntities using parent hass.states', {count: Object.keys(parentStates).length});
+        states = parentStates;
+      } else {
+        // Fallback B: REST (may 401 in iframe)
         try{
           states = await fetchStatesRest(hass);
         } catch(e2){
@@ -1294,11 +1647,24 @@ async function fetchStatesRest(hass){
     }
 
     // Hydrate iframe hass snapshot so Cockpit/mapping reads the same state object.
-    try{ if (hass) hass.states = states; } catch(e) {}
+    try{
+      if (hass) {
+        if (Array.isArray(states)) {
+          const byId = {};
+          for (const it of states) { if (it && it.entity_id) byId[it.entity_id] = it; }
+          states = byId;
+        }
+        hass.states = states || {};
+        window.__clawdbotStatesType = Array.isArray(hass.states) ? 'array' : (hass.states && typeof hass.states === 'object' ? 'object' : typeof hass.states);
+        window.__clawdbotStatesCount = (hass.states && typeof hass.states === 'object') ? Object.keys(hass.states).length : null;
+        console.debug('[clawdbot] hydrated hass.states', {type: window.__clawdbotStatesType, count: window.__clawdbotStatesCount});
+      }
+    } catch(e) {}
 
-    _allIds = Object.keys(states).sort();
+    _allIds = Object.keys(states || {}).sort();
     buildMappingDatalist(hass);
     renderEntities(hass, qs('#filter').value);
+    try{ renderEntityConfig(hass); } catch(e){}
     try{ renderSuggestions(hass); } catch(e){}
     try{ renderMappedValues(hass); } catch(e){}
     try{ renderRecommendations(hass); } catch(e){}
@@ -1337,6 +1703,7 @@ async function fetchStatesRest(hass){
     renderHouseMemory();
     renderMappedValues(null);
     renderSuggestions(null);
+    try{ bindEntityConfigUi(); bindPickerModal(); } catch(e){}
 
     async function switchTab(which){
       const setupTab = qs('#tabSetup');
@@ -1360,6 +1727,9 @@ async function fetchStatesRest(hass){
     try{ if (DEBUG_UI) dbgStep('before-getHass');
     console.debug('[clawdbot] before getHass'); } catch(e) {}
         try{ const { hass } = await getHass(); await refreshEntities(); renderMappedValues(hass); renderHouseMemory(); renderRecommendations(hass); } catch(e){}
+      }
+      if (which === 'setup') {
+        try{ const { hass } = await getHass(); await refreshEntities(); renderEntityConfig(hass); } catch(e){}
       }
       if (which === 'chat') {
         loadChatFromConfig();
@@ -1416,12 +1786,19 @@ async function fetchStatesRest(hass){
     if (btnReset) btnReset.onclick = () => saveConnectionOverrides('reset');
 
     qs('#btnGatewayTest').onclick = async () => {
-      qs('#gwTestResult').textContent = 'running…';
+      const el = qs('#gwTestResult');
+      if (el) el.textContent = 'running…';
       try{
-        await callService('clawdbot','gateway_test',{});
-        qs('#gwTestResult').textContent = 'triggered';
+        const resp = await callServiceResponse('clawdbot','gateway_test',{});
+        const data = (resp && resp.response) ? resp.response : resp;
+        const r = data && data.result ? data.result : data;
+        const ms = r && r.latency_ms != null ? Number(r.latency_ms) : null;
+        if (el) el.textContent = 'ok' + (ms != null && !Number.isNaN(ms) ? ` (${ms}ms)` : '');
+        toast('Gateway OK' + (ms != null && !Number.isNaN(ms) ? ` (${ms}ms)` : ''));
       } catch(e){
-        qs('#gwTestResult').textContent = 'error: ' + String(e);
+        const msg = String(e && (e.message || e) || e);
+        if (el) el.textContent = 'error';
+        toast('Gateway FAILED: ' + msg);
       }
     };
 
@@ -1527,7 +1904,16 @@ async function fetchStatesRest(hass){
       }
     });
 
-    qs('#tabCockpit').onclick();
+    // Default landing: Cockpit unless essentials/mapping are missing.
+    const cfg = (window.__CLAWDBOT_CONFIG__ || {});
+    const firstRun = !!(cfg.essentials_missing || cfg.mapping_missing);
+    if (firstRun) {
+      qs('#tabSetup').onclick();
+      // Lightweight wizard hint banner
+      try{ setStatus(true, 'setup needed', 'Complete connection + entity configuration, then return to Cockpit.'); } catch(e){}
+    } else {
+      qs('#tabCockpit').onclick();
+    }
 
     try{ const { hass } = await getHass(); dbgStep('connected');
     setStatus(true,'connected',''); renderSuggestions(hass); renderMappedValues(hass); renderRecommendations(hass); } catch(e){ const hint = (window === window.top) ? 'Tip: open via the Home Assistant sidebar panel (iframe) to access hass connection.' : ''; setStatus(false,'error', String(e), hint); }

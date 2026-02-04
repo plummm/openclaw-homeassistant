@@ -145,7 +145,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.15"
+PANEL_BUILD_ID = "89337ab.16"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -3726,15 +3726,27 @@ async def async_setup(hass, config):
 
     async def handle_gateway_test(call):
         hass = call.hass
-        session, gateway_origin, token, _default_session_key = _runtime_gateway_parts(hass)
+        session, gateway_origin, token, session_key = _runtime_gateway_parts(hass)
+
         # Lightweight ping via listing sessions (no side effects)
         payload = {"tool": "sessions_list", "args": {"limit": 1}}
+        import time
+
+        t0 = time.monotonic()
         try:
-            res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
-            await _notify("Clawdbot: gateway_test", __import__("json").dumps(res, indent=2)[:4000])
+            await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
         except Exception as e:
+            # NOTE: Keep logs token-safe (never log/echo token).
             await _notify("Clawdbot: gateway_test", f"ERROR: {e}")
             raise
+
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        return {
+            "ok": True,
+            "gateway_origin": gateway_origin,
+            "session_key": session_key,
+            "latency_ms": latency_ms,
+        }
 
     async def handle_tools_invoke(call):
         hass = call.hass
@@ -3914,7 +3926,7 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, "set_connection_overrides", handle_set_connection_overrides, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "reset_connection_overrides", handle_reset_connection_overrides, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, SERVICE_NOTIFY_EVENT, handle_notify_event)
-    hass.services.async_register(DOMAIN, SERVICE_GATEWAY_TEST, handle_gateway_test)
+    hass.services.async_register(DOMAIN, SERVICE_GATEWAY_TEST, handle_gateway_test, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, SERVICE_SET_MAPPING, handle_set_mapping)
     hass.services.async_register(DOMAIN, SERVICE_REFRESH_HOUSE_MEMORY, handle_refresh_house_memory)
     hass.services.async_register(DOMAIN, SERVICE_TOOLS_INVOKE, handle_tools_invoke)
