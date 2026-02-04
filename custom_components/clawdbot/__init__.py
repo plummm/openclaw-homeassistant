@@ -155,7 +155,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.33"
+PANEL_BUILD_ID = "89337ab.34"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -3382,15 +3382,15 @@ async def async_setup(hass, config):
             "Agent-to-agent announce step.",
             "agent-to-agent announce step.",
         )
-        control_markers = (
-            "ANNOUNCE_SKIP",
-            "HEARTBEAT_OK",
-            "NO_REPLY",
-        )
+        import re as _re
         # Drop internal plumbing/control lines from user-visible history.
         if any(m in text for m in plumbing_markers):
             return
-        if any(m in text for m in control_markers):
+        if _re.search(r"\bANNOUNCE_\w+\b", text):
+            return
+        if _re.search(r"\b(HEARTBEAT_OK|NO_REPLY)\b", text):
+            return
+        if _re.search(r"agent-to-agent announce", text, flags=_re.I):
             return
 
         try:
@@ -3410,6 +3410,16 @@ async def async_setup(hass, config):
         except Exception:
             pass
 
+        # Fingerprint-based dedupe (cross-source) at store-write time
+        try:
+            import hashlib as _hashlib
+            import time as _time
+
+            fp_bucket = int(_time.time() // 2)
+            fp = _hashlib.sha256(f"{session}|{role}|{text}|{fp_bucket}".encode("utf-8")).hexdigest()
+        except Exception:
+            fp = None
+
         item = {
             "id": item_id,
             "ts": item_ts,
@@ -3417,13 +3427,20 @@ async def async_setup(hass, config):
             "session_key": session,
             "text": text,
             "source": "panel",
+            "direction": "inbound",
+            "fingerprint": fp,
         }
 
         items = cfg.get("chat_history", []) or []
         if not isinstance(items, list):
             items = []
         for it in items:
-            if isinstance(it, dict) and it.get("id") == item_id:
+            if not isinstance(it, dict):
+                continue
+            if it.get("id") == item_id:
+                return
+            # fingerprint dedupe (prevents duplicates when both chat_append and other paths write same message)
+            if fp and it.get("fingerprint") == fp:
                 return
         items.append(item)
         if len(items) > 500:
@@ -3447,7 +3464,8 @@ async def async_setup(hass, config):
     async def handle_chat_send(call):
         """Send a user message into an OpenClaw session (server-side).
 
-        Panel cannot reliably POST /api/* due to HA auth boundaries, so it must call a HA service.
+        IMPORTANT: Do NOT append the user message to the chat store here. The panel already
+        calls `chat_append` before `chat_send`, and double-writing was causing duplicates.
         """
         hass = call.hass
         session, gateway_origin, token, default_session_key = _runtime_gateway_parts(hass)
@@ -3455,8 +3473,6 @@ async def async_setup(hass, config):
         message = call.data.get("message")
         if not isinstance(message, str) or not message.strip():
             raise RuntimeError("message is required")
-
-        cfg = hass.data.get(DOMAIN, {})
 
         session_key_local = call.data.get("session_key") or call.data.get("session") or default_session_key
         if not isinstance(session_key_local, str) or not session_key_local:
@@ -3469,32 +3485,7 @@ async def async_setup(hass, config):
         )
         payload = {"tool": "sessions_send", "args": {"sessionKey": session_key_local, "message": message}}
         res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
-        # Keep the response small in logs; also helps debugging when gateway rejects.
         _LOGGER.debug("chat_send gateway response: %s", str(res)[:500])
-
-        # Also append to local store so the panel stays consistent even if gateway is delayed.
-        try:
-            store: Store = cfg.get("chat_store")
-            if store is not None:
-                now = dt.datetime.now(tz=dt.timezone.utc).isoformat().replace("+00:00", "Z")
-                item_id = hashlib.sha256(
-                    f"{session_key_local}{now}user{message}".encode("utf-8")
-                ).hexdigest()
-                items = cfg.get("chat_history", []) or []
-                if isinstance(items, list) and not any(isinstance(it, dict) and it.get("id") == item_id for it in items):
-                    items.append({
-                        "id": item_id,
-                        "ts": now,
-                        "role": "user",
-                        "session_key": session_key_local,
-                        "text": message,
-                    })
-                    if len(items) > 500:
-                        items = items[-500:]
-                    await store.async_save(items)
-                    cfg["chat_history"] = items
-        except Exception:
-            pass
 
     async def handle_sessions_list(call):
         hass = call.hass
@@ -3789,6 +3780,14 @@ async def async_setup(hass, config):
                 f"{session_key_local}{ts_ms}agent{text}".encode("utf-8")
             ).hexdigest()
 
+            # Compute fingerprint for cross-source dedupe
+            try:
+                import hashlib as _hashlib
+                fp_bucket = int((ts_ms / 1000) // 2)
+                fp = _hashlib.sha256(f"{session_key_local}|agent|{text}|{fp_bucket}".encode("utf-8")).hexdigest()
+            except Exception:
+                fp = None
+
             candidates.append(
                 {
                     "id": item_id,
@@ -3797,6 +3796,8 @@ async def async_setup(hass, config):
                     "session_key": session_key_local,
                     "text": text,
                     "source": "gateway_poll",
+                    "direction": "inbound",
+                    "fingerprint": fp,
                 }
             )
 
@@ -3846,19 +3847,27 @@ async def async_setup(hass, config):
             dedupe[fp] = now
             return True
 
-        plumbing_re = _re.compile(r"^agent-to-agent announce step\.?$", _re.I)
+        plumbing_re = _re.compile(r"agent-to-agent announce", _re.I)
+        control_re = _re.compile(r"\b(HEARTBEAT_OK|NO_REPLY)\b|\bANNOUNCE_\w+\b", _re.I)
 
         store_len_before = len(current)
         appended = 0
         for it in candidates:
             if it["id"] in seen_ids:
                 continue
-            # Filter internal plumbing leaks
-            if isinstance(it.get("text"), str) and plumbing_re.match(it.get("text").strip()):
-                continue
-            fp = _fingerprint(it)
+            # Filter internal plumbing/control leaks
+            if isinstance(it.get("text"), str):
+                ttxt = it.get("text").strip()
+                if plumbing_re.search(ttxt):
+                    continue
+                if control_re.search(ttxt):
+                    continue
+
+            # Use per-item fingerprint when present, else compute one.
+            fp = it.get("fingerprint") or _fingerprint(it)
             if not _dedupe_ok(fp):
                 continue
+
             current.append(it)
             seen_ids.add(it["id"])
             appended += 1
