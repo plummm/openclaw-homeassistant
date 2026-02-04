@@ -164,7 +164,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.46"
+PANEL_BUILD_ID = "89337ab.47"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1777,8 +1777,9 @@ PANEL_HTML = """<!doctype html>
       --claw-surface-tint: color-mix(in srgb, var(--claw-accent-c) 22%, transparent);
     }
     html{background:var(--cb-page-bg);}
-    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
+    body{font-family:var(--primary-font-family, var(--ha-font-family, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial));
       padding:18px;max-width:none;margin:0;
+      letter-spacing:-0.01em; line-height:1.45;
       /* Themed background (full-bleed, non-solid) */
       background:
         radial-gradient(1400px 620px at 18% 0%, var(--claw-bg-1), transparent 60%),
@@ -5241,13 +5242,14 @@ async def async_setup(hass, config):
         session, gateway_origin, token, _default_session_key = _runtime_gateway_parts(hass)
         prompt = (
             "You are Agent 0. Return JSON only (no markdown). Keys: mood (one of calm|focused|alert|playful|tired), "
-            "description (<=80 chars), journal_title (<=60), journal_body (<=500). "
+            "description (<=80 chars), journal_title (<=60), journal_body (<=500), theme_suggestion (optional theme key). "
             "Base it on being a ship ops / energy monitoring assistant in Home Assistant. "
+            "Keep the description punchy and distinct (not generic). "
             f"Current detected mood hint: {mood}."
         )
 
         # Spawn a one-shot session to avoid polluting main chat
-        payload_spawn = {"tool": "sessions_spawn", "args": {"task": "(agent pulse)", "label": "agent-pulse", "cleanup": "keep"}}
+        payload_spawn = {"tool": "sessions_spawn", "args": {"task": "(agent pulse)", "label": "agent-pulse", "cleanup": "delete"}}
         res_spawn = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload_spawn)
         sk = _extract_session_key(res_spawn) or (rt.get("session_key") or DEFAULT_SESSION_KEY)
 
@@ -5299,10 +5301,13 @@ async def async_setup(hass, config):
             await asyncio.sleep(0.35)
 
         # Apply response or fallback
-        desc = "Ship ops / energy monitoring assistant"
+        default_desc = "Ship ops / energy monitoring assistant"
+        desc = default_desc
         title = "Pulse"
         body = "Pulse acknowledged."
-        out_mood = mood
+        out_mood = mood if mood in {"calm", "focused", "alert", "playful", "tired"} else "calm"
+        theme_suggestion = None
+        used_default = True
         if resp_txt:
             try:
                 obj = _json.loads(resp_txt)
@@ -5310,8 +5315,19 @@ async def async_setup(hass, config):
                 desc = str(obj.get("description") or desc)[:200]
                 title = str(obj.get("journal_title") or title)[:120]
                 body = str(obj.get("journal_body") or body)[:6000]
+                tsug = obj.get("theme_suggestion")
+                if isinstance(tsug, str) and tsug.strip():
+                    theme_suggestion = tsug.strip()[:64]
+                if desc and desc != default_desc:
+                    used_default = False
             except Exception:
                 pass
+
+        if used_default:
+            desc = default_desc + " (default)"
+
+        if theme_suggestion is None:
+            theme_suggestion = "crimson_night" if out_mood == "alert" else ("deep_ocean" if out_mood == "focused" else "aurora")
 
         import datetime as _dt
         now = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
@@ -5332,7 +5348,13 @@ async def async_setup(hass, config):
         await journal_store.async_save(items)
         cfg["journal"] = items
 
-        return {"ok": True, "profile": prof, "toast": f"Pulse complete: mood={out_mood}"}
+        return {
+            "ok": True,
+            "profile": prof,
+            "theme_suggestion": theme_suggestion,
+            "used_default_description": used_default,
+            "toast": f"Pulse complete: mood={out_mood}",
+        }
 
     hass.services.async_register(DOMAIN, "agent_profile_get", handle_agent_profile_get, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "agent_profile_set", handle_agent_profile_set, supports_response=SupportsResponse.ONLY)

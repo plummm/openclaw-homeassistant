@@ -858,6 +858,7 @@ window.__clawdbotPanelInitError = null;
       derivedOn = !!(rr && rr.enabled);
       if (derivedPill) {
         derivedPill.textContent = derivedOn ? 'virtual sensors: ON' : 'virtual sensors: OFF';
+        derivedPill.title = 'Creates extra helper sensors (net power, load avg, etc.)';
         derivedPill.classList.toggle('ok', derivedOn);
         derivedPill.classList.toggle('bad', !derivedOn);
       }
@@ -932,8 +933,30 @@ window.__clawdbotPanelInitError = null;
             const moodEl = document.getElementById('agentMood');
             const descEl = document.getElementById('agentDesc');
             if (moodEl) moodEl.textContent = `· mood: ${prof.mood || 'calm'}`;
-            if (descEl) descEl.textContent = prof.description || '';
+            if (descEl) descEl.textContent = prof.description || 'Ship ops / energy monitoring assistant (default)';
           }
+
+          // Optional theme suggestion (debounced, only when Auto(mood) enabled)
+          try{
+            const auto = !!(window.__CLAWDBOT_CONFIG__ && window.__CLAWDBOT_CONFIG__.theme && window.__CLAWDBOT_CONFIG__.theme.auto);
+            const sug = r && r.theme_suggestion ? String(r.theme_suggestion) : null;
+            if (auto && sug) {
+              const now = Date.now();
+              const lastTs = window.__CLAWDBOT_LAST_THEME_TS || 0;
+              const lastKey = window.__CLAWDBOT_LAST_THEME_KEY || null;
+              const mood = prof && prof.mood ? String(prof.mood) : '';
+              const escalate = (mood === 'alert');
+              const okTime = (now - lastTs) >= 5*60*1000;
+              if ((okTime || escalate) && lastKey !== sug) {
+                window.__CLAWDBOT_LAST_THEME_TS = now;
+                window.__CLAWDBOT_LAST_THEME_KEY = sug;
+                applyThemePreset(sug, {silent:false, mood});
+                try{ await callServiceResponse('clawdbot','theme_set',{preset: sug, auto:true}); } catch(e){}
+                toast(`Theme: ${sug} (mood: ${mood||'—'})`);
+              }
+            }
+          } catch(e){}
+
           await refreshAgentJournal();
           toast(r && r.toast ? r.toast : 'Pulse complete');
         } catch(e){
