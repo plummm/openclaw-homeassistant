@@ -2719,6 +2719,7 @@ async def async_setup(hass, config):
 
         payload = {"tool": "sessions_history", "args": {"sessionKey": session_key_local, "limit": limit}}
         res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
+        _LOGGER.debug("chat_poll gateway raw response: %s", str(res)[:800])
 
         # Reuse the same parsing logic as the sessions_history API view (tail+diff).
         raw = res
@@ -2758,11 +2759,14 @@ async def async_setup(hass, config):
         # Only append agent messages (assistant) to avoid user duplication.
         now_ms = int(time.time() * 1000)
         candidates = []
+        seen_roles = {}
         for msg in messages:
             if not isinstance(msg, dict):
                 continue
             role_raw = msg.get("role") or msg.get("author")
-            if role_raw != "assistant":
+            if role_raw:
+                seen_roles[str(role_raw)] = seen_roles.get(str(role_raw), 0) + 1
+            if role_raw not in {"assistant", "agent"}:
                 continue
 
             content = msg.get("content")
@@ -2797,6 +2801,10 @@ async def async_setup(hass, config):
                     _pull_text(content)
             elif isinstance(content, str):
                 parts.append(content)
+
+            # Fallback: some gateway/tool outputs may provide text directly
+            if not parts and isinstance(msg.get("text"), str):
+                parts.append(msg.get("text"))
 
             text = "".join(parts)
             if not text.strip():
@@ -2833,6 +2841,7 @@ async def async_setup(hass, config):
             current = []
         seen_ids = {it.get("id") for it in current if isinstance(it, dict) and it.get("id")}
 
+        store_len_before = len(current)
         appended = 0
         for it in candidates:
             if it["id"] in seen_ids:
@@ -2846,6 +2855,17 @@ async def async_setup(hass, config):
                 current = current[-500:]
             await store.async_save(current)
             cfg["chat_history"] = current
+
+        _LOGGER.info(
+            "chat_poll: fetched=%s roles=%s candidates=%s appended=%s store_len=%s->%s session=%s",
+            len(messages),
+            seen_roles,
+            len(candidates),
+            appended,
+            store_len_before,
+            len(current),
+            session_key_local,
+        )
 
         # Fire-and-forget service; caller can diff chat_history to infer changes.
         return
