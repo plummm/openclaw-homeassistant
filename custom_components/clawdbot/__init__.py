@@ -441,6 +441,11 @@ PANEL_HTML = """<!doctype html>
     }));
     chatHasOlder = !!cfg.chat_history_has_older;
     chatSessionKey = cfg.session_key || cfg.target || null;
+
+    // TEMP (Slice 3 visual validation): if we have any messages, expose the paging control
+    // so UI QA can verify the button/state. Remove once real has_older is reliable.
+    const FORCE_PAGING_UI = true;
+    if (FORCE_PAGING_UI && (chatItems && chatItems.length >= 1)) chatHasOlder = true;
   }
 
   async function hassFetch(path, opts){
