@@ -164,7 +164,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.49"
+PANEL_BUILD_ID = "89337ab.50"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -5271,9 +5271,24 @@ async def async_setup(hass, config):
         import asyncio, json as _json
         resp_txt = None
         resp_raw = None
+        poll_debug = {
+            "attempts": 0,
+            "hist_top_keys": [],
+            "raw_top_keys": [],
+            "msgs_len": None,
+            "last_role": None,
+            "last_content_type": None,
+            "last_text_len": 0,
+        }
         for _ in range(20):
+            poll_debug["attempts"] += 1
             payload_hist = {"tool": "sessions_history", "args": {"sessionKey": sk, "limit": 10}}
             hist = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload_hist)
+            try:
+                if isinstance(hist, dict):
+                    poll_debug["hist_top_keys"] = sorted(list(hist.keys()))[:30]
+            except Exception:
+                pass
             # extract text
             try:
                 raw = hist
@@ -5282,12 +5297,22 @@ async def async_setup(hass, config):
                         raw = raw.get("result")
                     else:
                         break
+                if isinstance(raw, dict):
+                    poll_debug["raw_top_keys"] = sorted(list(raw.keys()))[:30]
                 msgs = None
                 if isinstance(raw, dict) and isinstance(raw.get("messages"), list):
                     msgs = raw.get("messages")
                 elif isinstance(raw, list):
                     msgs = raw
+                poll_debug["msgs_len"] = len(msgs) if isinstance(msgs, list) else None
                 if msgs:
+                    # Record last message shape for debug
+                    for m in reversed(msgs):
+                        if isinstance(m, dict):
+                            poll_debug["last_role"] = m.get("role")
+                            c = m.get("content")
+                            poll_debug["last_content_type"] = type(c).__name__
+                            break
                     for m in reversed(msgs):
                         if not isinstance(m, dict):
                             continue
@@ -5305,6 +5330,7 @@ async def async_setup(hass, config):
                         text = "".join(parts).strip()
                         if text:
                             resp_raw = text
+                            poll_debug["last_text_len"] = len(text)
                         if "BEGIN_JSON" in text and "END_JSON" in text:
                             b = text.find("BEGIN_JSON")
                             e = text.rfind("END_JSON")
@@ -5387,6 +5413,7 @@ async def async_setup(hass, config):
             out["parse_ok"] = False
             out["parse_debug"] = parse_debug
             out["spawn_debug"] = spawn_debug
+            out["poll_debug"] = poll_debug
         else:
             out["parse_ok"] = True
         return out
