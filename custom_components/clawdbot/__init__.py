@@ -338,8 +338,12 @@ PANEL_HTML = """<!doctype html>
   let chatSessionKey = null;
   const DEBUG_UI = (() => {
     try{
-      const qs = new URLSearchParams(window.location.search || '');
-      return qs.get('debug') === '1';
+      const qs1 = new URLSearchParams(window.location.search || '');
+      if (qs1.get('debug') === '1') return true;
+      // If the panel is embedded at /clawdbot (iframe), the debug flag may be on the parent URL.
+      const parentSearch = (window.parent && window.parent.location) ? (window.parent.location.search || '') : '';
+      const qs2 = new URLSearchParams(parentSearch);
+      return qs2.get('debug') === '1';
     } catch(e){
       return false;
     }
