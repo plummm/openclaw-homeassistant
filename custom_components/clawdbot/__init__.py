@@ -143,7 +143,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "75b3472"
+PANEL_BUILD_ID = "3dfa1c2"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -287,8 +287,7 @@ PANEL_JS = r"""
       for (let i = 0; i < parts.length; i++){
         const seg = escapeHtml(parts[i]);
         if (i % 2 === 0){
-          html += seg.replaceAll('
-', '<br/>');
+          html += seg.replaceAll('\n', '<br/>');
         } else {
           html += `<pre><code>${seg}</code></pre>`;
         }
