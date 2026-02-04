@@ -155,7 +155,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.36"
+PANEL_BUILD_ID = "89337ab.37"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -4897,6 +4897,9 @@ async def async_setup(hass, config):
             "panel_build_id": PANEL_BUILD_ID,
             "integration_build_id": INTEGRATION_BUILD_ID,
             "gateway_origin": rt.get("gateway_origin"),
+            # Instrumentation: prove what HA actually loaded
+            "config_dir": hass.config.config_dir,
+            "integration_file": __file__,
             "services": sorted(list(services.keys())),
         }
 
