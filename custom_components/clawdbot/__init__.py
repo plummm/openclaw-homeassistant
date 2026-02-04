@@ -118,8 +118,9 @@ PANEL_HTML = """<!doctype html>
   <style>
     html{background:var(--primary-background-color);}
     body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;padding:16px;max-width:980px;margin:0 auto;
+      /* HA-native background (light/dark theme safe) */
       background:linear-gradient(180deg,
-        color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 14%, var(--primary-background-color)) 0%,
+        color-mix(in srgb, var(--secondary-background-color) 70%, var(--primary-background-color)) 0%,
         var(--primary-background-color) 220px);
       color:var(--primary-text-color);
     }
@@ -141,20 +142,17 @@ PANEL_HTML = """<!doctype html>
     }
     code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;}
     .surface{
-      background:linear-gradient(180deg,
-        color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 22%, var(--primary-background-color)) 0%,
-        color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 10%, var(--primary-background-color)) 240px,
-        var(--primary-background-color) 560px);
+      /* Outer container: keep subtle separation from page bg */
+      background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 82%, transparent);
       border-radius:16px;
       padding:18px;
-      border:1px solid color-mix(in srgb, var(--divider-color) 88%, #000 12%);
-      box-shadow:0 10px 34px rgba(0,0,0,.08);
+      border:1px solid var(--divider-color);
+      box-shadow:0 10px 30px rgba(0,0,0,.08);
     }
     .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
-    .card{border:1px solid color-mix(in srgb, var(--divider-color) 82%, #000 10%);border-radius:16px;padding:16px;margin:14px 0;
-      background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 94%, transparent);
-      box-shadow:0 8px 20px rgba(0,0,0,.07);
-      backdrop-filter:saturate(1.1);
+    .card{border:1px solid var(--divider-color);border-radius:16px;padding:16px;margin:14px 0;
+      background:var(--ha-card-background, var(--card-background-color));
+      box-shadow:0 6px 16px rgba(0,0,0,.06);
     }
     .muted{color:var(--secondary-text-color);font-size:13px;}
     .ok{color:#0a7a2f;}
@@ -164,17 +162,31 @@ PANEL_HTML = """<!doctype html>
     .btn:disabled{opacity:0.5;cursor:not-allowed;filter:none;}
     .btn.primary{border-color:var(--mdc-theme-primary, var(--primary-color));background:var(--mdc-theme-primary, var(--primary-color));color:var(--text-primary-color, #fff);}
     .btn.primary:hover{filter:brightness(0.95);}
-    .tabs{display:flex;gap:10px;margin-top:10px;margin-bottom:12px;}
-    .tab{height:40px;padding:0 14px;border:1px solid color-mix(in srgb, var(--divider-color) 95%, transparent);border-radius:999px;
+    .tabs{display:flex;gap:4px;margin-top:10px;margin-bottom:12px;
+      padding:4px;border-radius:14px;
+      background:var(--ha-card-background, var(--card-background-color));
+      border:1px solid var(--divider-color);
+    }
+    .tab{height:40px;padding:0 14px;border:none;border-radius:12px;
       background:transparent;
-      color:var(--primary-text-color);opacity:0.92;cursor:pointer;display:inline-flex;align-items:center;}
-    .tab:hover{background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 55%, transparent);}
-    .tab.active{opacity:1;background:var(--mdc-theme-primary, var(--primary-color));border-color:var(--mdc-theme-primary, var(--primary-color));color:#fff;font-weight:800;
-      box-shadow:0 8px 22px color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 30%, transparent);}
+      color:var(--primary-text-color);
+      cursor:pointer;display:flex;flex:1;align-items:center;justify-content:center;
+      font-weight:650;
+    }
+    .tab:hover{background:color-mix(in srgb, var(--secondary-background-color) 80%, transparent);}
+    .tab.active{
+      background:color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 14%, var(--ha-card-background, var(--card-background-color)));
+      color:var(--primary-text-color);
+      position:relative;
+    }
+    .tab.active::after{
+      content:"";position:absolute;left:12px;right:12px;bottom:6px;height:3px;border-radius:999px;
+      background:var(--mdc-theme-primary, var(--primary-color));
+    }
     .hidden{display:none;}
     .kv{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;}
     .kv > div{background:var(--secondary-background-color);border:1px solid var(--divider-color);border-radius:10px;padding:8px 10px;}
-    .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid var(--divider-color);background:var(--secondary-background-color);color:#374151;}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid var(--divider-color);background:var(--secondary-background-color);color:var(--primary-text-color);}
     .pill.ok{border-color:var(--success-color, #2e7d32);background:color-mix(in srgb, var(--success-color, #2e7d32) 15%, transparent);color:var(--success-color, #2e7d32);}
     .pill.bad{border-color:var(--error-color, #b00020);background:color-mix(in srgb, var(--error-color, #b00020) 15%, transparent);color:var(--error-color, #b00020);}
     .entities{max-height:420px;overflow:auto;border:1px solid var(--divider-color);border-radius:8px;padding:8px;}
@@ -208,11 +220,12 @@ PANEL_HTML = """<!doctype html>
     .chat-head-left{display:flex;flex-direction:column;gap:3px;}
     .chat-head-right{display:flex;align-items:center;gap:10px;}
     .chat-session{height:40px;min-width:180px;max-width:520px;width:52vw;border-radius:12px;padding:0 12px;flex:1;
-      border:1px solid color-mix(in srgb, var(--divider-color) 78%, #000 14%);
-      background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent);
+      border:1px solid var(--divider-color);
+      background:var(--ha-card-background, var(--card-background-color));
       color:var(--primary-text-color);
+      /* keep native select rendering but ensure readable */
       appearance:auto;
-      -webkit-appearance:menulist;
+      color-scheme: light dark;
     }
     .chat-session:focus{border-color:var(--mdc-theme-primary, var(--primary-color));box-shadow:0 0 0 3px color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 22%, transparent);}
     .chat-load-top{display:flex;justify-content:center;margin:0 0 10px 0;}
