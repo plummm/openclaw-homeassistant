@@ -191,6 +191,8 @@ PANEL_HTML = """<!doctype html>
     .chat-input input{flex:1;min-width:220px;height:46px;}
     .chat-bubble pre{margin:8px 0 0 0;padding:10px 12px;border-radius:12px;background:color-mix(in srgb, var(--primary-background-color) 65%, transparent);border:1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);overflow:auto;}
     .chat-bubble code{background:color-mix(in srgb, var(--primary-background-color) 70%, transparent);padding:2px 6px;border-radius:8px;}
+    .chat-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 0 8px 0;}
+    .chat-head-right{display:flex;align-items:center;gap:10px;}
     .chat-load-top{display:flex;justify-content:center;margin:0 0 10px 0;}
     .chat-load-top .btn{height:32px;font-size:12px;padding:0 12px;border-radius:999px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 70%, transparent);}
     @media (max-width: 680px){ .chat-bubble{max-width:90%;} .chat-shell{height:72vh;} }
@@ -313,6 +315,15 @@ PANEL_HTML = """<!doctype html>
   </div>
 
   <div id=\"viewChat\" class=\"hidden\">
+    <div class=\"chat-head\">
+      <div class=\"chat-head-left\">
+        <select id=\"chatSessionSelect\" style=\"height:32px;border-radius:999px;padding:0 10px;border:1px solid color-mix(in srgb, var(--divider-color) 78%, #000 14%);background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 72%, transparent);color:var(--primary-text-color);max-width:420px;\"></select>
+      </div>
+      <div class=\"chat-head-right\">
+        <span class=\"muted\" style=\"font-size:12px\">Tokens: <span id=\"chatTokenUsage\">—</span></span>
+        <span id=\"chatTyping\" class=\"muted\" style=\"font-size:12px;display:none\">Typing…</span>
+      </div>
+    </div>
     <div class=\"chat-load-top\" id=\"chatLoadTop\">
       <button class=\"btn\" id=\"chatLoadOlderBtn\">Load older</button>
     </div>
@@ -481,6 +492,79 @@ PANEL_HTML = """<!doctype html>
       return parent.hass.callApi('GET', apiPath);
     }
     throw new Error('Unable to fetch with Home Assistant auth');
+  }
+
+  function setTyping(on){
+    const el = qs('#chatTyping');
+    if (el) el.style.display = on ? 'inline' : 'none';
+  }
+
+  function setTokenUsage(text){
+    const el = qs('#chatTokenUsage');
+    if (el) el.textContent = (text == null ? '—' : String(text));
+  }
+
+  async function refreshTokenUsage(){
+    try{
+      if (!chatSessionKey) { setTokenUsage('—'); return; }
+      const resp = await hassFetch('/api/clawdbot/session_status?session_key=' + encodeURIComponent(chatSessionKey));
+      const data = resp && resp.json ? await resp.json() : resp;
+      const r = data && data.result ? data.result : data;
+      const usage = (r && (r.usage || r.Usage || r.data && r.data.usage)) || null;
+      const total = usage && (usage.totalTokens || usage.total_tokens || usage.tokens || usage.total) ;
+      if (total != null) setTokenUsage(total);
+      else setTokenUsage('—');
+    } catch(e){
+      setTokenUsage('—');
+    }
+  }
+
+  async function refreshSessions(){
+    const sel = qs('#chatSessionSelect');
+    if (!sel) return;
+    try{
+      const resp = await hassFetch('/api/clawdbot/sessions?limit=50');
+      const data = resp && resp.json ? await resp.json() : resp;
+      const r = data && data.result ? data.result : data;
+      const sessions = (r && (r.sessions || r.items || r.result || r)) || [];
+      const arr = Array.isArray(sessions) ? sessions : (sessions.sessions || sessions.items || []);
+      // Preserve existing selection
+      const current = chatSessionKey || sel.value || '';
+      sel.innerHTML = '';
+      const mkOpt = (value, label) => {
+        const o = document.createElement('option');
+        o.value = value;
+        o.textContent = label;
+        return o;
+      };
+      // Always include current if set
+      const seen = new Set();
+      if (current) { sel.appendChild(mkOpt(current, current)); seen.add(current); }
+      for (const s of arr){
+        const key = s && (s.sessionKey || s.session_key || s.key || s.id);
+        if (!key || seen.has(key)) continue;
+        const label = s.label || s.name || '';
+        sel.appendChild(mkOpt(key, label ? (label + ' — ' + key) : key));
+        seen.add(key);
+      }
+      if (current) sel.value = current;
+    } catch(e){
+      // best-effort only
+    }
+  }
+
+  async function loadChatLatest(){
+    try{
+      const params = new URLSearchParams();
+      params.set('limit', '50');
+      if (chatSessionKey) params.set('session_key', chatSessionKey);
+      const resp = await hassFetch('/api/clawdbot/chat_history?' + params.toString());
+      const data = resp && resp.json ? await resp.json() : resp;
+      chatItems = (data && Array.isArray(data.items)) ? data.items : [];
+      chatHasOlder = !!(data && data.has_older);
+    } catch(e){
+      // ignore
+    }
   }
 
   async function loadOlderChat(){
@@ -1144,7 +1228,11 @@ PANEL_HTML = """<!doctype html>
       }
       if (which === 'chat') {
         loadChatFromConfig();
+        await refreshSessions();
+        // Prefer live fetch for the selected session (keeps dropdown + history in sync)
+        await loadChatLatest();
         renderChat({ autoScroll: true });
+        await refreshTokenUsage();
       }
     }
 
@@ -1236,6 +1324,14 @@ PANEL_HTML = """<!doctype html>
     const composerSend = qs('#chatComposerSend');
     const loadOlderBtn = qs('#chatLoadOlderBtn');
     if (loadOlderBtn) loadOlderBtn.onclick = () => { loadOlderChat(); };
+
+    const sessionSel = qs('#chatSessionSelect');
+    if (sessionSel) sessionSel.onchange = async () => {
+      chatSessionKey = sessionSel.value || null;
+      await loadChatLatest();
+      renderChat({ autoScroll: true });
+      await refreshTokenUsage();
+    };
     const setSendEnabled = () => {
       if (!composer || !composerSend) return;
       composerSend.disabled = !String(composer.value||'').trim();
@@ -1247,15 +1343,30 @@ PANEL_HTML = """<!doctype html>
       const input = composer;
       const text = input.value.trim();
       if (!text) return;
+
+      // optimistic append to local history store
+      try{ await callService('clawdbot','chat_append',{ role:'user', text, session_key: chatSessionKey }); } catch(e){}
+      const now = new Date();
+      const ts = now.toISOString();
+      chatItems.push({ role: 'user', text, ts, session_key: chatSessionKey });
+      input.value = '';
+      renderChat({ autoScroll: true });
+
+      // deterministic in-flight indicator while the gateway call is pending
+      setTyping(true);
       try{
-        await callService('clawdbot','chat_append',{ role:'user', text });
-        const now = new Date();
-        const ts = now.toISOString();
-        chatItems.push({ role: 'user', text, ts });
-        input.value = '';
-        renderChat({ autoScroll: true });
+        const resp = await hassFetch('/api/clawdbot/sessions_send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_key: chatSessionKey, message: text }),
+        });
+        // ignore response content (best-effort)
+        if (resp && resp.json) { try{ await resp.json(); } catch(e){} }
       } catch(e){
-        console.warn('chat_append failed', e);
+        console.warn('sessions_send failed', e);
+      } finally {
+        setTyping(false);
+        await refreshTokenUsage();
       }
     };
     qs('#chatComposer').addEventListener('keydown', (ev) => {
@@ -1543,6 +1654,99 @@ class ClawdbotChatHistoryApiView(HomeAssistantView):
         return web.json_response({"ok": True, "items": page, "has_older": has_older})
 
 
+class ClawdbotSessionsApiView(HomeAssistantView):
+    """Authenticated API for listing OpenClaw sessions (for chat session switcher)."""
+
+    url = "/api/clawdbot/sessions"
+    name = "api:clawdbot:sessions"
+    requires_auth = True
+
+    async def get(self, request):
+        from aiohttp import web
+
+        hass = request.app["hass"]
+        cfg = hass.data.get(DOMAIN, {})
+        token = cfg.get("token")
+        gateway_origin = cfg.get("gateway_origin")
+        session: aiohttp.ClientSession = cfg.get("session")
+        if not token or not gateway_origin or session is None:
+            return web.json_response({"ok": False, "error": "gateway not configured"}, status=400)
+
+        limit = 50
+        try:
+            limit = int(request.query.get("limit", 50))
+        except Exception:
+            limit = 50
+        if limit < 1:
+            limit = 1
+        if limit > 200:
+            limit = 200
+
+        payload = {"tool": "sessions_list", "args": {"limit": limit, "messageLimit": 1}}
+        res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
+        return web.json_response({"ok": True, "result": res})
+
+
+class ClawdbotSessionStatusApiView(HomeAssistantView):
+    """Authenticated API for best-effort token usage display."""
+
+    url = "/api/clawdbot/session_status"
+    name = "api:clawdbot:session_status"
+    requires_auth = True
+
+    async def get(self, request):
+        from aiohttp import web
+
+        hass = request.app["hass"]
+        cfg = hass.data.get(DOMAIN, {})
+        token = cfg.get("token")
+        gateway_origin = cfg.get("gateway_origin")
+        session: aiohttp.ClientSession = cfg.get("session")
+        if not token or not gateway_origin or session is None:
+            return web.json_response({"ok": False, "error": "gateway not configured"}, status=400)
+
+        session_key = request.query.get("session_key")
+        if not session_key:
+            return web.json_response({"ok": False, "error": "session_key required"}, status=400)
+
+        payload = {"tool": "session_status", "args": {"sessionKey": session_key}}
+        res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
+        return web.json_response({"ok": True, "result": res})
+
+
+class ClawdbotSessionsSendApiView(HomeAssistantView):
+    """Authenticated API for sending chat messages into an OpenClaw session."""
+
+    url = "/api/clawdbot/sessions_send"
+    name = "api:clawdbot:sessions_send"
+    requires_auth = True
+
+    async def post(self, request):
+        from aiohttp import web
+
+        hass = request.app["hass"]
+        cfg = hass.data.get(DOMAIN, {})
+        token = cfg.get("token")
+        gateway_origin = cfg.get("gateway_origin")
+        session: aiohttp.ClientSession = cfg.get("session")
+        if not token or not gateway_origin or session is None:
+            return web.json_response({"ok": False, "error": "gateway not configured"}, status=400)
+
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        session_key = data.get("session_key") or data.get("sessionKey")
+        message = data.get("message")
+        if not session_key or not message:
+            return web.json_response({"ok": False, "error": "session_key and message required"}, status=400)
+
+        payload = {"tool": "sessions_send", "args": {"sessionKey": str(session_key), "message": str(message)}}
+        res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
+        return web.json_response({"ok": True, "result": res})
+
 
 
 def _compute_house_memory_from_states(states: dict, mapping: dict | None = None) -> dict:
@@ -1669,6 +1873,8 @@ async def async_setup(hass, config):
             "gateway_origin": gateway_origin,
             "gateway_url": conf.get(CONF_GATEWAY_URL, None),
             "has_token": bool(token),
+            "token": token,
+            "session": session,
             "target": session_key,
             "store": store,
             "mapping": mapping,
@@ -1696,6 +1902,9 @@ async def async_setup(hass, config):
         hass.http.register_view(ClawdbotPanelSelfTestApiView)
         hass.http.register_view(ClawdbotHouseMemoryApiView)
         hass.http.register_view(ClawdbotChatHistoryApiView)
+        hass.http.register_view(ClawdbotSessionsApiView)
+        hass.http.register_view(ClawdbotSessionStatusApiView)
+        hass.http.register_view(ClawdbotSessionsSendApiView)
         _LOGGER.info("Registered Clawdbot panel view → %s", PANEL_PATH)
         _LOGGER.info("Registered Clawdbot mapping API → %s", ClawdbotMappingApiView.url)
     except Exception:
