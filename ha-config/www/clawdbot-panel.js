@@ -777,6 +777,35 @@ window.__clawdbotPanelInitError = null;
   let _speechRec = null;
   let _speechActive = false;
 
+  async function refreshAgentJournal(){
+    const el = document.getElementById('agentJournal');
+    if (!el) return;
+    try{
+      const resp = await callServiceResponse('clawdbot','journal_list', { limit: 10 });
+      const data = (resp && resp.response) ? resp.response : resp;
+      const r = data && data.result ? data.result : data;
+      const items = (r && Array.isArray(r.items)) ? r.items : [];
+      if (!items.length) { el.textContent = 'No journal entries yet.'; return; }
+      el.innerHTML = '';
+      for (const it of items){
+        const row = document.createElement('div');
+        row.style.border = '1px solid var(--divider-color)';
+        row.style.borderRadius = '14px';
+        row.style.padding = '10px 12px';
+        row.style.margin = '10px 0';
+        row.style.background = 'linear-gradient(120deg, color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent), color-mix(in srgb, var(--claw-bg-2) 12%, transparent))';
+        const ts = it.ts ? String(it.ts) : '';
+        const mood = it.mood ? String(it.mood) : '';
+        const title = it.title ? String(it.title) : 'Journal';
+        const body = it.body ? String(it.body) : '';
+        row.innerHTML = `<div style="display:flex;justify-content:space-between;gap:10px"><div style="font-weight:800">${escapeHtml(title)}${mood ? ` <span class=\"muted\">(${escapeHtml(mood)})</span>` : ''}</div><div class="muted" style="font-size:11px;white-space:nowrap">${escapeHtml(ts.slice(0,19).replace('T',' '))}</div></div><div class="muted" style="margin-top:6px;white-space:pre-wrap">${escapeHtml(body)}</div>`;
+        el.appendChild(row);
+      }
+    } catch(e){
+      el.textContent = 'Failed to load journal.';
+    }
+  }
+
   function agentAddActivity(kind, text){
     const now = new Date();
     _agentActivity.unshift({ ts: now.toISOString(), kind, text: String(text||'') });
@@ -812,15 +841,16 @@ window.__clawdbotPanelInitError = null;
 
     // Derived sensors status
     const derivedPill = document.getElementById('agentDerivedPill');
+    let derivedOn = null;
     try{
       const r = await callServiceResponse('clawdbot','derived_sensors_status',{});
       const data = (r && r.response) ? r.response : r;
       const rr = data && data.result ? data.result : data;
-      const en = !!(rr && rr.enabled);
+      derivedOn = !!(rr && rr.enabled);
       if (derivedPill) {
-        derivedPill.textContent = en ? 'derived: ON' : 'derived: OFF';
-        derivedPill.classList.toggle('ok', en);
-        derivedPill.classList.toggle('bad', !en);
+        derivedPill.textContent = derivedOn ? 'derived: ON' : 'derived: OFF';
+        derivedPill.classList.toggle('ok', derivedOn);
+        derivedPill.classList.toggle('bad', !derivedOn);
       }
     } catch(e){
       if (derivedPill) { derivedPill.textContent = 'derived: —'; derivedPill.classList.remove('ok'); derivedPill.classList.remove('bad'); }
@@ -828,23 +858,51 @@ window.__clawdbotPanelInitError = null;
 
     // Gateway health (latency)
     const connPill = document.getElementById('agentConnPill');
+    let gatewayOk = null;
     try{
       const r = await callServiceResponse('clawdbot','gateway_test',{});
       const data = (r && r.response) ? r.response : r;
       const rr = data && data.result ? data.result : data;
       const ms = rr && rr.latency_ms != null ? Number(rr.latency_ms) : null;
+      gatewayOk = true;
       if (connPill) {
         connPill.textContent = ms != null && !Number.isNaN(ms) ? `gateway OK (${ms}ms)` : 'gateway OK';
         connPill.classList.add('ok');
         connPill.classList.remove('bad');
       }
     } catch(e){
+      gatewayOk = false;
       if (connPill) {
         connPill.textContent = 'gateway FAIL';
         connPill.classList.add('bad');
         connPill.classList.remove('ok');
       }
     }
+
+    // Mood/mode (deterministic)
+    let mode = 'calm';
+    if (gatewayOk === false) mode = 'alert';
+    else if (derivedOn === false) mode = 'focused';
+
+    const modeEl = document.getElementById('agentMode');
+    if (modeEl) modeEl.textContent = `· mode: ${mode}`;
+
+    // Auto theme on mode changes (if enabled)
+    try{
+      const cfg2 = (window.__CLAWDBOT_CONFIG__ || {});
+      if (cfg2.theme && cfg2.theme.auto) {
+        const next = (mode === 'alert') ? 'crimson_night' : (mode === 'focused' ? 'deep_ocean' : 'aurora');
+        if (cfg2.theme.preset !== next) {
+          cfg2.theme.preset = next;
+          applyThemePreset(next, {silent:false, mood:mode});
+          // persist quietly
+          try{ await callServiceResponse('clawdbot','theme_set',{preset: next, auto:true}); } catch(e){}
+        }
+      }
+    } catch(e){}
+
+    // Journal
+    try{ await refreshAgentJournal(); } catch(e){}
 
     agentAddActivity('status', 'Agent view refreshed');
 

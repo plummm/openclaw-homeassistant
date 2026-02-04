@@ -154,11 +154,14 @@ CHAT_SESSIONS_STORE_VERSION = 1
 THEME_STORE_KEY = "clawdbot_theme"
 THEME_STORE_VERSION = 1
 
+JOURNAL_STORE_KEY = "clawdbot_journal"
+JOURNAL_STORE_VERSION = 1
+
 OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.44"
+PANEL_BUILD_ID = "89337ab.45"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1963,7 +1966,7 @@ PANEL_HTML = """<!doctype html>
   <script src=\"/local/clawdbot-panel.js?v=__PANEL_BUILD_ID__\"></script>
   </script>
 
-  <div class=\"tabs\">
+  <div class=\"tabs\" style=\"background:linear-gradient(135deg, color-mix(in srgb, var(--claw-bg-1) 80%, transparent), color-mix(in srgb, var(--claw-bg-2) 75%, transparent));border:1px solid color-mix(in srgb, var(--cb-border) 60%, var(--claw-accent-a) 12%);box-shadow:0 14px 34px rgba(0,0,0,.10);backdrop-filter: blur(10px);" >
     <button type=\"button\" class=\"tab active\" id=\"tabCockpit\">Cockpit</button>
     <button type=\"button\" class=\"tab\" id=\"tabAgent\">Agent</button>
     <button type=\"button\" class=\"tab\" id=\"tabChat\">Chat</button>
@@ -2207,7 +2210,7 @@ PANEL_HTML = """<!doctype html>
         <div class=\"row\" style=\"gap:14px;align-items:center\">
           <div style=\"width:64px;height:64px;border-radius:18px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg, rgba(0,245,255,.25), rgba(123,44,255,.25));border:1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));font-weight:800;letter-spacing:.5px\">A0</div>
           <div style=\"display:flex;flex-direction:column;gap:4px;min-width:260px\">
-            <div style=\"font-size:22px;font-weight:800\">Agent 0</div>
+            <div style=\"font-size:22px;font-weight:800\">Agent 0 <span class=\"muted\" id=\"agentMode\" style=\"font-weight:700\">· mode: calm</span></div>
             <div class=\"muted\">Ship ops / energy monitoring assistant</div>
             <div class=\"row\" style=\"gap:8px;flex-wrap:wrap\">
               <span class=\"pill\" id=\"agentConnPill\">…</span>
@@ -2227,6 +2230,12 @@ PANEL_HTML = """<!doctype html>
     <div class=\"card\">
       <h2 style=\"display:flex;justify-content:space-between;align-items:center\">Live activity <span class=\"muted\" style=\"font-size:12px\">last 5</span></h2>
       <div id=\"agentActivity\" class=\"muted\">No activity yet.</div>
+    </div>
+
+    <div class=\"card\">
+      <h2>Journal</h2>
+      <div class=\"muted\">Agent journals (mood-aware). Mirrors what gets posted to the Discord journal channel.</div>
+      <div id=\"agentJournal\" class=\"muted\" style=\"margin-top:10px\">No journal entries yet.</div>
     </div>
 
     <div class=\"card\">
@@ -2318,6 +2327,7 @@ class ClawdbotPanelView(HomeAssistantView):
             "chat_history": chat_history,
             "chat_history_has_older": chat_has_older,
             "theme": cfg.get("theme", {}),
+            "journal": (cfg.get("journal", []) or [])[-20:],
         }
         html = PANEL_HTML.replace("__CONFIG_JSON__", dumps(safe_cfg)).replace("__PANEL_BUILD_ID__", PANEL_BUILD_ID)
         return web.Response(
@@ -3166,6 +3176,16 @@ async def async_setup(hass, config):
         theme_cfg = {}
     theme_preset = theme_cfg.get("preset") or "nebula"
     theme_auto = bool(theme_cfg.get("auto"))
+    # Custom themes: dict key->theme object
+    theme_custom = theme_cfg.get("themes")
+    if not isinstance(theme_custom, dict):
+        theme_custom = {}
+
+    # Journal store (append-only, capped)
+    journal_store = Store(hass, JOURNAL_STORE_VERSION, JOURNAL_STORE_KEY)
+    journal_items = await journal_store.async_load() or []
+    if not isinstance(journal_items, list):
+        journal_items = []
 
     hass.data[DOMAIN].update(
         {
@@ -3174,7 +3194,10 @@ async def async_setup(hass, config):
             "chat_sessions_store": chat_sessions_store,
             "chat_sessions": chat_sessions,
             "theme_store": theme_store,
-            "theme": {"preset": theme_preset, "auto": theme_auto},
+            "theme_cfg": theme_cfg,
+            "theme": {"preset": theme_preset, "auto": theme_auto, "themes": theme_custom},
+            "journal_store": journal_store,
+            "journal": journal_items[-200:],
         }
     )
 
@@ -5011,6 +5034,7 @@ async def async_setup(hass, config):
 
         preset = call.data.get("preset")
         auto = call.data.get("auto")
+
         current = cfg.get("theme", {})
         if not isinstance(current, dict):
             current = {}
@@ -5018,13 +5042,15 @@ async def async_setup(hass, config):
         out = {
             "preset": current.get("preset") or "nebula",
             "auto": bool(current.get("auto")),
+            "themes": current.get("themes") if isinstance(current.get("themes"), dict) else {},
         }
         if isinstance(preset, str) and preset.strip():
             out["preset"] = preset.strip()
         if auto is not None:
             out["auto"] = bool(auto)
 
-        await store.async_save(out)
+        # Persist full cfg so custom themes remain
+        await store.async_save({"preset": out["preset"], "auto": out["auto"], "themes": out["themes"]})
         cfg["theme"] = out
         return {"ok": True, "theme": out}
 
@@ -5033,13 +5059,121 @@ async def async_setup(hass, config):
         store: Store = cfg.get("theme_store")
         if store is None:
             raise HomeAssistantError("theme store not initialized")
-        out = {"preset": "nebula", "auto": False}
-        await store.async_save(out)
+        out = {"preset": "nebula", "auto": False, "themes": {}}
+        await store.async_save({"preset": out["preset"], "auto": out["auto"], "themes": out["themes"]})
         cfg["theme"] = out
         return {"ok": True, "theme": out}
 
+    async def handle_theme_upsert(call):
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("theme_store")
+        if store is None:
+            raise HomeAssistantError("theme store not initialized")
+
+        key = call.data.get("key")
+        theme_obj = call.data.get("theme")
+        if not isinstance(key, str) or not key.strip():
+            raise HomeAssistantError("key is required")
+        if not isinstance(theme_obj, dict):
+            raise HomeAssistantError("theme must be an object")
+
+        current = cfg.get("theme", {})
+        if not isinstance(current, dict):
+            current = {"preset": "nebula", "auto": False, "themes": {}}
+        themes = current.get("themes") if isinstance(current.get("themes"), dict) else {}
+        themes[key.strip()] = theme_obj
+        current["themes"] = themes
+        cfg["theme"] = current
+
+        await store.async_save({"preset": current.get("preset"), "auto": bool(current.get("auto")), "themes": themes})
+        return {"ok": True, "themes": themes}
+
+    async def handle_theme_delete(call):
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("theme_store")
+        if store is None:
+            raise HomeAssistantError("theme store not initialized")
+        key = call.data.get("key")
+        if not isinstance(key, str) or not key.strip():
+            raise HomeAssistantError("key is required")
+        current = cfg.get("theme", {})
+        if not isinstance(current, dict):
+            current = {"preset": "nebula", "auto": False, "themes": {}}
+        themes = current.get("themes") if isinstance(current.get("themes"), dict) else {}
+        themes.pop(key.strip(), None)
+        current["themes"] = themes
+        cfg["theme"] = current
+        await store.async_save({"preset": current.get("preset"), "auto": bool(current.get("auto")), "themes": themes})
+        return {"ok": True, "themes": themes}
+
+    async def handle_theme_list(call):
+        cfg = hass.data.get(DOMAIN, {})
+        current = cfg.get("theme", {})
+        if not isinstance(current, dict):
+            current = {}
+        return {"ok": True, "theme": current}
+
     hass.services.async_register(DOMAIN, "theme_set", handle_theme_set, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "theme_reset", handle_theme_reset, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "theme_upsert", handle_theme_upsert, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "theme_delete", handle_theme_delete, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "theme_list", handle_theme_list, supports_response=SupportsResponse.ONLY)
+
+    async def handle_journal_append(call):
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("journal_store")
+        if store is None:
+            raise HomeAssistantError("journal store not initialized")
+
+        mood = call.data.get("mood")
+        title = call.data.get("title")
+        body = call.data.get("body")
+        source = call.data.get("source")
+
+        if body is None:
+            raise HomeAssistantError("body is required")
+        body = str(body)
+        if not body.strip():
+            raise HomeAssistantError("body is required")
+
+        import datetime as _dt
+        now = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+        item = {
+            "ts": now,
+            "mood": str(mood)[:40] if isinstance(mood, str) else None,
+            "title": str(title)[:120] if isinstance(title, str) else None,
+            "body": body[:6000],
+            "source": str(source)[:40] if isinstance(source, str) else "agent",
+        }
+
+        items = cfg.get("journal", []) or []
+        if not isinstance(items, list):
+            items = []
+        items.append(item)
+        if len(items) > 200:
+            items = items[-200:]
+        await store.async_save(items)
+        cfg["journal"] = items
+        return {"ok": True}
+
+    async def handle_journal_list(call):
+        cfg = hass.data.get(DOMAIN, {})
+        items = cfg.get("journal", []) or []
+        if not isinstance(items, list):
+            items = []
+        limit = 10
+        try:
+            limit = int(call.data.get("limit", 10))
+        except Exception:
+            limit = 10
+        if limit < 1:
+            limit = 1
+        if limit > 50:
+            limit = 50
+        return {"ok": True, "items": items[-limit:]}
+
+    hass.services.async_register(DOMAIN, "journal_append", handle_journal_append, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "journal_list", handle_journal_list, supports_response=SupportsResponse.ONLY)
 
     async def handle_chat_store_sanitize(call):
         """Sanitize chat store for a session: remove control/plumbing lines and dedupe."""
