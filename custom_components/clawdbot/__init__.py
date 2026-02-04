@@ -164,7 +164,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.50"
+PANEL_BUILD_ID = "89337ab.51"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -5304,8 +5304,25 @@ async def async_setup(hass, config):
                     msgs = raw.get("messages")
                 elif isinstance(raw, list):
                     msgs = raw
+
+                # Some gateway builds return sessions_history as {content, details} (markdown/text), not messages[].
+                if msgs is None and isinstance(raw, dict) and isinstance(raw.get("content"), str):
+                    text = raw.get("content").strip()
+                    if text:
+                        resp_raw = text
+                        poll_debug["last_text_len"] = len(text)
+                        poll_debug["last_content_type"] = "content:str"
+                        if "BEGIN_JSON" in text and "END_JSON" in text:
+                            b = text.find("BEGIN_JSON")
+                            e = text.rfind("END_JSON")
+                            inner = text[b + len("BEGIN_JSON") : e].strip()
+                            if inner.startswith("{"):
+                                resp_txt = inner
+                        elif text.startswith("{"):
+                            resp_txt = text
+
                 poll_debug["msgs_len"] = len(msgs) if isinstance(msgs, list) else None
-                if msgs:
+                if msgs and not resp_txt:
                     # Record last message shape for debug
                     for m in reversed(msgs):
                         if isinstance(m, dict):
@@ -5341,6 +5358,7 @@ async def async_setup(hass, config):
                         if text.startswith("{"):
                             resp_txt = text
                             break
+
                 if resp_txt:
                     break
             except Exception:
