@@ -155,7 +155,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.34"
+PANEL_BUILD_ID = "89337ab.35"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -4816,6 +4816,52 @@ async def async_setup(hass, config):
 
     hass.services.async_register(DOMAIN, "chat_new_session", handle_chat_new_session, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "chat_list_sessions", handle_chat_list_sessions, supports_response=SupportsResponse.ONLY)
+
+    async def handle_chat_debug_stats(call):
+        """Lightweight server-side stats for debugging duplication/filtering.
+
+        Avoids returning full chat history objects.
+        """
+        cfg = hass.data.get(DOMAIN, {})
+        rt = _runtime(hass)
+        session_key = call.data.get("session_key") or rt.get("session_key") or DEFAULT_SESSION_KEY
+        if not isinstance(session_key, str) or not session_key:
+            session_key = DEFAULT_SESSION_KEY
+
+        items = cfg.get("chat_history", []) or []
+        if not isinstance(items, list):
+            items = []
+        items = [it for it in items if isinstance(it, dict) and it.get("session_key") == session_key]
+
+        import re as _re
+        bad_re = _re.compile(r"ANNOUNCE_\w+|\bNO_REPLY\b|\bHEARTBEAT_OK\b|agent-to-agent announce|auto-journal|auto\-journaling|session-memory hook|ANNOUNCE_SKIP", _re.I)
+
+        role_counts = {}
+        fp = set()
+        id_set = set()
+        bad = 0
+        for it in items:
+            role = it.get("role") or ""
+            role_counts[role] = role_counts.get(role, 0) + 1
+            if it.get("fingerprint"):
+                fp.add(it.get("fingerprint"))
+            if it.get("id"):
+                id_set.add(it.get("id"))
+            txt = it.get("text")
+            if isinstance(txt, str) and bad_re.search(txt):
+                bad += 1
+
+        return {
+            "ok": True,
+            "session_key": session_key,
+            "items": len(items),
+            "role_counts": role_counts,
+            "unique_ids": len(id_set),
+            "unique_fingerprints": len(fp),
+            "bad_marker_matches": bad,
+        }
+
+    hass.services.async_register(DOMAIN, "chat_debug_stats", handle_chat_debug_stats, supports_response=SupportsResponse.ONLY)
 
     async def handle_build_info(call):
         # For deployment verification (no secrets)
