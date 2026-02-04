@@ -157,11 +157,14 @@ THEME_STORE_VERSION = 1
 JOURNAL_STORE_KEY = "clawdbot_journal"
 JOURNAL_STORE_VERSION = 1
 
+AGENT_PROFILE_STORE_KEY = "clawdbot_agent_profile"
+AGENT_PROFILE_STORE_VERSION = 1
+
 OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.45"
+PANEL_BUILD_ID = "89337ab.46"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -2210,8 +2213,8 @@ PANEL_HTML = """<!doctype html>
         <div class=\"row\" style=\"gap:14px;align-items:center\">
           <div style=\"width:64px;height:64px;border-radius:18px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg, rgba(0,245,255,.25), rgba(123,44,255,.25));border:1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));font-weight:800;letter-spacing:.5px\">A0</div>
           <div style=\"display:flex;flex-direction:column;gap:4px;min-width:260px\">
-            <div style=\"font-size:22px;font-weight:800\">Agent 0 <span class=\"muted\" id=\"agentMode\" style=\"font-weight:700\">· mode: calm</span></div>
-            <div class=\"muted\">Ship ops / energy monitoring assistant</div>
+            <div style=\"font-size:24px;font-weight:900;letter-spacing:-0.2px\">Agent 0 <span class=\"muted\" id=\"agentMood\" style=\"font-weight:800\">· mood: calm</span></div>
+            <div class=\"muted\" id=\"agentDesc\">Ship ops / energy monitoring assistant</div>
             <div class=\"row\" style=\"gap:8px;flex-wrap:wrap\">
               <span class=\"pill\" id=\"agentConnPill\">…</span>
               <span class=\"pill\" id=\"agentDerivedPill\">…</span>
@@ -2222,7 +2225,6 @@ PANEL_HTML = """<!doctype html>
         </div>
         <div class=\"row\" style=\"gap:8px;align-items:center\">
           <button class=\"btn primary\" id=\"btnAgentPulse\">Pulse</button>
-          <button class=\"btn\" id=\"btnAgentRefresh\">Refresh</button>
         </div>
       </div>
     </div>
@@ -2328,6 +2330,7 @@ class ClawdbotPanelView(HomeAssistantView):
             "chat_history_has_older": chat_has_older,
             "theme": cfg.get("theme", {}),
             "journal": (cfg.get("journal", []) or [])[-20:],
+            "agent_profile": cfg.get("agent_profile", {}),
         }
         html = PANEL_HTML.replace("__CONFIG_JSON__", dumps(safe_cfg)).replace("__PANEL_BUILD_ID__", PANEL_BUILD_ID)
         return web.Response(
@@ -3187,6 +3190,12 @@ async def async_setup(hass, config):
     if not isinstance(journal_items, list):
         journal_items = []
 
+    # Agent profile store (mood + description)
+    agent_profile_store = Store(hass, AGENT_PROFILE_STORE_VERSION, AGENT_PROFILE_STORE_KEY)
+    agent_profile = await agent_profile_store.async_load() or {}
+    if not isinstance(agent_profile, dict):
+        agent_profile = {}
+
     hass.data[DOMAIN].update(
         {
             "chat_store": chat_store,
@@ -3198,6 +3207,8 @@ async def async_setup(hass, config):
             "theme": {"preset": theme_preset, "auto": theme_auto, "themes": theme_custom},
             "journal_store": journal_store,
             "journal": journal_items[-200:],
+            "agent_profile_store": agent_profile_store,
+            "agent_profile": agent_profile,
         }
     )
 
@@ -5174,6 +5185,158 @@ async def async_setup(hass, config):
 
     hass.services.async_register(DOMAIN, "journal_append", handle_journal_append, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "journal_list", handle_journal_list, supports_response=SupportsResponse.ONLY)
+
+    async def handle_agent_profile_get(call):
+        cfg = hass.data.get(DOMAIN, {})
+        prof = cfg.get("agent_profile", {})
+        if not isinstance(prof, dict):
+            prof = {}
+        return {"ok": True, "profile": prof}
+
+    async def handle_agent_profile_set(call):
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("agent_profile_store")
+        if store is None:
+            raise HomeAssistantError("agent profile store not initialized")
+        mood = call.data.get("mood")
+        desc = call.data.get("description")
+        if mood is not None and not isinstance(mood, str):
+            raise HomeAssistantError("mood must be a string")
+        if desc is not None and not isinstance(desc, str):
+            raise HomeAssistantError("description must be a string")
+        prof = cfg.get("agent_profile", {})
+        if not isinstance(prof, dict):
+            prof = {}
+        if isinstance(mood, str) and mood.strip():
+            prof["mood"] = mood.strip()[:24]
+        if isinstance(desc, str) and desc.strip():
+            prof["description"] = desc.strip()[:200]
+        import datetime as _dt
+        prof["updated_ts"] = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+        await store.async_save(prof)
+        cfg["agent_profile"] = prof
+        return {"ok": True, "profile": prof}
+
+    async def handle_agent_pulse(call):
+        """Trigger agent reflection: update mood/description and append a journal entry."""
+        cfg = hass.data.get(DOMAIN, {})
+        prof_store: Store = cfg.get("agent_profile_store")
+        journal_store: Store = cfg.get("journal_store")
+        if prof_store is None or journal_store is None:
+            raise HomeAssistantError("stores not initialized")
+
+        # Determine current mood from runtime signals
+        rt = _runtime(hass)
+        # default mood
+        mood = "calm"
+        # gateway connectivity via runtime essentials
+        if not rt.get("gateway_origin") or not rt.get("token"):
+            mood = "lost"
+        else:
+            # if derived sensors disabled, focus
+            if not bool(rt.get("derived_enabled")):
+                mood = "focused"
+
+        # Ask gateway to generate a short description + journal (best-effort)
+        session, gateway_origin, token, _default_session_key = _runtime_gateway_parts(hass)
+        prompt = (
+            "You are Agent 0. Return JSON only (no markdown). Keys: mood (one of calm|focused|alert|playful|tired), "
+            "description (<=80 chars), journal_title (<=60), journal_body (<=500). "
+            "Base it on being a ship ops / energy monitoring assistant in Home Assistant. "
+            f"Current detected mood hint: {mood}."
+        )
+
+        # Spawn a one-shot session to avoid polluting main chat
+        payload_spawn = {"tool": "sessions_spawn", "args": {"task": "(agent pulse)", "label": "agent-pulse", "cleanup": "keep"}}
+        res_spawn = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload_spawn)
+        sk = _extract_session_key(res_spawn) or (rt.get("session_key") or DEFAULT_SESSION_KEY)
+
+        payload_send = {"tool": "sessions_send", "args": {"sessionKey": sk, "message": prompt}}
+        await _gw_post(session, gateway_origin + "/tools/invoke", token, payload_send)
+
+        # Poll for response (short)
+        import asyncio, json as _json
+        resp_txt = None
+        for _ in range(12):
+            payload_hist = {"tool": "sessions_history", "args": {"sessionKey": sk, "limit": 6}}
+            hist = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload_hist)
+            # extract text
+            try:
+                raw = hist
+                for __ in range(3):
+                    if isinstance(raw, dict) and "result" in raw:
+                        raw = raw.get("result")
+                    else:
+                        break
+                msgs = None
+                if isinstance(raw, dict) and isinstance(raw.get("messages"), list):
+                    msgs = raw.get("messages")
+                elif isinstance(raw, list):
+                    msgs = raw
+                if msgs:
+                    for m in reversed(msgs):
+                        if not isinstance(m, dict):
+                            continue
+                        role_raw = m.get("role")
+                        if role_raw not in {"assistant", "agent"}:
+                            continue
+                        content = m.get("content")
+                        parts = []
+                        if isinstance(content, list):
+                            for p in content:
+                                if isinstance(p, dict) and p.get("type") == "text":
+                                    parts.append(str(p.get("text") or ""))
+                        elif isinstance(content, str):
+                            parts.append(content)
+                        text = "".join(parts).strip()
+                        if text.startswith("{"):
+                            resp_txt = text
+                            break
+                if resp_txt:
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(0.35)
+
+        # Apply response or fallback
+        desc = "Ship ops / energy monitoring assistant"
+        title = "Pulse"
+        body = "Pulse acknowledged."
+        out_mood = mood
+        if resp_txt:
+            try:
+                obj = _json.loads(resp_txt)
+                out_mood = str(obj.get("mood") or out_mood)[:24]
+                desc = str(obj.get("description") or desc)[:200]
+                title = str(obj.get("journal_title") or title)[:120]
+                body = str(obj.get("journal_body") or body)[:6000]
+            except Exception:
+                pass
+
+        import datetime as _dt
+        now = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+        prof = cfg.get("agent_profile", {})
+        if not isinstance(prof, dict):
+            prof = {}
+        prof.update({"mood": out_mood, "description": desc, "updated_ts": now})
+        await prof_store.async_save(prof)
+        cfg["agent_profile"] = prof
+
+        # Append journal
+        items = cfg.get("journal", []) or []
+        if not isinstance(items, list):
+            items = []
+        items.append({"ts": now, "mood": out_mood, "title": title, "body": body, "source": "pulse"})
+        if len(items) > 200:
+            items = items[-200:]
+        await journal_store.async_save(items)
+        cfg["journal"] = items
+
+        return {"ok": True, "profile": prof, "toast": f"Pulse complete: mood={out_mood}"}
+
+    hass.services.async_register(DOMAIN, "agent_profile_get", handle_agent_profile_get, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "agent_profile_set", handle_agent_profile_set, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "agent_pulse", handle_agent_pulse, supports_response=SupportsResponse.ONLY)
 
     async def handle_chat_store_sanitize(call):
         """Sanitize chat store for a session: remove control/plumbing lines and dedupe."""

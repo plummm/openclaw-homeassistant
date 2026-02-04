@@ -837,7 +837,16 @@ window.__clawdbotPanelInitError = null;
     const cfg = (window.__CLAWDBOT_CONFIG__ || {});
     const sess = cfg.session_key || 'main';
     const sessPill = document.getElementById('agentSessionPill');
-    if (sessPill) sessPill.textContent = 'session: ' + sess;
+    if (sessPill) { sessPill.textContent = 'session: ' + sess; }
+
+    // Agent profile (mood + description)
+    try{
+      const prof = cfg.agent_profile || {};
+      const moodEl = document.getElementById('agentMood');
+      const descEl = document.getElementById('agentDesc');
+      if (moodEl) moodEl.textContent = `· mood: ${prof.mood || 'calm'}`;
+      if (descEl) descEl.textContent = prof.description || 'Ship ops / energy monitoring assistant';
+    } catch(e){}
 
     // Derived sensors status
     const derivedPill = document.getElementById('agentDerivedPill');
@@ -848,7 +857,7 @@ window.__clawdbotPanelInitError = null;
       const rr = data && data.result ? data.result : data;
       derivedOn = !!(rr && rr.enabled);
       if (derivedPill) {
-        derivedPill.textContent = derivedOn ? 'derived: ON' : 'derived: OFF';
+        derivedPill.textContent = derivedOn ? 'virtual sensors: ON' : 'virtual sensors: OFF';
         derivedPill.classList.toggle('ok', derivedOn);
         derivedPill.classList.toggle('bad', !derivedOn);
       }
@@ -879,22 +888,22 @@ window.__clawdbotPanelInitError = null;
       }
     }
 
-    // Mood/mode (deterministic)
-    let mode = 'calm';
-    if (gatewayOk === false) mode = 'alert';
-    else if (derivedOn === false) mode = 'focused';
+    // Mood (deterministic)
+    let mood = 'calm';
+    if (gatewayOk === false) mood = 'alert';
+    else if (derivedOn === false) mood = 'focused';
 
-    const modeEl = document.getElementById('agentMode');
-    if (modeEl) modeEl.textContent = `· mode: ${mode}`;
+    const moodEl = document.getElementById('agentMood');
+    if (moodEl) moodEl.textContent = `· mood: ${mood}`;
 
-    // Auto theme on mode changes (if enabled)
+    // Auto theme on mood changes (if enabled)
     try{
       const cfg2 = (window.__CLAWDBOT_CONFIG__ || {});
       if (cfg2.theme && cfg2.theme.auto) {
-        const next = (mode === 'alert') ? 'crimson_night' : (mode === 'focused' ? 'deep_ocean' : 'aurora');
+        const next = (mood === 'alert') ? 'crimson_night' : (mood === 'focused' ? 'deep_ocean' : 'aurora');
         if (cfg2.theme.preset !== next) {
           cfg2.theme.preset = next;
-          applyThemePreset(next, {silent:false, mood:mode});
+          applyThemePreset(next, {silent:false, mood});
           // persist quietly
           try{ await callServiceResponse('clawdbot','theme_set',{preset: next, auto:true}); } catch(e){}
         }
@@ -910,12 +919,29 @@ window.__clawdbotPanelInitError = null;
     const btnPulse = document.getElementById('btnAgentPulse');
     if (btnPulse && !btnPulse.__bound) {
       btnPulse.__bound = true;
-      btnPulse.onclick = () => { agentAddActivity('pulse', 'Pulse acknowledged'); toast('Pulse sent'); };
-    }
-    const btnRefresh = document.getElementById('btnAgentRefresh');
-    if (btnRefresh && !btnRefresh.__bound) {
-      btnRefresh.__bound = true;
-      btnRefresh.onclick = async () => { await renderAgentView(); toast('Refreshed'); };
+      btnPulse.onclick = async () => {
+        btnPulse.disabled = true;
+        agentAddActivity('pulse', 'Pulse sent');
+        try{
+          const resp = await callServiceResponse('clawdbot','agent_pulse', { session_key: cfg.session_key || 'main' });
+          const data = (resp && resp.response) ? resp.response : resp;
+          const r = data && data.result ? data.result : data;
+          const prof = r && r.profile ? r.profile : null;
+          if (prof) {
+            window.__CLAWDBOT_CONFIG__.agent_profile = prof;
+            const moodEl = document.getElementById('agentMood');
+            const descEl = document.getElementById('agentDesc');
+            if (moodEl) moodEl.textContent = `· mood: ${prof.mood || 'calm'}`;
+            if (descEl) descEl.textContent = prof.description || '';
+          }
+          await refreshAgentJournal();
+          toast(r && r.toast ? r.toast : 'Pulse complete');
+        } catch(e){
+          toast('Pulse failed: ' + String(e));
+        } finally {
+          btnPulse.disabled = false;
+        }
+      };
     }
 
     bindSpeechUi();
