@@ -1904,6 +1904,25 @@ class ClawdbotSessionsHistoryApiView(HomeAssistantView):
         if isinstance(raw, dict) and "result" in raw:
             raw = raw.get("result")
 
+        # OpenClaw /tools/invoke typically returns {content:[...], details:{...}}
+        if isinstance(raw, dict) and isinstance(raw.get("details"), dict):
+            details = raw.get("details")
+            if isinstance(details.get("messages"), list):
+                raw = details
+
+        # Sometimes the JSON is embedded in content[0].text
+        if isinstance(raw, dict) and not isinstance(raw.get("messages"), list) and isinstance(raw.get("content"), list):
+            try:
+                import json
+
+                txt = raw.get("content")[0].get("text") if raw.get("content") else None
+                if isinstance(txt, str) and txt.strip().startswith("{"):
+                    parsed = json.loads(txt)
+                    if isinstance(parsed, dict):
+                        raw = parsed
+            except Exception:
+                pass
+
         messages = None
         if isinstance(raw, list):
             messages = raw
