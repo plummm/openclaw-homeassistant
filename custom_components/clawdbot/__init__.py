@@ -1623,7 +1623,21 @@ PANEL_JS = r"""
     }
   }
 
-  init();
+  function __clawdbotBoot(){
+    if (window.__clawdbotPanelInit) return;
+    window.__clawdbotPanelInit = true;
+    try{ init(); } catch(e){
+      try{ if (typeof DEBUG_UI !== 'undefined' && DEBUG_UI) console.error('[clawdbot] init threw', e); }catch(_e){}
+      // retry once on next tick in case DOM wasn't ready
+      try{ setTimeout(() => { try{ init(); } catch(_e2){} }, 50); } catch(_e) {}
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', __clawdbotBoot, { once: true });
+  } else {
+    __clawdbotBoot();
+  }
 })();
 })();
 
