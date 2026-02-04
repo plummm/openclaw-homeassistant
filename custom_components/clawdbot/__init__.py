@@ -806,15 +806,26 @@ PANEL_HTML = """<!doctype html>
 
     const currentSession = chatSessionKey;
     try{
-      const beforeLen = (chatItems || []).length;
+      const seenBefore = chatLastSeenIds ? new Set(Array.from(chatLastSeenIds)) : new Set();
       await callService('clawdbot','chat_poll',{ session_key: currentSession, limit: 50 });
       chatLastPollTs = Date.now();
       chatLastPollError = null;
 
       // Refresh from HA chat_history API (authoritative for panel)
       await loadChatLatest();
-      const afterLen = (chatItems || []).length;
-      chatLastPollAppended = Math.max(0, afterLen - beforeLen);
+
+      // Stable +N: count newly-seen IDs after refresh (length can stay constant due to trimming)
+      let appendedCount = 0;
+      const nextSeen = new Set(Array.from(seenBefore));
+      for (const it of (chatItems || [])){
+        if (!it || !it.id) continue;
+        if (nextSeen.has(it.id)) continue;
+        nextSeen.add(it.id);
+        if (it.role === 'agent') appendedCount += 1;
+      }
+      chatLastSeenIds = nextSeen;
+      chatLastPollAppended = appendedCount;
+
       renderChat({ preserveScroll: true });
 
       if (DEBUG_UI) console.debug('[clawdbot chat] poll ok', {session: currentSession, appended: chatLastPollAppended});
