@@ -145,7 +145,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.10"
+PANEL_BUILD_ID = "89337ab.11"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -2117,12 +2117,22 @@ class ClawdbotPanelView(HomeAssistantView):
             session_items = [it for it in chat_history if isinstance(it, dict)]
         chat_history = session_items[-50:]
         chat_has_older = len(session_items) > len(chat_history)
+        mapping = cfg.get("mapping", {})
+        if not isinstance(mapping, dict):
+            mapping = {}
+
+        # First-run gating flags (panel uses these to decide whether to show wizard)
+        essentials_missing = not bool(rt.get("gateway_url") or rt.get("gateway_origin")) or not bool(rt.get("token"))
+        mapping_missing = any(not mapping.get(k) for k in ("soc", "voltage", "solar", "load"))
+
         safe_cfg = {
             "build_id": PANEL_BUILD_ID,
             "gateway_url": rt.get("gateway_url") or rt.get("gateway_origin"),
             "has_token": bool(rt.get("token")),
             "session_key": rt.get("session_key") or DEFAULT_SESSION_KEY,
-            "mapping": cfg.get("mapping", {}),
+            "mapping": mapping,
+            "essentials_missing": essentials_missing,
+            "mapping_missing": mapping_missing,
             "house_memory": cfg.get("house_memory", {}),
             "chat_history": chat_history,
             "chat_history_has_older": chat_has_older,
