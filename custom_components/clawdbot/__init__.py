@@ -513,7 +513,7 @@ PANEL_HTML = """<!doctype html>
   async function hassFetch(path, opts){
     const parent = window.parent;
 
-    // Preferred: HA frontend auth helpers (works when embedded at /clawdbot)
+    // Preferred: HA frontend auth helpers (when available)
     try{
       if (parent && parent.hass && typeof parent.hass.fetchWithAuth === 'function') {
         return parent.hass.fetchWithAuth(path, opts || {});
@@ -527,7 +527,22 @@ PANEL_HTML = """<!doctype html>
       }
     } catch(e){}
 
-    // Fallback: same-origin fetch (works on /clawdbot-panel with HA session cookies)
+    // Next-best: bearer token if accessible (HA stores auth in parent.hass.auth)
+    try{
+      const token = parent && parent.hass && parent.hass.auth && parent.hass.auth.accessToken;
+      if (token) {
+        const o = Object.assign({}, (opts || {}));
+        o.headers = Object.assign({}, (o.headers || {}), { 'Authorization': `Bearer ${token}` });
+        const resp = await fetch(path, o);
+        if (!resp.ok) {
+          const txt = await resp.text().catch(()=> '');
+          throw new Error(`HTTP ${resp.status} ${path} ${txt.slice(0,120)}`);
+        }
+        return resp;
+      }
+    } catch(e){}
+
+    // Fallback: same-origin cookies (may 401 in HA depending on auth mode)
     const o = Object.assign({ credentials: 'same-origin' }, (opts || {}));
     const resp = await fetch(path, o);
     if (!resp.ok) {
@@ -543,13 +558,8 @@ PANEL_HTML = """<!doctype html>
     params.set('limit', String(limit || 20));
     const url = '/api/clawdbot/sessions_history?' + params.toString();
 
-    // Polling must work inside the same-origin iframe panel; use cookie-auth fetch.
-    const resp = await fetch(url, { credentials: 'same-origin' });
-    if (!resp.ok) {
-      const txt = await resp.text().catch(()=> '');
-      throw new Error(`HTTP ${resp.status} ${url} ${txt.slice(0,120)}`);
-    }
-    const data = await resp.json().catch(()=> ({}));
+    const resp = await hassFetch(url);
+    const data = resp && resp.json ? await resp.json() : resp;
     return (data && Array.isArray(data.items)) ? data.items : [];
   }
 
