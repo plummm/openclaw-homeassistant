@@ -1824,7 +1824,7 @@ PANEL_HTML = """<!doctype html>
   <div class=\"muted\" style=\"margin:0 0 10px 0;\">Home Assistant panel (served by HA). Uses HA auth to call HA services which relay to OpenClaw.</div>
 
   <script type=\"application/json\" id=\"clawdbot-config\">__CONFIG_JSON__</script>
-  <script src=\"/clawdbot-panel.js?v=__PANEL_BUILD_ID__\"></script>
+  <script src=\"/local/clawdbot-panel.js?v=__PANEL_BUILD_ID__\"></script>
   </script>
 
   <div class=\"tabs\">
