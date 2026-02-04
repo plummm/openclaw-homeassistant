@@ -593,6 +593,7 @@ PANEL_HTML = """<!doctype html>
       d.innerHTML = `<div class="muted">${k}</div><div><b>${String(v)}</b></div>`;
       root.appendChild(d);
     }
+  }
   function fillConnectionInputs(){
     const cfg = (window.__CLAWDBOT_CONFIG__ || {});
     const set = (id, val) => { const el = qs('#'+id); if (el) el.value = (val == null ? '' : String(val)); };
