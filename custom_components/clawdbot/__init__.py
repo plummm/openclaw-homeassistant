@@ -182,10 +182,10 @@ PANEL_HTML = """<!doctype html>
     .chat-row.user{justify-content:flex-end;}
     .chat-row.agent{justify-content:flex-start;}
     .chat-bubble{max-width:72%;padding:12px 14px;border-radius:16px;border:1px solid color-mix(in srgb, var(--divider-color) 75%, transparent);background:var(--secondary-background-color);box-shadow:0 6px 14px rgba(0,0,0,.04);white-space:pre-wrap;}
-    .chat-row.user .chat-bubble{background:var(--mdc-theme-primary, var(--primary-color));border-color:color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 55%, transparent);color:#fff;}
-    .chat-row.agent .chat-bubble{background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 85%, transparent);}
+    .chat-row.user .chat-bubble{background:var(--mdc-theme-primary, var(--primary-color));border-color:var(--mdc-theme-primary, var(--primary-color));color:#fff;}
+    .chat-row.agent .chat-bubble{background:var(--ha-card-background, var(--card-background-color));border-color:color-mix(in srgb, var(--divider-color) 95%, transparent);color:var(--primary-text-color);}
     .chat-meta{font-size:12px;color:var(--secondary-text-color);margin-top:6px;display:flex;gap:8px;align-items:center;justify-content:space-between;}
-    .chat-input{display:flex;gap:10px;padding:12px;border-top:1px solid var(--divider-color);background:color-mix(in srgb, var(--secondary-background-color) 85%, transparent);}
+    .chat-input{display:flex;gap:10px;padding:12px;border-top:1px solid var(--divider-color);background:color-mix(in srgb, var(--secondary-background-color) 92%, transparent);box-shadow:0 -10px 30px rgba(0,0,0,.06);}
     .chat-input input{flex:1;min-width:220px;height:46px;}
     .chat-bubble pre{margin:8px 0 0 0;padding:10px 12px;border-radius:12px;background:color-mix(in srgb, var(--primary-background-color) 65%, transparent);border:1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);overflow:auto;}
     .chat-bubble code{background:color-mix(in srgb, var(--primary-background-color) 70%, transparent);padding:2px 6px;border-radius:8px;}
@@ -313,7 +313,7 @@ PANEL_HTML = """<!doctype html>
       <div id=\"chatList\" class=\"chat-list\"></div>
       <div class=\"chat-input\">
         <input id=\"chatComposer\" placeholder=\"Ask Clawdbot…\"/>
-        <button class=\"btn primary\" id=\"chatComposerSend\">Send</button>
+        <button class=\"btn primary\" id=\"chatComposerSend\" style=\"min-width:96px\">Send</button>
       </div>
     </div>
   </div>
