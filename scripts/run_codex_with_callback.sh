@@ -8,7 +8,11 @@ set -euo pipefail
 
 mode="--full-auto"
 plan_flag=""
-if [[ "${1:-}" == "--plan" ]]; then
+plan_only=""
+if [[ "${1:-}" == "--plan-only" ]]; then
+  plan_only="1"
+  shift
+elif [[ "${1:-}" == "--plan" ]]; then
   plan_flag="--plan"
   shift
 fi
@@ -25,7 +29,9 @@ fi
 
 rc=0
 set +e
-if [[ -n "$plan_flag" ]]; then
+if [[ -n "$plan_only" ]]; then
+  prompt="/plan\n\n${prompt}\n\nDO NOT modify any files. Stop after the plan."
+elif [[ -n "$plan_flag" ]]; then
   prompt="/plan\n\n${prompt}\n\nThen critique your plan (risks/missing requirements) and revise it. After that, execute the revised plan to completion."
 fi
 codex exec "$mode" "$prompt"
