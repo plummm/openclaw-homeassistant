@@ -287,7 +287,8 @@ PANEL_JS = r"""
       for (let i = 0; i < parts.length; i++){
         const seg = escapeHtml(parts[i]);
         if (i % 2 === 0){
-          html += seg.replaceAll('\n', '<br/>');
+          html += seg.replaceAll('
+', '<br/>');
         } else {
           html += `<pre><code>${seg}</code></pre>`;
         }
@@ -1377,15 +1378,29 @@ PANEL_JS = r"""
   }
 
 
-  async function fetchStatesRest(hass){
+  
+  async function fetchStatesWs(conn){
+    if (!conn || typeof conn.sendMessagePromise !== 'function') throw new Error('WS connection unavailable');
+    const arr = await conn.sendMessagePromise({ type: 'get_states' });
+    const out = {};
+    if (Array.isArray(arr)) {
+      for (const it of arr) {
+        if (it && it.entity_id) out[it.entity_id] = it;
+      }
+    }
+    return out;
+  }
+
+async function fetchStatesRest(hass){
     // Fallback when hass.states is empty/unavailable in iframe context.
     const token = (() => { try{ return (hass && hass.auth && hass.auth.data && hass.auth.data.access_token) || (hass && hass.auth && hass.auth.accessToken) || null; } catch(e){ return null; } })();
     const headers = { 'Accept': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    try{ if (DEBUG_UI) console.debug('[clawdbot] rest auth token?', {hasAuth: !!(hass && hass.auth), hasData: !!(hass && hass.auth && hass.auth.data), hasAccessToken: !!token}); }catch(e){}
+    if (token) { headers['Authorization'] = `Bearer ${token}`; try{ if (DEBUG_UI) console.debug('[clawdbot] rest using bearer auth'); }catch(e){} }
     const r = await fetch('/api/states', { credentials: 'include', headers });
     let len = null;
     if (!r.ok) {
-      try{ if (DEBUG_UI) console.debug('[clawdbot] /api/states status', r.status); }catch(e){}
+      try{ if (DEBUG_UI) console.debug('[clawdbot] /api/states status', r.status, 'www-authenticate', r.headers.get('www-authenticate')); }catch(e){}
       throw new Error('REST /api/states failed: ' + r.status);
     }
     const arr = await r.json();
@@ -1408,12 +1423,19 @@ PANEL_JS = r"""
     let n = 0;
     try{ n = Object.keys(states||{}).length; }catch(e){}
     if (!n) {
-      try{ if (DEBUG_UI) console.debug('[clawdbot] hass.states empty; using REST /api/states fallback'); }catch(e){}
+      // Prefer websocket get_states when available (avoids REST 401 in iframe context)
       try{
-        states = await fetchStatesRest(hass);
-      } catch(e){
-        setStatus(false,'error', String(e));
-        throw e;
+        const conn = (hass && hass.connection) ? hass.connection : null;
+        if (DEBUG_UI) console.debug('[clawdbot] hass.states empty; trying WS get_states');
+        states = await fetchStatesWs(conn);
+      } catch(e) {
+        try{ if (DEBUG_UI) console.debug('[clawdbot] WS get_states failed; falling back to REST', e); }catch(_e){}
+        try{
+          states = await fetchStatesRest(hass);
+        } catch(e2){
+          setStatus(false,'error', String(e2));
+          throw e2;
+        }
       }
     }
     _allIds = Object.keys(states).sort();
