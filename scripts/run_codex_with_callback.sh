@@ -27,6 +27,13 @@ set -e
 # Wake the gateway so Agent 42 follows through with commit/proof/verification.
 # Best-effort: do not fail the script if wake fails.
 msg="Codex finished (rc=$rc): ${prompt:0:140}"
-openclaw gateway wake --text "$msg" --mode now >/dev/null 2>&1 || true
+# Ensure openclaw is reachable even if ~/.npm-global/bin isn't on PATH in the Codex shell.
+OPENCLAW_BIN="${OPENCLAW_BIN:-openclaw}"
+if ! command -v "$OPENCLAW_BIN" >/dev/null 2>&1; then
+  if [[ -x "$HOME/.npm-global/bin/openclaw" ]]; then
+    OPENCLAW_BIN="$HOME/.npm-global/bin/openclaw"
+  fi
+fi
+"$OPENCLAW_BIN" gateway wake --text "$msg" --mode now >/dev/null 2>&1 || true
 
 exit $rc
