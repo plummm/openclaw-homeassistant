@@ -149,7 +149,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.18"
+PANEL_BUILD_ID = "89337ab.19"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -4323,14 +4323,22 @@ async def async_setup(hass, config):
         except Exception as e:
             raise HomeAssistantError(f"Recorder history not available: {e}")
 
-        hist = await history.get_significant_states(
-            hass,
-            start,
-            end,
-            entity_ids,
-            minimal_response=True,
-            include_start_time_state=True,
-        )
+        # Recorder history helpers may hit the DB; ensure we don't block the event loop.
+        from homeassistant.components.recorder import get_instance
+        rec = get_instance(hass)
+
+        def _load_hist_sync():
+            # Runs in executor thread.
+            return history.get_significant_states(
+                hass,
+                start,
+                end,
+                entity_ids,
+                minimal_response=True,
+                include_start_time_state=True,
+            )
+
+        hist = await rec.async_add_executor_job(_load_hist_sync)
 
         def _num(x):
             try:
