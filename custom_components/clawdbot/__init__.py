@@ -164,7 +164,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.51"
+PANEL_BUILD_ID = "89337ab.52"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -5273,14 +5273,19 @@ async def async_setup(hass, config):
         resp_raw = None
         poll_debug = {
             "attempts": 0,
+            "tool": "sessions_history",
             "hist_top_keys": [],
             "raw_top_keys": [],
+            "details_keys": [],
+            "details_status": None,
+            "details_runId": None,
+            "content_len": 0,
             "msgs_len": None,
             "last_role": None,
             "last_content_type": None,
             "last_text_len": 0,
         }
-        for _ in range(20):
+        for _ in range(40):
             poll_debug["attempts"] += 1
             payload_hist = {"tool": "sessions_history", "args": {"sessionKey": sk, "limit": 10}}
             hist = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload_hist)
@@ -5299,6 +5304,26 @@ async def async_setup(hass, config):
                         break
                 if isinstance(raw, dict):
                     poll_debug["raw_top_keys"] = sorted(list(raw.keys()))[:30]
+                    # capture details + content len
+                    try:
+                        d = raw.get("details")
+                        if isinstance(d, dict):
+                            poll_debug["details_keys"] = sorted(list(d.keys()))[:30]
+                            st = d.get("status")
+                            if st is not None:
+                                poll_debug["details_status"] = str(st)[:80]
+                            rid = d.get("runId")
+                            if rid is not None:
+                                poll_debug["details_runId"] = str(rid)[:120]
+                    except Exception:
+                        pass
+                    try:
+                        c = raw.get("content")
+                        if isinstance(c, str):
+                            poll_debug["content_len"] = len(c)
+                    except Exception:
+                        pass
+
                 msgs = None
                 if isinstance(raw, dict) and isinstance(raw.get("messages"), list):
                     msgs = raw.get("messages")
@@ -5363,7 +5388,7 @@ async def async_setup(hass, config):
                     break
             except Exception:
                 pass
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.75)
 
         # Apply response or fallback
         default_desc = "Ship ops / energy monitoring assistant"
