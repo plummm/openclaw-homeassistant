@@ -29,7 +29,6 @@ from typing import Any
 import aiohttp
 
 from homeassistant.components.http import HomeAssistantView
-from homeassistant.core import SupportsResponse
 from homeassistant.helpers.storage import Store
 from homeassistant.exceptions import HomeAssistantError
 
@@ -769,13 +768,15 @@ PANEL_HTML = """<!doctype html>
 
     const currentSession = chatSessionKey;
     try{
-      const pollRes = await callService('clawdbot','chat_poll',{ session_key: currentSession, limit: 50 });
+      const beforeLen = (chatItems || []).length;
+      await callService('clawdbot','chat_poll',{ session_key: currentSession, limit: 50 });
       chatLastPollTs = Date.now();
-      chatLastPollAppended = (pollRes && pollRes.appended != null) ? pollRes.appended : 0;
       chatLastPollError = null;
 
       // Refresh from HA chat_history API (authoritative for panel)
       await loadChatLatest();
+      const afterLen = (chatItems || []).length;
+      chatLastPollAppended = Math.max(0, afterLen - beforeLen);
       renderChat({ preserveScroll: true });
 
       if (DEBUG_UI) console.debug('[clawdbot chat] poll ok', {session: currentSession, appended: chatLastPollAppended});
@@ -2748,7 +2749,8 @@ async def async_setup(hass, config):
             await store.async_save(current)
             cfg["chat_history"] = current
 
-        return {"appended": appended, "last_ts": candidates[-1]["ts"] if candidates else None}
+        # Fire-and-forget service; caller can diff chat_history to infer changes.
+        return
 
     async def handle_chat_fetch(call):
         hass = call.hass
@@ -2932,7 +2934,8 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, "chat_append", handle_chat_append)
     hass.services.async_register(DOMAIN, SERVICE_CHAT_FETCH, handle_chat_fetch)
     _LOGGER.info("Registering service: %s.%s", DOMAIN, SERVICE_CHAT_POLL)
-    hass.services.async_register(DOMAIN, SERVICE_CHAT_POLL, handle_chat_poll, supports_response=SupportsResponse.ONLY)
+    # Fire-and-forget: panel calls this service; backend updates Store. No service response needed.
+    hass.services.async_register(DOMAIN, SERVICE_CHAT_POLL, handle_chat_poll)
 
     _LOGGER.info(
         "Clawdbot services registered (%s.%s, %s.%s, %s.%s, %s.%s)",
