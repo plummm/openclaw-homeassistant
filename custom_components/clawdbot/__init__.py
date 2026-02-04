@@ -191,8 +191,14 @@ PANEL_HTML = """<!doctype html>
     .chat-input input{flex:1;min-width:220px;height:46px;}
     .chat-bubble pre{margin:8px 0 0 0;padding:10px 12px;border-radius:12px;background:color-mix(in srgb, var(--primary-background-color) 65%, transparent);border:1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);overflow:auto;}
     .chat-bubble code{background:color-mix(in srgb, var(--primary-background-color) 70%, transparent);padding:2px 6px;border-radius:8px;}
-    .chat-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 0 8px 0;}
+    .chat-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin:0 0 8px 0;}
+    .chat-head-left{display:flex;flex-direction:column;gap:4px;}
     .chat-head-right{display:flex;align-items:center;gap:10px;}
+    .chat-session{height:40px;min-width:340px;max-width:520px;width:52vw;border-radius:12px;padding:0 12px;
+      border:1px solid color-mix(in srgb, var(--divider-color) 78%, #000 14%);
+      background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 72%, transparent);
+      color:var(--primary-text-color);
+    }
     .chat-load-top{display:flex;justify-content:center;margin:0 0 10px 0;}
     .chat-load-top .btn{height:32px;font-size:12px;padding:0 12px;border-radius:999px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 70%, transparent);}
     @media (max-width: 680px){ .chat-bubble{max-width:90%;} .chat-shell{height:72vh;} }
@@ -317,11 +323,11 @@ PANEL_HTML = """<!doctype html>
   <div id=\"viewChat\" class=\"hidden\">
     <div class=\"chat-head\">
       <div class=\"chat-head-left\">
-        <select id=\"chatSessionSelect\" style=\"height:32px;border-radius:999px;padding:0 10px;border:1px solid color-mix(in srgb, var(--divider-color) 78%, #000 14%);background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 72%, transparent);color:var(--primary-text-color);max-width:420px;\"></select>
+        <span class=\"muted\" style=\"font-size:12px\">Session</span>
+        <select id=\"chatSessionSelect\" class=\"chat-session\"></select>
       </div>
       <div class=\"chat-head-right\">
         <span class=\"muted\" style=\"font-size:12px\">Tokens: <span id=\"chatTokenUsage\">—</span></span>
-        <span id=\"chatTyping\" class=\"muted\" style=\"font-size:12px;display:none\">Typing…</span>
       </div>
     </div>
     <div class=\"chat-load-top\" id=\"chatLoadTop\">
@@ -329,7 +335,7 @@ PANEL_HTML = """<!doctype html>
     </div>
     <div class=\"chat-shell\">
       <div id=\"chatList\" class=\"chat-list\"></div>
-      <div class=\"chat-input\">
+      <div id=\"chatTyping\" class=\"muted\" style=\"font-size:12px;padding:8px 12px;display:none\">Clawdbot is typing…</div>\n      <div class=\"chat-input\">
         <input id=\"chatComposer\" placeholder=\"Ask Clawdbot…\"/>
         <button class=\"btn primary\" id=\"chatComposerSend\" style=\"min-width:96px\">Send</button>
       </div>
