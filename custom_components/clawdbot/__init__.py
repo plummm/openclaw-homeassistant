@@ -155,7 +155,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.29"
+PANEL_BUILD_ID = "89337ab.30"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -3564,14 +3564,14 @@ async def async_setup(hass, config):
                     if isinstance(obj, dict):
                         out = {"_keys": sorted(list(obj.keys()))[:30]}
                         # Keep a few interesting leaf fields (redacted to presence/len/type).
-                        if "childSessionKey" in obj:
-                            v = obj.get("childSessionKey")
-                            out["childSessionKey_present"] = bool(v)
-                            out["childSessionKey_type"] = type(v).__name__
-                            try:
-                                out["childSessionKey_len"] = len(str(v)) if v is not None else 0
-                            except Exception:
-                                out["childSessionKey_len"] = None
+                        # Always emit these fields so we can tell if the code path is deployed.
+                        v = obj.get("childSessionKey") if "childSessionKey" in obj else None
+                        out["childSessionKey_present"] = bool(v)
+                        out["childSessionKey_type"] = type(v).__name__
+                        try:
+                            out["childSessionKey_len"] = len(str(v)) if v is not None else 0
+                        except Exception:
+                            out["childSessionKey_len"] = None
                         if "runId" in obj:
                             v = obj.get("runId")
                             out["runId"] = str(v)[:80] if v is not None else None
