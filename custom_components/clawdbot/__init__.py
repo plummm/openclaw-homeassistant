@@ -556,8 +556,22 @@ PANEL_HTML = """<!doctype html>
     const params = new URLSearchParams();
     if (chatSessionKey) params.set('session_key', chatSessionKey);
     params.set('limit', String(limit || 20));
-    const url = '/api/clawdbot/sessions_history?' + params.toString();
+    const apiPath = 'clawdbot/sessions_history?' + params.toString();
 
+    // Preferred (Option A): use HA frontend API helper when available (handles auth).
+    try{
+      const p = window.parent;
+      if (p && p.hass && typeof p.hass.callApi === 'function') {
+        if (DEBUG_UI) console.debug('[clawdbot chat] fetchSessionsHistory via parent.hass.callApi', apiPath);
+        const data = await p.hass.callApi('GET', apiPath);
+        return (data && Array.isArray(data.items)) ? data.items : [];
+      }
+    } catch(e){
+      if (DEBUG_UI) console.debug('[clawdbot chat] callApi failed', e);
+    }
+
+    // Fallback: hassFetch (may use bearer/cookies depending on context)
+    const url = '/api/' + apiPath;
     const resp = await hassFetch(url);
     const data = resp && resp.json ? await resp.json() : resp;
     return (data && Array.isArray(data.items)) ? data.items : [];
