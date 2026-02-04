@@ -211,7 +211,6 @@
     }
   }
 
-  }
 
   function loadChatFromConfig(){
     const cfg = (window.__CLAWDBOT_CONFIG__ || {});

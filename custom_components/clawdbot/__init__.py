@@ -287,7 +287,7 @@ PANEL_JS = r"""
       for (let i = 0; i < parts.length; i++){
         const seg = escapeHtml(parts[i]);
         if (i % 2 === 0){
-          html += seg.replaceAll('\\\\n', '<br/>');
+          html += seg.replaceAll('\\n', '<br/>');
         } else {
           html += `<pre><code>${seg}</code></pre>`;
         }
@@ -359,7 +359,6 @@ PANEL_JS = r"""
     }
   }
 
-  }
 
   function loadChatFromConfig(){
     const cfg = (window.__CLAWDBOT_CONFIG__ || {});
@@ -977,7 +976,7 @@ PANEL_JS = r"""
       const present = obj && obj.present;
       const conf = obj && (obj.confidence ?? 0);
       const li = document.createElement('li');
-      li.innerHTML = `<b>${label}:</b> ${present ? 'present' : 'not detected'} <span class=\\"muted\\">(confidence ${Math.round((conf||0)*100)}%}</span>`;
+      li.innerHTML = `<b>${label}:</b> ${present ? 'present' : 'not detected'} <span class=\"muted\">(confidence ${Math.round((conf||0)*100)}%}</span>`;
       ul.appendChild(li);
     }
     el.appendChild(ul);
