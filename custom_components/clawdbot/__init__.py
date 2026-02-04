@@ -527,6 +527,9 @@ PANEL_HTML = """<!doctype html>
   }
 
   function syncChatSeenIds(){
+    // Important: poll loop is the sole owner of advancing seen-set (for stable +N).
+    // Only initialize once (first load).
+    if (chatLastSeenIds && chatLastSeenIds.size > 0) return;
     const ids = (chatItems || []).map((it)=>chatItemKey(it)).filter(Boolean);
     chatLastSeenIds = new Set(ids);
   }
@@ -752,7 +755,11 @@ PANEL_HTML = """<!doctype html>
       clearTimeout(chatPollTimer);
       chatPollTimer = null;
     }
+    if (DEBUG_UI) {
+      chatLastPollDebugDetail = 'stopped';
+    }
     updateChatPollDebug();
+    if (DEBUG_UI) console.debug('[clawdbot chat] polling stopped');
   }
 
   let chatLastPollDebugDetail = '';
