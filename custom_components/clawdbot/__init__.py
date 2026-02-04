@@ -190,8 +190,8 @@ PANEL_HTML = """<!doctype html>
     .chat-input input{flex:1;min-width:220px;height:46px;}
     .chat-bubble pre{margin:8px 0 0 0;padding:10px 12px;border-radius:12px;background:color-mix(in srgb, var(--primary-background-color) 65%, transparent);border:1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);overflow:auto;}
     .chat-bubble code{background:color-mix(in srgb, var(--primary-background-color) 70%, transparent);padding:2px 6px;border-radius:8px;}
-    .chat-load{display:flex;justify-content:center;margin-bottom:6px;}
-    .chat-load .btn{height:32px;font-size:12px;padding:0 10px;}
+    .chat-load{position:sticky;top:10px;z-index:2;display:flex;justify-content:center;margin:6px 0 10px 0;}
+    .chat-load .btn{height:32px;font-size:12px;padding:0 10px;border-radius:999px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 70%, transparent);}
     @media (max-width: 680px){ .chat-bubble{max-width:90%;} .chat-shell{height:72vh;} }
   </style>
 </head>
@@ -442,10 +442,6 @@ PANEL_HTML = """<!doctype html>
     chatHasOlder = !!cfg.chat_history_has_older;
     chatSessionKey = cfg.session_key || cfg.target || null;
 
-    // TEMP (Slice 3 visual validation): if we have any messages, expose the paging control
-    // so UI QA can verify the button/state. Remove once real has_older is reliable.
-    const FORCE_PAGING_UI = true;
-    if (FORCE_PAGING_UI && (chatItems && chatItems.length >= 1)) chatHasOlder = true;
   }
 
   async function hassFetch(path, opts){
