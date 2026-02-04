@@ -148,11 +148,14 @@ HOUSEMEM_STORE_VERSION = 1
 CHAT_STORE_KEY = "clawdbot_chat_history"
 CHAT_STORE_VERSION = 1
 
+CHAT_SESSIONS_STORE_KEY = "clawdbot_chat_sessions"
+CHAT_SESSIONS_STORE_VERSION = 1
+
 OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.22"
+PANEL_BUILD_ID = "89337ab.23"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -3029,10 +3032,27 @@ async def async_setup(hass, config):
     chat_history = await chat_store.async_load() or []
     if not isinstance(chat_history, list):
         chat_history = []
+
+    # Load chat sessions list (HA-side) so UI can create/switch sessions reliably.
+    chat_sessions_store = Store(hass, CHAT_SESSIONS_STORE_VERSION, CHAT_SESSIONS_STORE_KEY)
+    chat_sessions = await chat_sessions_store.async_load() or {}
+    if not isinstance(chat_sessions, dict):
+        chat_sessions = {}
+    items = chat_sessions.get("items")
+    if not isinstance(items, list):
+        items = []
+    # Always include default session
+    if not any(isinstance(it, dict) and it.get("key") == DEFAULT_SESSION_KEY for it in items):
+        items.insert(0, {"key": DEFAULT_SESSION_KEY, "label": "Main"})
+    chat_sessions["items"] = items
+    await chat_sessions_store.async_save(chat_sessions)
+
     hass.data[DOMAIN].update(
         {
             "chat_store": chat_store,
             "chat_history": chat_history[-500:],
+            "chat_sessions_store": chat_sessions_store,
+            "chat_sessions": chat_sessions,
         }
     )
 
@@ -3448,6 +3468,75 @@ async def async_setup(hass, config):
         payload = {"tool": "sessions_spawn", "args": {"task": "(new chat session)", "label": label or None, "cleanup": "keep"}}
         res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
         return {"result": res}
+
+    def _extract_session_key(obj):
+        # Best-effort extraction across nested gateway result shapes.
+        if obj is None:
+            return None
+        if isinstance(obj, str):
+            return obj if obj.strip() else None
+        if isinstance(obj, dict):
+            for k in ("sessionKey", "session_key", "key"):
+                v = obj.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+            for k in ("result", "response", "details", "data"):
+                v = obj.get(k)
+                got = _extract_session_key(v)
+                if got:
+                    return got
+            # Also scan common nested lists
+            for k in ("items", "sessions"):
+                v = obj.get(k)
+                got = _extract_session_key(v)
+                if got:
+                    return got
+        if isinstance(obj, list):
+            for it in obj:
+                got = _extract_session_key(it)
+                if got:
+                    return got
+        return None
+
+    async def handle_chat_new_session(call):
+        """Create a new chat session key and persist it in HA Store.
+
+        This calls the gateway sessions_spawn and extracts the returned session key.
+        """
+        hass = call.hass
+        label = call.data.get("label")
+
+        # Spawn on gateway
+        session, gateway_origin, token, _default_session_key = _runtime_gateway_parts(hass)
+        payload = {"tool": "sessions_spawn", "args": {"task": "(new chat session)", "label": label or None, "cleanup": "keep"}}
+        res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
+        key = _extract_session_key(res)
+        if not key:
+            raise HomeAssistantError("gateway did not return session key")
+
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("chat_sessions_store")
+        sessions = cfg.get("chat_sessions")
+        if store is None or not isinstance(sessions, dict):
+            raise HomeAssistantError("chat sessions store not initialized")
+
+        items = sessions.get("items")
+        if not isinstance(items, list):
+            items = []
+        if not any(isinstance(it, dict) and it.get("key") == key for it in items):
+            items.append({"key": key, "label": label or None})
+        sessions["items"] = items
+        await store.async_save(sessions)
+        cfg["chat_sessions"] = sessions
+        return {"ok": True, "session_key": key, "items": items}
+
+    async def handle_chat_list_sessions(call):
+        cfg = hass.data.get(DOMAIN, {})
+        sessions = cfg.get("chat_sessions")
+        items = sessions.get("items") if isinstance(sessions, dict) else []
+        if not isinstance(items, list):
+            items = []
+        return {"ok": True, "items": items}
 
     async def handle_session_status_get(call):
         hass = call.hass
@@ -4555,6 +4644,10 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, SERVICE_CHAT_FETCH, handle_chat_fetch)
     hass.services.async_register(DOMAIN, SERVICE_CHAT_SEND, handle_chat_send)
     hass.services.async_register(DOMAIN, SERVICE_CHAT_HISTORY_DELTA, handle_chat_history_delta, supports_response=SupportsResponse.ONLY)
+
+    hass.services.async_register(DOMAIN, "chat_new_session", handle_chat_new_session, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "chat_list_sessions", handle_chat_list_sessions, supports_response=SupportsResponse.ONLY)
+
     hass.services.async_register(DOMAIN, SERVICE_SESSIONS_LIST, handle_sessions_list, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, SERVICE_SESSIONS_SPAWN, handle_sessions_spawn, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, SERVICE_SESSION_STATUS_GET, handle_session_status_get, supports_response=SupportsResponse.ONLY)

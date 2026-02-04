@@ -333,14 +333,11 @@ window.__clawdbotPanelInitError = null;
     // Always show *something* immediately so the control isn't an empty chevron.
     ensureSessionSelectValue();
     try{
-      const apiPath = 'clawdbot/sessions?limit=50';
-      // Use parent callApi when available, otherwise fall back to authenticated fetch
-      const resp = await callServiceResponse('clawdbot','sessions_list', { limit: 50 });
+      const resp = await callServiceResponse('clawdbot','chat_list_sessions', {});
       const data = (resp && resp.response) ? resp.response : resp;
 
       const r = data && data.result ? data.result : data;
-      const sessions = (r && (r.sessions || r.items || r.result || r)) || [];
-      const arr = Array.isArray(sessions) ? sessions : (sessions.sessions || sessions.items || []);
+      const arr = (r && Array.isArray(r.items)) ? r.items : [];
       // Preserve existing selection
       const current = chatSessionKey || sel.value || '';
       sel.innerHTML = '';
@@ -351,11 +348,11 @@ window.__clawdbotPanelInitError = null;
         return o;
       };
       const seen = new Set();
-      // Ensure there's always a visible value even if sessions_list parse fails.
+      // Ensure there's always a visible value even if the list call fails.
       const fallback = current || (window.__CLAWDBOT_CONFIG__ && (window.__CLAWDBOT_CONFIG__.session_key)) || 'main';
       if (fallback) { sel.appendChild(mkOpt(fallback, fallback)); seen.add(fallback); }
       for (const s of arr){
-        const key = s && (s.sessionKey || s.session_key || s.key || s.id);
+        const key = s && (s.session_key || s.sessionKey || s.key || s.id);
         if (!key || seen.has(key)) continue;
         const label = s.label || s.name || '';
         sel.appendChild(mkOpt(key, label ? (label + ' — ' + key) : key));
@@ -1958,26 +1955,16 @@ async function fetchStatesRest(hass){
     if (newSessionBtn) newSessionBtn.onclick = async () => {
       const label = prompt('New session label (optional):', '');
       try{
-        const resp = await callServiceResponse('clawdbot','sessions_spawn', { label: label || undefined });
+        const resp = await callServiceResponse('clawdbot','chat_new_session', { label: label || undefined });
         const data = (resp && resp.response) ? resp.response : resp;
         const r = data && data.result ? data.result : data;
-        let key = null;
-        // sessions_spawn wraps OpenClaw; accept multiple shapes.
-        key = (r && (r.sessionKey || r.session_key || r.key)) || null;
-        if (!key && r && r.result) {
-          const rr = r.result;
-          key = rr && (rr.sessionKey || rr.session_key || rr.key) || null;
-        }
-        if (!key && r && r.details) {
-          const dd = r.details;
-          key = dd && (dd.sessionKey || dd.session_key || dd.key) || null;
-        }
+        const key = r && (r.session_key || r.sessionKey || r.key);
         if (!key) {
           toast('New session failed: no session key returned');
           return;
         }
         await refreshSessions();
-        if (key && sessionSel) {
+        if (sessionSel) {
           sessionSel.value = key;
           chatSessionKey = key;
           await loadChatLatest();
@@ -1989,7 +1976,7 @@ async function fetchStatesRest(hass){
       } catch(e){
         const msg = String(e && (e.message || e) || e);
         toast('New session failed: ' + msg);
-        console.warn('sessions_spawn failed', e);
+        console.warn('chat_new_session failed', e);
       }
     };
     const setSendEnabled = () => {
