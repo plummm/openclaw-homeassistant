@@ -145,7 +145,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.13"
+PANEL_BUILD_ID = "89337ab.14"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -1873,13 +1873,17 @@ PANEL_HTML = """<!doctype html>
     /* Modal */
     .modal{position:fixed;inset:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;z-index:9999;}
     .modal.hidden{display:none;}
-    .modal-card{width:min(760px,92vw);max-height:min(72vh,720px);overflow:auto;background:var(--ha-card-background, var(--card-background-color));border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.25);padding:14px;}
+    .modal-card{width:min(760px,92vw);max-height:min(72vh,720px);overflow:auto;background:var(--ha-card-background, var(--card-background-color));border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.25);padding:18px;}
     .picker-list{display:flex;flex-direction:column;gap:6px;}
     .pick-item{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 12px;border-radius:12px;border:1px solid color-mix(in srgb, var(--divider-color) 70%, transparent);background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 90%, transparent);cursor:pointer;}
     .pick-item:hover{border-color: color-mix(in srgb, var(--primary-color) 55%, var(--divider-color));}
     .pick-main{display:flex;flex-direction:column;min-width:0;}
     .pick-name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
     .pick-meta{font-size:12px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+    /* Toast */
+    .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:10000;max-width:min(720px,92vw);background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 96%, black);border:1px solid color-mix(in srgb, var(--divider-color) 70%, transparent);box-shadow:0 16px 46px rgba(0,0,0,0.2);border-radius:999px;padding:10px 14px;color:var(--primary-text-color);font-size:13px;}
+    .toast.hidden{display:none;}
 
     /* Kill giant default radio circles if any legacy suggestion UI remains */
     .choice input[type=radio]{display:none;}
@@ -2004,6 +2008,8 @@ PANEL_HTML = """<!doctype html>
       </details>
 
       <datalist id=\"entityIdList\"></datalist>
+
+      <div id=\"toast\" class=\"toast hidden\"></div>
 
       <div id=\"pickerModal\" class=\"modal hidden\">
         <div class=\"modal-card\">
