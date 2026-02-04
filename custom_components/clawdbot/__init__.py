@@ -158,7 +158,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.43"
+PANEL_BUILD_ID = "89337ab.44"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1784,7 +1784,7 @@ PANEL_HTML = """<!doctype html>
           var(--cb-page-bg) 340px);
       color:var(--primary-text-color);
     }
-    .surface{max-width:1180px;margin:0 auto;}
+    .surface{max-width:980px;margin:0 auto;}
     input,button,textarea,select{font:inherit;}
     input,textarea,select,button{
       height:44px;
