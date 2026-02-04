@@ -145,7 +145,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.9"
+PANEL_BUILD_ID = "89337ab.10"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -1863,6 +1863,26 @@ PANEL_HTML = """<!doctype html>
     .chat-load-top{display:flex;justify-content:center;margin:0 0 10px 0;}
     .chat-load-top .btn{height:32px;font-size:12px;padding:0 12px;border-radius:999px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 70%, transparent);}
     @media (max-width: 680px){ .chat-bubble{max-width:90%;} .chat-shell{height:72vh;} }
+
+    /* Entity configuration (Setup) */
+    .cfg-row{display:grid;grid-template-columns: 160px 1fr auto auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--divider-color);}
+    .cfg-row:first-child{border-top:none;}
+    .cfg-label{font-weight:600;}
+    .cfg-value{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; color: var(--secondary-text-color); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+
+    /* Modal */
+    .modal{position:fixed;inset:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;z-index:9999;}
+    .modal.hidden{display:none;}
+    .modal-card{width:min(760px,92vw);max-height:min(72vh,720px);overflow:auto;background:var(--ha-card-background, var(--card-background-color));border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.25);padding:14px;}
+    .picker-list{display:flex;flex-direction:column;gap:6px;}
+    .pick-item{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 12px;border-radius:12px;border:1px solid color-mix(in srgb, var(--divider-color) 70%, transparent);background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 90%, transparent);cursor:pointer;}
+    .pick-item:hover{border-color: color-mix(in srgb, var(--primary-color) 55%, var(--divider-color));}
+    .pick-main{display:flex;flex-direction:column;min-width:0;}
+    .pick-name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .pick-meta{font-size:12px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+    /* Kill giant default radio circles if any legacy suggestion UI remains */
+    .choice input[type=radio]{display:none;}
   </style>
 </head>
 <body>
@@ -1876,9 +1896,9 @@ PANEL_HTML = """<!doctype html>
   </script>
 
   <div class=\"tabs\">
-    <button type=\"button\" class=\"tab\" id=\"tabSetup\">Setup</button>
     <button type=\"button\" class=\"tab active\" id=\"tabCockpit\">Cockpit</button>
     <button type=\"button\" class=\"tab\" id=\"tabChat\">Chat</button>
+    <button type=\"button\" class=\"tab\" id=\"tabSetup\">Setup</button>
   </div>
 
   <div id=\"viewSetup\" class=\"hidden\">
@@ -1928,19 +1948,66 @@ PANEL_HTML = """<!doctype html>
     </div>
 
     <div class=\"card\">
-      <h2>Core signal mapping</h2>
-      <div class=\"muted\">Select a suggestion per signal and confirm to save. Manual overrides remain available below.</div>
-      <div class=\"grid2\" id=\"suggestions\" style=\"margin-top:10px\"></div>
-      <div class=\"muted\" style=\"margin-top:10px\">Manual override (entity_id):</div>
-      <div class=\"row\" style=\"margin-top:8px\">
-        <input list=\"entityIdList\" id=\"mapSoc\" style=\"flex:1;min-width:220px\" placeholder=\"soc entity_id (e.g. sensor.battery_soc)\"/>
-        <input list=\"entityIdList\" id=\"mapVoltage\" style=\"flex:1;min-width:220px\" placeholder=\"voltage entity_id\"/>
+      <h2>Entity configuration</h2>
+      <div class=\"muted\">Pick the 4 signals the Cockpit uses. We auto-suggest; click Select to search (no giant lists).</div>
+
+      <div id=\"entityConfig\" style=\"margin-top:12px\">
+        <div class=\"cfg-row\">
+          <div class=\"cfg-label\">Battery SOC</div>
+          <div class=\"cfg-value\" id=\"cfgSocValue\">—</div>
+          <button class=\"btn\" data-pick=\"soc\">Select…</button>
+          <button class=\"btn\" data-clear=\"soc\">Clear</button>
+        </div>
+        <div class=\"cfg-row\">
+          <div class=\"cfg-label\">Battery Voltage</div>
+          <div class=\"cfg-value\" id=\"cfgVoltageValue\">—</div>
+          <button class=\"btn\" data-pick=\"voltage\">Select…</button>
+          <button class=\"btn\" data-clear=\"voltage\">Clear</button>
+        </div>
+        <div class=\"cfg-row\">
+          <div class=\"cfg-label\">Solar Power</div>
+          <div class=\"cfg-value\" id=\"cfgSolarValue\">—</div>
+          <button class=\"btn\" data-pick=\"solar\">Select…</button>
+          <button class=\"btn\" data-clear=\"solar\">Clear</button>
+        </div>
+        <div class=\"cfg-row\">
+          <div class=\"cfg-label\">Load Power</div>
+          <div class=\"cfg-value\" id=\"cfgLoadValue\">—</div>
+          <button class=\"btn\" data-pick=\"load\">Select…</button>
+          <button class=\"btn\" data-clear=\"load\">Clear</button>
+        </div>
       </div>
-      <div class=\"row\" style=\"margin-top:8px\">
-        <input list=\"entityIdList\" id=\"mapSolar\" style=\"flex:1;min-width:220px\" placeholder=\"solar power entity_id\"/>
-        <input list=\"entityIdList\" id=\"mapLoad\" style=\"flex:1;min-width:220px\" placeholder=\"load/consumption entity_id\"/>
-      </div>
+
+      <details style=\"margin-top:12px\">
+        <summary class=\"muted\">Advanced (raw entity_id)</summary>
+        <div class=\"muted\" style=\"margin-top:8px\">Only if the picker can’t find your entity.</div>
+        <div class=\"row\" style=\"margin-top:8px\">
+          <input list=\"entityIdList\" id=\"mapSoc\" style=\"flex:1;min-width:220px\" placeholder=\"soc entity_id\"/>
+          <input list=\"entityIdList\" id=\"mapVoltage\" style=\"flex:1;min-width:220px\" placeholder=\"voltage entity_id\"/>
+        </div>
+        <div class=\"row\" style=\"margin-top:8px\">
+          <input list=\"entityIdList\" id=\"mapSolar\" style=\"flex:1;min-width:220px\" placeholder=\"solar power entity_id\"/>
+          <input list=\"entityIdList\" id=\"mapLoad\" style=\"flex:1;min-width:220px\" placeholder=\"load/consumption entity_id\"/>
+        </div>
+        <div class=\"row\" style=\"margin-top:8px\">
+          <button class=\"btn primary\" id=\"btnMapSaveAdvanced\">Save advanced mapping</button>
+          <span class=\"muted\" id=\"mapSaveAdvancedResult\"></span>
+        </div>
+      </details>
+
       <datalist id=\"entityIdList\"></datalist>
+
+      <div id=\"pickerModal\" class=\"modal hidden\">
+        <div class=\"modal-card\">
+          <div class=\"row\" style=\"justify-content:space-between\">
+            <div><b id=\"pickerTitle\">Select entity</b></div>
+            <button class=\"btn\" id=\"pickerClose\">Close</button>
+          </div>
+          <input id=\"pickerSearch\" placeholder=\"Search entities…\" style=\"margin-top:10px;width:100%\"/>
+          <div class=\"muted\" id=\"pickerHint\" style=\"margin-top:6px\"></div>
+          <div id=\"pickerList\" class=\"picker-list\" style=\"margin-top:10px\"></div>
+        </div>
+      </div>
     </div>
 
         </div>
