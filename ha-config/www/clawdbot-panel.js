@@ -1958,6 +1958,11 @@ async function fetchStatesRest(hass){
         const resp = await callServiceResponse('clawdbot','chat_new_session', { label: label || undefined });
         const data = (resp && resp.response) ? resp.response : resp;
         const r = data && data.result ? data.result : data;
+        if (r && r.ok === false) {
+          try{ console.warn('[clawdbot chat_new_session] debug', r.debug); }catch(e){}
+          toast('New session failed: ' + (r.reason || 'unknown error'));
+          return;
+        }
         const key = r && (r.session_key || r.sessionKey || r.key);
         if (!key) {
           toast('New session failed: no session key returned');
