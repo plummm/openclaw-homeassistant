@@ -140,6 +140,9 @@ MAPPING_STORE_VERSION = 1
 DERIVED_STORE_KEY = "clawdbot_derived"
 DERIVED_STORE_VERSION = 1
 
+AGENT0_HIST_STORE_KEY = "clawdbot_agent0_history"
+AGENT0_HIST_STORE_VERSION = 1
+
 HOUSEMEM_STORE_KEY = "clawdbot_house_memory"
 HOUSEMEM_STORE_VERSION = 1
 CHAT_STORE_KEY = "clawdbot_chat_history"
@@ -149,7 +152,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.20"
+PANEL_BUILD_ID = "89337ab.21"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -3003,6 +3006,24 @@ async def async_setup(hass, config):
         }
     )
 
+    # Agent0 history ring-buffer (no recorder dependency)
+    agent0_hist_store = Store(hass, AGENT0_HIST_STORE_VERSION, AGENT0_HIST_STORE_KEY)
+    agent0_hist_blob = await agent0_hist_store.async_load() or {}
+    if not isinstance(agent0_hist_blob, dict):
+        agent0_hist_blob = {}
+    agent0_hist = agent0_hist_blob.get("series") if isinstance(agent0_hist_blob.get("series"), dict) else {}
+    if not isinstance(agent0_hist, dict):
+        agent0_hist = {}
+
+    runtime.update(
+        {
+            "agent0_hist_store": agent0_hist_store,
+            "agent0_hist": agent0_hist,  # {entity_id: [[ts_epoch, val], ...]}
+            "agent0_hist_last_persist": None,
+            "agent0_hist_sampler_task": None,
+        }
+    )
+
     # Load chat history
     chat_store = Store(hass, CHAT_STORE_VERSION, CHAT_STORE_KEY)
     chat_history = await chat_store.async_load() or []
@@ -4234,6 +4255,30 @@ async def async_setup(hass, config):
             "last_changed": st.last_changed.isoformat() if st.last_changed else None,
         }
 
+    def _agent0_hist_warmup(rt: dict) -> dict:
+        hist = rt.get("agent0_hist")
+        if not isinstance(hist, dict):
+            return {"ready": False, "entities": {}}
+        out = {"ready": False, "entities": {}}
+        any_pts = False
+        for eid, pts in hist.items():
+            if not isinstance(pts, list) or not pts:
+                continue
+            any_pts = True
+            try:
+                oldest = pts[0][0]
+                newest = pts[-1][0]
+            except Exception:
+                oldest = None
+                newest = None
+            out["entities"][eid] = {
+                "points": len(pts),
+                "oldest_ts": oldest,
+                "newest_ts": newest,
+            }
+        out["ready"] = any_pts
+        return out
+
     async def handle_agent0_get_context(call):
         cfg = hass.data.get(DOMAIN, {})
         mapping = cfg.get("mapping", {}) or {}
@@ -4270,6 +4315,7 @@ async def async_setup(hass, config):
                 "last_update": rt.get("derived_last_update"),
                 "entities": [it for it in (_state_info(e) for e in derived_entities) if it],
             },
+            "buffer_warmup": _agent0_hist_warmup(rt),
         }
 
     async def handle_agent0_history_stats(call):
@@ -4311,74 +4357,184 @@ async def async_setup(hass, config):
             buckets = AGENT0_MAX_BUCKETS
             period_hours = (buckets * bucket_minutes) / 60.0
 
-        # Fetch history using recorder *statistics* helpers (async-safe). We avoid
-        # recorder.history.get_significant_states because it can trigger async-blocking warnings.
-        from datetime import timedelta
+        import time
         from homeassistant.util import dt as dt_util
 
-        end = dt_util.utcnow()
-        start = end - timedelta(hours=period_hours)
+        now = time.time()
+        start_ts = now - (period_hours * 3600.0)
+        bucket_s = bucket_minutes * 60
 
-        try:
-            from homeassistant.components.recorder import statistics as recorder_statistics
-            from homeassistant.components.recorder import get_instance
-        except Exception as e:
-            raise HomeAssistantError(f"Recorder statistics not available: {e}")
+        rt = _runtime(hass)
+        hist = rt.get("agent0_hist")
+        if not isinstance(hist, dict):
+            hist = {}
 
-        rec = get_instance(hass)
-
-        stat_types = {"mean", "min", "max", "last"}
-        if stat not in stat_types:
-            stat = "mean"
-
-        def _load_stats_sync():
-            # Runs in executor thread.
-            return recorder_statistics.statistics_during_period(
-                hass,
-                start,
-                end,
-                entity_ids,
-                period=timedelta(minutes=bucket_minutes),
-                types={stat},
-            )
-
-        stats = await rec.async_add_executor_job(_load_stats_sync)
-
-        def _num(x):
-            try:
-                if x is None:
-                    return None
-                s = str(x).strip()
-                if s in ("unknown", "unavailable", "None", ""):
-                    return None
-                return float(s)
-            except Exception:
-                return None
+        # Default to mapped signals if entity_ids omitted.
+        if not entity_ids:
+            mapping = hass.data.get(DOMAIN, {}).get("mapping", {}) or {}
+            entity_ids = [mapping.get("soc"), mapping.get("voltage"), mapping.get("solar"), mapping.get("load")]
+            entity_ids = [e for e in entity_ids if isinstance(e, str) and e]
 
         out = {
             "ok": True,
-            "start": start.isoformat(),
-            "end": end.isoformat(),
+            "start": dt_util.utc_from_timestamp(start_ts).isoformat(),
+            "end": dt_util.utc_from_timestamp(now).isoformat(),
             "bucket_minutes": bucket_minutes,
             "stat": stat,
             "series": {},
+            "warmup": {"entities": {}},
         }
 
-        # statistics_during_period returns a dict keyed by entity_id/statistic_id.
-        # Each entry is a list of dicts with timestamps and the requested statistic.
-        # We normalize to: [{t, v}] with t at period start.
         for eid in entity_ids:
-            rows = (stats or {}).get(eid) or []
-            points = []
-            for r in rows:
-                if not isinstance(r, dict):
+            pts = hist.get(eid) or []
+            if not isinstance(pts, list) or not pts:
+                out["series"][eid] = []
+                out["warmup"]["entities"][eid] = {"points": 0}
+                continue
+
+            # Warmup meta
+            try:
+                out["warmup"]["entities"][eid] = {
+                    "points": len(pts),
+                    "oldest_ts": pts[0][0],
+                    "newest_ts": pts[-1][0],
+                }
+            except Exception:
+                out["warmup"]["entities"][eid] = {"points": len(pts)}
+
+            # Bucket values
+            agg = [[] for _ in range(buckets)]
+            for row in pts:
+                try:
+                    ts = float(row[0])
+                    v = float(row[1])
+                except Exception:
                     continue
-                t = r.get("start") or r.get("time") or r.get("end")
-                v = r.get(stat)
-                points.append({"t": str(t) if t is not None else None, "v": v})
-            out["series"][eid] = points
+                if ts < start_ts or ts > now:
+                    continue
+                idx = int((ts - start_ts) // bucket_s)
+                if 0 <= idx < buckets:
+                    agg[idx].append(v)
+
+            series = []
+            for i in range(buckets):
+                vals = agg[i]
+                vout = None
+                if vals:
+                    if stat == "min":
+                        vout = min(vals)
+                    elif stat == "max":
+                        vout = max(vals)
+                    elif stat == "last":
+                        vout = vals[-1]
+                    else:
+                        vout = sum(vals) / float(len(vals))
+                t_bucket_end = start_ts + ((i + 1) * bucket_s)
+                series.append({"t": dt_util.utc_from_timestamp(t_bucket_end).isoformat(), "v": vout})
+
+            out["series"][eid] = series
 
         return out
+
+    # Agent0 history sampler loop
+    async def _agent0_hist_prune(hist: dict, now_ts: float, retention_s: float, cap_points: int):
+        if not isinstance(hist, dict):
+            return
+        cutoff = now_ts - retention_s
+        for eid, pts in list(hist.items()):
+            if not isinstance(pts, list):
+                hist.pop(eid, None)
+                continue
+            # prune old
+            try:
+                while pts and float(pts[0][0]) < cutoff:
+                    pts.pop(0)
+            except Exception:
+                pass
+            # hard cap (keep newest)
+            if len(pts) > cap_points:
+                hist[eid] = pts[-cap_points:]
+
+    async def _agent0_hist_persist(rt: dict):
+        store: Store = rt.get("agent0_hist_store")
+        hist = rt.get("agent0_hist")
+        if store is None or not isinstance(hist, dict):
+            return
+        await store.async_save({"series": hist})
+        rt["agent0_hist_last_persist"] = __import__("time").time()
+
+    async def _agent0_hist_sampler_loop():
+        import asyncio, time
+        from homeassistant.util import dt as dt_util
+
+        rt = _runtime(hass)
+        # 30s sampling; 24h retention
+        sample_s = 30
+        retention_s = 24 * 3600
+        cap_points = int((retention_s / sample_s) + 60)  # small slack
+        persist_every_s = 5 * 60
+
+        while True:
+            try:
+                cfg = hass.data.get(DOMAIN, {})
+                mapping = cfg.get("mapping", {}) or {}
+                eids = [mapping.get("soc"), mapping.get("voltage"), mapping.get("solar"), mapping.get("load")]
+                eids = [e for e in eids if isinstance(e, str) and e]
+
+                hist = rt.get("agent0_hist")
+                if not isinstance(hist, dict):
+                    hist = {}
+                    rt["agent0_hist"] = hist
+
+                now_ts = time.time()
+
+                def _num(st):
+                    try:
+                        if st is None:
+                            return None
+                        s = str(st).strip()
+                        if s in ("unknown", "unavailable", "None", ""):
+                            return None
+                        return float(s)
+                    except Exception:
+                        return None
+
+                for eid in eids:
+                    st = hass.states.get(eid)
+                    if not st:
+                        continue
+                    v = _num(st.state)
+                    if v is None:
+                        continue
+                    pts = hist.get(eid)
+                    if not isinstance(pts, list):
+                        pts = []
+                        hist[eid] = pts
+                    pts.append([now_ts, v])
+
+                await _agent0_hist_prune(hist, now_ts, retention_s, cap_points)
+
+                last_persist = rt.get("agent0_hist_last_persist")
+                if (last_persist is None) or (now_ts - float(last_persist) >= persist_every_s):
+                    try:
+                        await _agent0_hist_persist(rt)
+                    except Exception:
+                        _LOGGER.exception("agent0 history persist failed")
+
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                _LOGGER.exception("agent0 history sampler tick failed")
+
+            await asyncio.sleep(sample_s)
+
+    # Start sampler on boot
+    try:
+        rt0 = _runtime(hass)
+        if rt0.get("agent0_hist_sampler_task") is None:
+            rt0["agent0_hist_sampler_task"] = hass.async_create_task(_agent0_hist_sampler_loop())
+    except Exception:
+        _LOGGER.exception("Failed to start agent0 history sampler")
 
     hass.services.async_register(DOMAIN, "agent0_get_context", handle_agent0_get_context, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "agent0_history_stats", handle_agent0_history_stats, supports_response=SupportsResponse.ONLY)
