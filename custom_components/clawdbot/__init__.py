@@ -164,7 +164,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.47"
+PANEL_BUILD_ID = "89337ab.48"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -5241,8 +5241,11 @@ async def async_setup(hass, config):
         # Ask gateway to generate a short description + journal (best-effort)
         session, gateway_origin, token, _default_session_key = _runtime_gateway_parts(hass)
         prompt = (
-            "You are Agent 0. Return JSON only (no markdown). Keys: mood (one of calm|focused|alert|playful|tired), "
-            "description (<=80 chars), journal_title (<=60), journal_body (<=500), theme_suggestion (optional theme key). "
+            "You are Agent 0. Reply with *only* a JSON object wrapped in sentinels exactly like: "
+            "BEGIN_JSON\n{...}\nEND_JSON\n"
+            "No other text. No markdown. "
+            "Keys: mood (one of calm|focused|alert|playful|tired), description (<=80 chars), "
+            "journal_title (<=60), journal_body (<=500), theme_suggestion (optional theme key). "
             "Base it on being a ship ops / energy monitoring assistant in Home Assistant. "
             "Keep the description punchy and distinct (not generic). "
             f"Current detected mood hint: {mood}."
@@ -5259,6 +5262,7 @@ async def async_setup(hass, config):
         # Poll for response (short)
         import asyncio, json as _json
         resp_txt = None
+        resp_raw = None
         for _ in range(12):
             payload_hist = {"tool": "sessions_history", "args": {"sessionKey": sk, "limit": 6}}
             hist = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload_hist)
@@ -5291,6 +5295,15 @@ async def async_setup(hass, config):
                         elif isinstance(content, str):
                             parts.append(content)
                         text = "".join(parts).strip()
+                        if text:
+                            resp_raw = text
+                        if "BEGIN_JSON" in text and "END_JSON" in text:
+                            b = text.find("BEGIN_JSON")
+                            e = text.rfind("END_JSON")
+                            inner = text[b + len("BEGIN_JSON") : e].strip()
+                            if inner.startswith("{"):
+                                resp_txt = inner
+                                break
                         if text.startswith("{"):
                             resp_txt = text
                             break
@@ -5308,9 +5321,15 @@ async def async_setup(hass, config):
         out_mood = mood if mood in {"calm", "focused", "alert", "playful", "tired"} else "calm"
         theme_suggestion = None
         used_default = True
+        parse_ok = False
+        parse_debug = {"raw_len": 0, "raw_prefix": ""}
+        if isinstance(resp_raw, str):
+            parse_debug["raw_len"] = len(resp_raw)
+            parse_debug["raw_prefix"] = resp_raw[:120]
         if resp_txt:
             try:
                 obj = _json.loads(resp_txt)
+                parse_ok = True
                 out_mood = str(obj.get("mood") or out_mood)[:24]
                 desc = str(obj.get("description") or desc)[:200]
                 title = str(obj.get("journal_title") or title)[:120]
@@ -5321,7 +5340,7 @@ async def async_setup(hass, config):
                 if desc and desc != default_desc:
                     used_default = False
             except Exception:
-                pass
+                parse_ok = False
 
         if used_default:
             desc = default_desc + " (default)"
@@ -5348,13 +5367,20 @@ async def async_setup(hass, config):
         await journal_store.async_save(items)
         cfg["journal"] = items
 
-        return {
+        out = {
             "ok": True,
             "profile": prof,
             "theme_suggestion": theme_suggestion,
             "used_default_description": used_default,
             "toast": f"Pulse complete: mood={out_mood}",
         }
+        if used_default and not parse_ok:
+            # token-safe debug to help diagnose agent formatting
+            out["parse_ok"] = False
+            out["parse_debug"] = parse_debug
+        else:
+            out["parse_ok"] = True
+        return out
 
     hass.services.async_register(DOMAIN, "agent_profile_get", handle_agent_profile_get, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "agent_profile_set", handle_agent_profile_set, supports_response=SupportsResponse.ONLY)
