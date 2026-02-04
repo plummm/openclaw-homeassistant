@@ -178,7 +178,7 @@ PANEL_HTML = """<!doctype html>
     .choice-main{font-size:13px;}
     .choice-meta{font-size:12px;color:var(--secondary-text-color);}
     .chat-shell{display:flex;flex-direction:column;height:min(68vh,720px);border:1px solid var(--divider-color);border-radius:16px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent);box-shadow:0 6px 18px rgba(0,0,0,.06);overflow:hidden;}
-    .chat-list{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:12px;justify-content:flex-end;background:linear-gradient(180deg, color-mix(in srgb, var(--secondary-background-color) 90%, transparent) 0%, transparent 65%);}
+    .chat-list{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:12px;background:linear-gradient(180deg, color-mix(in srgb, var(--secondary-background-color) 90%, transparent) 0%, transparent 65%);}
     .chat-row{display:flex;align-items:flex-end;gap:10px;}
     .chat-row.user{justify-content:flex-end;}
     .chat-row.agent{justify-content:flex-start;}
@@ -190,7 +190,9 @@ PANEL_HTML = """<!doctype html>
     .chat-input input{flex:1;min-width:220px;height:46px;}
     .chat-bubble pre{margin:8px 0 0 0;padding:10px 12px;border-radius:12px;background:color-mix(in srgb, var(--primary-background-color) 65%, transparent);border:1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);overflow:auto;}
     .chat-bubble code{background:color-mix(in srgb, var(--primary-background-color) 70%, transparent);padding:2px 6px;border-radius:8px;}
-    .chat-load{position:sticky;top:10px;z-index:2;display:flex;justify-content:center;margin:6px 0 10px 0;}
+    .chat-load{position:sticky;top:0;z-index:2;display:flex;justify-content:center;margin:0 0 10px 0;padding:6px 0;
+      background:linear-gradient(180deg, color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent) 0%, transparent 100%);
+    }
     .chat-load .btn{height:32px;font-size:12px;padding:0 10px;border-radius:999px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 70%, transparent);}
     @media (max-width: 680px){ .chat-bubble{max-width:90%;} .chat-shell{height:72vh;} }
   </style>
@@ -383,6 +385,11 @@ PANEL_HTML = """<!doctype html>
       loadWrap.appendChild(btn);
       list.appendChild(loadWrap);
     }
+
+    // Spacer to keep short histories visually anchored near bottom without affecting sticky header.
+    const spacer = document.createElement('div');
+    spacer.style.flex = '1';
+    list.appendChild(spacer);
 
     if (!chatItems || !chatItems.length) {
       const empty = document.createElement('div');
