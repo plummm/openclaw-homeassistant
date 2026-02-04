@@ -164,7 +164,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.48"
+PANEL_BUILD_ID = "89337ab.49"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -5251,20 +5251,28 @@ async def async_setup(hass, config):
             f"Current detected mood hint: {mood}."
         )
 
-        # Spawn a one-shot session to avoid polluting main chat
-        payload_spawn = {"tool": "sessions_spawn", "args": {"task": "(agent pulse)", "label": "agent-pulse", "cleanup": "delete"}}
+        # Spawn a one-shot agent run on gateway with the prompt as the task.
+        # NOTE: sessions_send alone does not guarantee the agent will respond; sessions_spawn runs the agent.
+        payload_spawn = {"tool": "sessions_spawn", "args": {"task": prompt, "label": "agent-pulse", "cleanup": "delete"}}
         res_spawn = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload_spawn)
         sk = _extract_session_key(res_spawn) or (rt.get("session_key") or DEFAULT_SESSION_KEY)
 
-        payload_send = {"tool": "sessions_send", "args": {"sessionKey": sk, "message": prompt}}
-        await _gw_post(session, gateway_origin + "/tools/invoke", token, payload_send)
+        spawn_debug = {"keys": [], "status": None, "runId": None, "sessionKey": None}
+        try:
+            if isinstance(res_spawn, dict):
+                spawn_debug["keys"] = sorted(list(res_spawn.keys()))[:30]
+                spawn_debug["status"] = str(res_spawn.get("status"))[:60] if res_spawn.get("status") is not None else None
+                spawn_debug["runId"] = str(res_spawn.get("runId"))[:120] if res_spawn.get("runId") is not None else None
+            spawn_debug["sessionKey"] = sk
+        except Exception:
+            pass
 
         # Poll for response (short)
         import asyncio, json as _json
         resp_txt = None
         resp_raw = None
-        for _ in range(12):
-            payload_hist = {"tool": "sessions_history", "args": {"sessionKey": sk, "limit": 6}}
+        for _ in range(20):
+            payload_hist = {"tool": "sessions_history", "args": {"sessionKey": sk, "limit": 10}}
             hist = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload_hist)
             # extract text
             try:
@@ -5311,7 +5319,7 @@ async def async_setup(hass, config):
                     break
             except Exception:
                 pass
-            await asyncio.sleep(0.35)
+            await asyncio.sleep(0.5)
 
         # Apply response or fallback
         default_desc = "Ship ops / energy monitoring assistant"
@@ -5375,9 +5383,10 @@ async def async_setup(hass, config):
             "toast": f"Pulse complete: mood={out_mood}",
         }
         if used_default and not parse_ok:
-            # token-safe debug to help diagnose agent formatting
+            # token-safe debug to help diagnose agent formatting / spawn issues
             out["parse_ok"] = False
             out["parse_debug"] = parse_debug
+            out["spawn_debug"] = spawn_debug
         else:
             out["parse_ok"] = True
         return out
