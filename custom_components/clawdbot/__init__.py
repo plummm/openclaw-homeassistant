@@ -64,6 +64,8 @@ SERVICE_REFRESH_HOUSE_MEMORY = "refresh_house_memory"
 SERVICE_NOTIFY_EVENT = "notify_event"
 SERVICE_CHAT_FETCH = "chat_fetch"
 SERVICE_CHAT_POLL = "chat_poll"
+SERVICE_CREATE_DUMMY_ENTITIES = "create_dummy_entities"
+SERVICE_CLEAR_DUMMY_ENTITIES = "clear_dummy_entities"
 SERVICE_CHAT_SEND = "chat_send"
 SERVICE_CHAT_HISTORY_DELTA = "chat_history_delta"
 SERVICE_SESSIONS_LIST = "sessions_list"
@@ -3616,6 +3618,7 @@ async def async_setup(hass, config):
 
     async def handle_ha_call_service(call):
         """Call a HA service locally (guardrailed)."""
+
         domain = call.data.get("domain")
         service_name = call.data.get("service")
         entity_id = call.data.get("entity_id")
@@ -3673,6 +3676,89 @@ async def async_setup(hass, config):
         )
         await _notify("Clawdbot: ha_call_service", f"Called {domain}.{service_name} target={target} data={service_data}")
 
+    async def handle_create_dummy_entities(call):
+        """Create/refresh a handful of dummy entities for panel mapping QA.
+
+        We intentionally create them as state-only entities via hass.states.async_set so this
+        works without YAML edits or UI helper creation.
+        """
+        # Defaults
+        soc = call.data.get("soc", 55)
+        voltage = call.data.get("voltage", 52.4)
+        solar_w = call.data.get("solar_w", 420)
+        load_w = call.data.get("load_w", 380)
+        connected = call.data.get("connected", True)
+
+        def _set(eid: str, state, attrs: dict):
+            hass.states.async_set(eid, str(state), attrs)
+
+        _set(
+            "sensor.clawdbot_test_battery_soc",
+            soc,
+            {
+                "friendly_name": "Clawdbot Test Battery SOC",
+                "unit_of_measurement": "%",
+                "icon": "mdi:battery",
+            },
+        )
+        _set(
+            "sensor.clawdbot_test_battery_voltage",
+            voltage,
+            {
+                "friendly_name": "Clawdbot Test Battery Voltage",
+                "unit_of_measurement": "V",
+                "icon": "mdi:flash",
+            },
+        )
+        _set(
+            "sensor.clawdbot_test_solar_w",
+            solar_w,
+            {
+                "friendly_name": "Clawdbot Test Solar Power",
+                "unit_of_measurement": "W",
+                "icon": "mdi:solar-power",
+            },
+        )
+        _set(
+            "sensor.clawdbot_test_load_w",
+            load_w,
+            {
+                "friendly_name": "Clawdbot Test Load Power",
+                "unit_of_measurement": "W",
+                "icon": "mdi:home-lightning-bolt",
+            },
+        )
+        _set(
+            "binary_sensor.clawdbot_test_connected",
+            "on" if connected else "off",
+            {
+                "friendly_name": "Clawdbot Test Connected",
+                "device_class": "connectivity",
+            },
+        )
+
+        hass.data[DOMAIN]["dummy_entities"] = [
+            "sensor.clawdbot_test_battery_soc",
+            "sensor.clawdbot_test_battery_voltage",
+            "sensor.clawdbot_test_solar_w",
+            "sensor.clawdbot_test_load_w",
+            "binary_sensor.clawdbot_test_connected",
+        ]
+        await _notify(
+            "Clawdbot: dummy entities",
+            "Created dummy entities for mapping QA (sensor.clawdbot_test_*).",
+        )
+
+    async def handle_clear_dummy_entities(call):
+        ids = hass.data.get(DOMAIN, {}).get("dummy_entities") or []
+        for eid in ids:
+            try:
+                hass.states.async_remove(eid)
+            except Exception:
+                pass
+        hass.data[DOMAIN]["dummy_entities"] = []
+        await _notify("Clawdbot: dummy entities", "Cleared dummy entities")
+
     hass.services.async_register(DOMAIN, SERVICE_SEND_CHAT, handle_send_chat)
     hass.services.async_register(DOMAIN, "set_connection_overrides", handle_set_connection_overrides, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "reset_connection_overrides", handle_reset_connection_overrides, supports_response=SupportsResponse.ONLY)
@@ -3683,6 +3769,8 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, SERVICE_TOOLS_INVOKE, handle_tools_invoke)
     hass.services.async_register(DOMAIN, SERVICE_HA_GET_STATES, handle_ha_get_states)
     hass.services.async_register(DOMAIN, SERVICE_HA_CALL_SERVICE, handle_ha_call_service)
+    hass.services.async_register(DOMAIN, SERVICE_CREATE_DUMMY_ENTITIES, handle_create_dummy_entities)
+    hass.services.async_register(DOMAIN, SERVICE_CLEAR_DUMMY_ENTITIES, handle_clear_dummy_entities)
     hass.services.async_register(DOMAIN, "chat_append", handle_chat_append)
     hass.services.async_register(DOMAIN, SERVICE_CHAT_FETCH, handle_chat_fetch)
     hass.services.async_register(DOMAIN, SERVICE_CHAT_SEND, handle_chat_send)

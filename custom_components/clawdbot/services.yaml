@@ -117,6 +117,7 @@ chat_history_delta:
         number:
           min: 1
           max: 500
+
 set_connection_overrides:
   name: Save/Apply connection overrides
   description: Persist gateway_url/token/session_key overrides to HA storage and apply immediately.
@@ -147,3 +148,45 @@ set_mapping:
       required: true
       selector:
         object:
+
+create_dummy_entities:
+  name: Create dummy entities
+  description: Create/refresh dummy sensor states (sensor.clawdbot_test_*) for panel mapping QA.
+  fields:
+    soc:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: box
+    voltage:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 80
+          mode: box
+    solar_w:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 5000
+          mode: box
+    load_w:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 5000
+          mode: box
+    connected:
+      required: false
+      selector:
+        boolean:
+
+clear_dummy_entities:
+  name: Clear dummy entities
+  description: Remove dummy entities created by create_dummy_entities.
+  fields: {}
