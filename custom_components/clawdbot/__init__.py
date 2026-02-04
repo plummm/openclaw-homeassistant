@@ -507,8 +507,27 @@ PANEL_HTML = """<!doctype html>
     syncChatSeenIds();
   }
 
+  function simpleHash(str){
+    // Non-crypto, deterministic 32-bit hash for UI dedupe keys
+    let h = 5381;
+    const s = String(str || '');
+    for (let i = 0; i < s.length; i++) h = ((h << 5) + h) + s.charCodeAt(i);
+    return (h >>> 0).toString(16);
+  }
+
+  function chatItemKey(it){
+    if (!it) return '';
+    const id = it.id || it.message_id || it.messageId;
+    if (id) return String(id);
+    // Fallback: stable-ish key when backend doesn't provide ids
+    const role = it.role || '';
+    const ts = it.ts || '';
+    const text = it.text || '';
+    return 'h_' + simpleHash(`${role}|${ts}|${text}`);
+  }
+
   function syncChatSeenIds(){
-    const ids = (chatItems || []).map((it)=>it && it.id).filter(Boolean);
+    const ids = (chatItems || []).map((it)=>chatItemKey(it)).filter(Boolean);
     chatLastSeenIds = new Set(ids);
   }
 
@@ -818,17 +837,26 @@ PANEL_HTML = """<!doctype html>
       let appendedCount = 0;
       const nextSeen = new Set(Array.from(seenBefore));
       for (const it of (chatItems || [])){
-        if (!it || !it.id) continue;
-        if (nextSeen.has(it.id)) continue;
-        nextSeen.add(it.id);
-        if (it.role === 'agent') appendedCount += 1;
+        const key = chatItemKey(it);
+        if (!key) continue;
+        if (nextSeen.has(key)) continue;
+        nextSeen.add(key);
+        if (it && it.role === 'agent') appendedCount += 1;
       }
       chatLastSeenIds = nextSeen;
       chatLastPollAppended = appendedCount;
 
       renderChat({ preserveScroll: true });
 
-      if (DEBUG_UI) console.debug('[clawdbot chat] poll ok', {session: currentSession, appended: chatLastPollAppended});
+      if (DEBUG_UI) {
+        const tail = (chatItems || []).slice(-3).map((it)=>({
+          id: (it && (it.id || it.message_id || it.messageId)) || null,
+          key: chatItemKey(it),
+          role: it && it.role,
+          ts: it && it.ts,
+        }));
+        console.debug('[clawdbot chat] poll ok', {session: currentSession, appended: chatLastPollAppended, beforeIdsCount: seenBefore.size, afterItemsCount: (chatItems||[]).length, tail});
+      }
     } catch(e){
       chatLastPollTs = Date.now();
       chatLastPollAppended = 0;
