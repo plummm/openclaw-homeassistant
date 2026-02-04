@@ -164,7 +164,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.54"
+PANEL_BUILD_ID = "89337ab.55"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -3929,6 +3929,9 @@ async def async_setup(hass, config):
                 continue
             if _re.search(r"agent-to-agent announce", txt_norm, flags=_re.I):
                 continue
+            # Filter internal Pulse reflection outputs from appearing in the chat tab.
+            if "PULSE_INTERNAL" in txt_norm or "BEGIN_JSON" in txt_norm:
+                continue
 
             ts_ms = None
             for key in ("timestamp", "ts", "time", "createdAt", "created_at"):
@@ -5241,7 +5244,7 @@ async def async_setup(hass, config):
         # Ask gateway to generate a short description + journal (best-effort)
         session, gateway_origin, token, _default_session_key = _runtime_gateway_parts(hass)
         prompt = (
-            "You are Agent 0. Reply with *only* a JSON object wrapped in sentinels exactly like: "
+            "[PULSE_INTERNAL] You are Agent 0. Reply with *only* a JSON object wrapped in sentinels exactly like: "
             "BEGIN_JSON\n{...}\nEND_JSON\n"
             "No other text. No markdown. "
             "Keys: mood (one of calm|focused|alert|playful|tired), description (<=80 chars), "
@@ -5251,21 +5254,16 @@ async def async_setup(hass, config):
             f"Current detected mood hint: {mood}."
         )
 
-        # Spawn a one-shot agent run on gateway with the prompt as the task.
-        # NOTE: sessions_send alone does not guarantee the agent will respond; sessions_spawn runs the agent.
-        payload_spawn = {"tool": "sessions_spawn", "args": {"task": prompt, "label": "agent-pulse", "cleanup": "delete"}}
-        res_spawn = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload_spawn)
-        sk = _extract_session_key(res_spawn) or (rt.get("session_key") or DEFAULT_SESSION_KEY)
+        # Use the configured runtime session directly (reliable agent turn).
+        # Subagent sessions_spawn does not reliably surface assistant messages via sessions_history.
+        sk = rt.get("session_key") or DEFAULT_SESSION_KEY
+        if not isinstance(sk, str) or not sk:
+            sk = DEFAULT_SESSION_KEY
 
-        spawn_debug = {"keys": [], "status": None, "runId": None, "sessionKey": None}
-        try:
-            if isinstance(res_spawn, dict):
-                spawn_debug["keys"] = sorted(list(res_spawn.keys()))[:30]
-                spawn_debug["status"] = str(res_spawn.get("status"))[:60] if res_spawn.get("status") is not None else None
-                spawn_debug["runId"] = str(res_spawn.get("runId"))[:120] if res_spawn.get("runId") is not None else None
-            spawn_debug["sessionKey"] = sk
-        except Exception:
-            pass
+        spawn_debug = {"mode": "sessions_send", "sessionKey": sk}
+
+        payload_send = {"tool": "sessions_send", "args": {"sessionKey": sk, "message": prompt}}
+        await _gw_post(session, gateway_origin + "/tools/invoke", token, payload_send)
 
         # Poll for response (short)
         import asyncio, json as _json
