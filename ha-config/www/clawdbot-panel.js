@@ -1,5 +1,9 @@
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
+// Marker visible to external debuggers even if init fails early.
+window.__clawdbotPanelInit = 'booting';
+window.__clawdbotPanelInitError = null;
 (function(){
+
   try{
     const el = document.getElementById('clawdbot-config');
     const txt = el ? (el.textContent || el.innerText || '{}') : '{}';
@@ -139,7 +143,7 @@
       for (let i = 0; i < parts.length; i++){
         const seg = escapeHtml(parts[i]);
         if (i % 2 === 0){
-          html += seg.replaceAll('\n', '<br/>');
+          html += seg.replaceAll('\\n', '<br/>');
         } else {
           html += `<pre><code>${seg}</code></pre>`;
         }
@@ -1530,13 +1534,31 @@ async function fetchStatesRest(hass){
   }
 
   function __clawdbotBoot(){
-    if (window.__clawdbotPanelInit) return;
-    window.__clawdbotPanelInit = true;
-    try{ init(); } catch(e){
-      try{ if (typeof DEBUG_UI !== 'undefined' && DEBUG_UI) console.error('[clawdbot] init threw', e); }catch(_e){}
-      // retry once on next tick in case DOM wasn't ready
-      try{ setTimeout(() => { try{ init(); } catch(_e2){} }, 50); } catch(_e) {}
-    }
+    // Idempotent: don't double-init.
+    if (window.__clawdbotPanelInit === true) return;
+
+    // Set marker BEFORE any heavy work so we can observe partial boot.
+    window.__clawdbotPanelInit = 'booting';
+    window.__clawdbotPanelInitError = null;
+
+    const run = async () => {
+      try{
+        await init();
+        window.__clawdbotPanelInit = true;
+      } catch(e) {
+        window.__clawdbotPanelInit = 'error';
+        window.__clawdbotPanelInitError = String(e && (e.stack || e.message || e));
+        try{ console.error('[clawdbot] init failed', e); } catch(_e) {}
+        // If debug=1, also surface the error in the status UI.
+        try{ if (typeof DEBUG_UI !== 'undefined' && DEBUG_UI) setStatus(false,'error', String(e)); } catch(_e) {}
+        throw e;
+      }
+    };
+
+    // Kick once; retry once on next tick in case DOM wasn't ready.
+    run().catch(() => {
+      try{ setTimeout(() => { run().catch(()=>{}); }, 50); } catch(_e) {}
+    });
   }
 
   if (document.readyState === 'loading') {
