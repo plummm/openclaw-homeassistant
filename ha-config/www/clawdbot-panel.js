@@ -1087,6 +1087,90 @@ window.__clawdbotPanelInitError = null;
       el.appendChild(d);
     }
   }
+
+  async function refreshSuggestedSensors(){
+    const listEl = document.getElementById('suggestedSensorsList');
+    const statusEl = document.getElementById('derivedStatus');
+    if (!listEl) return;
+
+    const parseResp = (resp) => {
+      const data = (resp && resp.response) ? resp.response : resp;
+      return data && data.result ? data.result : data;
+    };
+
+    let enabled = false;
+    try{
+      const st = parseResp(await callServiceResponse('clawdbot','derived_sensors_status',{}));
+      enabled = !!(st && st.enabled);
+      if (statusEl) statusEl.textContent = enabled ? 'Active (updates every ~10s)' : 'Not created';
+    } catch(e){
+      if (statusEl) statusEl.textContent = '';
+    }
+
+    try{
+      const r = parseResp(await callServiceResponse('clawdbot','derived_sensors_suggest',{}));
+      const suggestions = (r && Array.isArray(r.suggestions)) ? r.suggestions : [];
+      listEl.innerHTML = '';
+
+      if (!suggestions.length) {
+        listEl.innerHTML = '<div class="muted">No suggestions yet (map solar/load first).</div>';
+        return;
+      }
+
+      for (const s of suggestions){
+        const pv = s && s.preview ? s.preview : null;
+        const attrs = pv && pv.attributes ? pv.attributes : {};
+        const name = (attrs && attrs.friendly_name) ? String(attrs.friendly_name) : (s.entity_id || '—');
+        const unit = (attrs && attrs.unit_of_measurement) ? String(attrs.unit_of_measurement) : '';
+        const val = pv && pv.state != null ? String(pv.state) : '—';
+        const uses = Array.isArray(s.uses) ? s.uses.filter(Boolean).slice(0,3) : [];
+        const why = s.why ? String(s.why) : '';
+
+        const row = document.createElement('div');
+        row.style.border = '1px solid var(--divider-color)';
+        row.style.borderRadius = '12px';
+        row.style.padding = '10px 12px';
+        row.style.margin = '8px 0';
+
+        const right = enabled
+          ? '<span class="pill" style="background: color-mix(in srgb, var(--primary-color) 15%, transparent);">Active</span>'
+          : '<button class="btn primary" data-derive-create="1" style="white-space:nowrap">Create</button>';
+
+        row.innerHTML = `
+          <div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px">
+            <div style="min-width:0;flex:1">
+              <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(name)}</div>
+              <div class="muted" style="margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(s.entity_id || '')} · ${escapeHtml(val)}${unit ? ' '+escapeHtml(unit) : ''}</div>
+              <div class="muted" style="margin-top:4px">Why: ${escapeHtml(why)}</div>
+              <div class="muted" style="margin-top:4px">Uses: ${escapeHtml(uses.join(', ') || '—')}</div>
+            </div>
+            <div>${right}</div>
+          </div>
+        `;
+
+        if (!enabled) {
+          const btn = row.querySelector('button[data-derive-create]');
+          if (btn) btn.onclick = async () => {
+            btn.disabled = true;
+            try{
+              await callServiceResponse('clawdbot','derived_sensors_set_enabled',{enabled:true});
+              toast('Virtual sensors enabled');
+              await refreshSuggestedSensors();
+            } catch(e){
+              toast('Create failed: ' + String(e));
+            } finally {
+              btn.disabled = false;
+            }
+          };
+        }
+
+        listEl.appendChild(row);
+      }
+    } catch(e){
+      listEl.innerHTML = '<div class="muted">Error loading suggestions: ' + escapeHtml(String(e)) + '</div>';
+    }
+  }
+
   function renderHouseMemory(){
     const el = document.getElementById('houseMemory');
     if (!el) return;
@@ -1726,7 +1810,7 @@ async function fetchStatesRest(hass){
       if (which === 'cockpit') {
     try{ if (DEBUG_UI) dbgStep('before-getHass');
     console.debug('[clawdbot] before getHass'); } catch(e) {}
-        try{ const { hass } = await getHass(); await refreshEntities(); renderMappedValues(hass); renderHouseMemory(); renderRecommendations(hass); } catch(e){}
+        try{ const { hass } = await getHass(); await refreshEntities(); renderMappedValues(hass); renderHouseMemory(); renderRecommendations(hass); await refreshSuggestedSensors(); } catch(e){}
       }
       if (which === 'setup') {
         try{ const { hass } = await getHass(); await refreshEntities(); renderEntityConfig(hass); } catch(e){}
@@ -1784,6 +1868,33 @@ async function fetchStatesRest(hass){
     if (btnSave) btnSave.onclick = () => saveConnectionOverrides('save');
     const btnReset = qs('#btnConnReset');
     if (btnReset) btnReset.onclick = () => saveConnectionOverrides('reset');
+
+    const btnDerEnable = qs('#btnDerivedEnable');
+    if (btnDerEnable) btnDerEnable.onclick = async () => {
+      btnDerEnable.disabled = true;
+      try{
+        await callServiceResponse('clawdbot','derived_sensors_set_enabled',{enabled:true});
+        toast('Virtual sensors enabled');
+        await refreshSuggestedSensors();
+      } catch(e){
+        toast('Enable failed: ' + String(e));
+      } finally {
+        btnDerEnable.disabled = false;
+      }
+    };
+    const btnDerDisable = qs('#btnDerivedDisable');
+    if (btnDerDisable) btnDerDisable.onclick = async () => {
+      btnDerDisable.disabled = true;
+      try{
+        await callServiceResponse('clawdbot','derived_sensors_set_enabled',{enabled:false});
+        toast('Virtual sensors disabled');
+        await refreshSuggestedSensors();
+      } catch(e){
+        toast('Disable failed: ' + String(e));
+      } finally {
+        btnDerDisable.disabled = false;
+      }
+    };
 
     qs('#btnGatewayTest').onclick = async () => {
       const el = qs('#gwTestResult');

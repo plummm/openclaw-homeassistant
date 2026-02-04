@@ -136,6 +136,10 @@ def _runtime_gateway_parts_http(hass) -> tuple[aiohttp.ClientSession | None, str
 
 MAPPING_STORE_KEY = "clawdbot_mapping"
 MAPPING_STORE_VERSION = 1
+
+DERIVED_STORE_KEY = "clawdbot_derived"
+DERIVED_STORE_VERSION = 1
+
 HOUSEMEM_STORE_KEY = "clawdbot_house_memory"
 HOUSEMEM_STORE_VERSION = 1
 CHAT_STORE_KEY = "clawdbot_chat_history"
@@ -145,7 +149,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.16"
+PANEL_BUILD_ID = "89337ab.17"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -2090,6 +2094,19 @@ PANEL_HTML = """<!doctype html>
       <div id=\"mappedValues\" class=\"grid2\" style=\"margin-top:10px\"></div>
     </div>
 
+    <div class=\"card\" id=\"suggestedSensorsCard\">
+      <h2>Suggested sensors (virtual)</h2>
+      <div class=\"muted\">One-click derived sensors based on your mapped solar/load signals. Stored enablement persists across restarts.</div>
+      <div class=\"row\" style=\"margin-top:10px;justify-content:space-between;align-items:center\">
+        <div class=\"row\" style=\"gap:8px\">
+          <button class=\"btn primary\" id=\"btnDerivedEnable\">Create / Enable</button>
+          <button class=\"btn\" id=\"btnDerivedDisable\">Disable</button>
+        </div>
+        <span class=\"muted\" id=\"derivedStatus\"></span>
+      </div>
+      <div id=\"suggestedSensorsList\" style=\"margin-top:10px\"><div class=\"muted\">Loading…</div></div>
+    </div>
+
     <div class=\"card\" id=\"statusCard\">
       <div class=\"row\">
         <div class=\"row\"><div><b>Status:</b> <span id=\"status\">checking…</span></div><span id=\"connPill\" class=\"pill\">…</span></div>
@@ -2965,6 +2982,24 @@ async def async_setup(hass, config):
             "mapping": mapping,
             "house_store": house_store,
             "house_memory": house_memory,
+        }
+    )
+
+    # Load derived-sensor settings (Store-backed enablement)
+    derived_store = Store(hass, DERIVED_STORE_VERSION, DERIVED_STORE_KEY)
+    derived_cfg = await derived_store.async_load() or {}
+    if not isinstance(derived_cfg, dict):
+        derived_cfg = {}
+    derived_enabled = bool(derived_cfg.get("enabled"))
+
+    runtime.update(
+        {
+            "derived_store": derived_store,
+            "derived_cfg": derived_cfg,
+            "derived_enabled": derived_enabled,
+            "derived_task": None,
+            "derived_state": {},
+            "derived_last_update": None,
         }
     )
 
@@ -3921,6 +3956,258 @@ async def async_setup(hass, config):
                 pass
         hass.data[DOMAIN]["dummy_entities"] = []
         await _notify("Clawdbot: dummy entities", "Cleared dummy entities")
+
+    # --- Derived / virtual sensors (Cockpit suggestions) ---
+
+    def _to_float(state_val):
+        try:
+            if state_val is None:
+                return None
+            s = str(state_val).strip()
+            if s in ("unknown", "unavailable", "None", ""):
+                return None
+            return float(s)
+        except Exception:
+            return None
+
+    def _ema(prev, x, alpha: float):
+        if x is None:
+            return prev
+        if prev is None:
+            return x
+        return (1.0 - alpha) * prev + alpha * x
+
+    async def _derived_tick():
+        cfg = hass.data.get(DOMAIN, {})
+        mapping = cfg.get("mapping", {}) or {}
+        rt = _runtime(hass)
+        st = rt.get("derived_state")
+        if not isinstance(st, dict):
+            st = {}
+            rt["derived_state"] = st
+
+        solar_eid = mapping.get("solar")
+        load_eid = mapping.get("load")
+
+        solar = _to_float(hass.states.get(solar_eid).state) if solar_eid and hass.states.get(solar_eid) else None
+        load = _to_float(hass.states.get(load_eid).state) if load_eid and hass.states.get(load_eid) else None
+
+        # Rolling-ish averages (EMA) for quick v1 features.
+        st["avg_load_15m"] = _ema(st.get("avg_load_15m"), load, alpha=0.02)
+        st["avg_solar_15m"] = _ema(st.get("avg_solar_15m"), solar, alpha=0.02)
+
+        # Trend (W per minute) using last sample.
+        import time
+        now = time.time()
+        prev_t = st.get("last_t")
+        prev_load = st.get("last_load")
+        st["last_t"] = now
+        st["last_load"] = load
+        trend_w_per_min = None
+        if prev_t and prev_load is not None and load is not None:
+            dt_min = max(1e-6, (now - prev_t) / 60.0)
+            trend_w_per_min = (load - prev_load) / dt_min
+
+        # Always compute net power when possible.
+        net = (solar - load) if (solar is not None and load is not None) else None
+
+        def _set(eid: str, val, attrs: dict):
+            hass.states.async_set(eid, "unknown" if val is None else str(round(val, 3) if isinstance(val, float) else val), attrs)
+
+        _set(
+            "sensor.clawdbot_net_power_w",
+            net,
+            {
+                "friendly_name": "Clawdbot Net Power",
+                "unit_of_measurement": "W",
+                "icon": "mdi:transmission-tower",
+                "uses": [solar_eid, load_eid],
+                "formula": "solar_w - load_w",
+            },
+        )
+        _set(
+            "sensor.clawdbot_load_avg_15m_w",
+            st.get("avg_load_15m"),
+            {
+                "friendly_name": "Clawdbot Load Avg (EMA ~15m)",
+                "unit_of_measurement": "W",
+                "icon": "mdi:chart-line",
+                "uses": [load_eid],
+            },
+        )
+        _set(
+            "sensor.clawdbot_solar_avg_15m_w",
+            st.get("avg_solar_15m"),
+            {
+                "friendly_name": "Clawdbot Solar Avg (EMA ~15m)",
+                "unit_of_measurement": "W",
+                "icon": "mdi:chart-line",
+                "uses": [solar_eid],
+            },
+        )
+        _set(
+            "sensor.clawdbot_load_trend_w_per_min",
+            trend_w_per_min,
+            {
+                "friendly_name": "Clawdbot Load Trend",
+                "unit_of_measurement": "W/min",
+                "icon": "mdi:trending-up",
+                "uses": [load_eid],
+            },
+        )
+
+        avg_load = st.get("avg_load_15m")
+        load_spike = bool(load is not None and avg_load not in (None, 0) and load > (avg_load * 1.25))
+        _set(
+            "binary_sensor.clawdbot_load_spike",
+            "on" if load_spike else "off",
+            {
+                "friendly_name": "Clawdbot Load Spike",
+                "device_class": "problem",
+                "uses": [load_eid],
+                "rule": "load > avg_load_15m * 1.25",
+            },
+        )
+
+        avg_solar = st.get("avg_solar_15m")
+        solar_drop = bool(solar is not None and avg_solar not in (None, 0) and solar < (avg_solar * 0.6))
+        _set(
+            "binary_sensor.clawdbot_solar_drop",
+            "on" if solar_drop else "off",
+            {
+                "friendly_name": "Clawdbot Solar Drop",
+                "device_class": "problem",
+                "uses": [solar_eid],
+                "rule": "solar < avg_solar_15m * 0.6",
+            },
+        )
+
+        rt["derived_last_update"] = now
+
+    async def _derived_loop():
+        import asyncio
+        rt = _runtime(hass)
+        while rt.get("derived_enabled"):
+            try:
+                await _derived_tick()
+            except Exception:
+                _LOGGER.exception("Derived sensors tick failed")
+            await asyncio.sleep(10)
+
+    async def _derived_set_enabled(enabled: bool):
+        rt = _runtime(hass)
+        store: Store = rt.get("derived_store")
+        if store is None:
+            raise HomeAssistantError("derived store not initialized")
+
+        rt["derived_enabled"] = bool(enabled)
+        cfg = rt.get("derived_cfg")
+        if not isinstance(cfg, dict):
+            cfg = {}
+        cfg["enabled"] = bool(enabled)
+        rt["derived_cfg"] = cfg
+        await store.async_save(cfg)
+
+        # Start/stop task
+        task = rt.get("derived_task")
+        if enabled:
+            if task is None or getattr(task, "done", lambda: True)():
+                rt["derived_task"] = hass.async_create_task(_derived_loop())
+        else:
+            if task is not None:
+                try:
+                    task.cancel()
+                except Exception:
+                    pass
+                rt["derived_task"] = None
+
+    async def handle_derived_sensors_set_enabled(call):
+        enabled = bool(call.data.get("enabled"))
+        await _derived_set_enabled(enabled)
+        rt = _runtime(hass)
+        return {
+            "ok": True,
+            "enabled": bool(rt.get("derived_enabled")),
+        }
+
+    async def handle_derived_sensors_status(call):
+        rt = _runtime(hass)
+        return {
+            "ok": True,
+            "enabled": bool(rt.get("derived_enabled")),
+            "last_update": rt.get("derived_last_update"),
+            "entities": [
+                "sensor.clawdbot_net_power_w",
+                "sensor.clawdbot_load_avg_15m_w",
+                "sensor.clawdbot_solar_avg_15m_w",
+                "sensor.clawdbot_load_trend_w_per_min",
+                "binary_sensor.clawdbot_load_spike",
+                "binary_sensor.clawdbot_solar_drop",
+            ],
+        }
+
+    async def handle_derived_sensors_suggest(call):
+        # Ensure we can compute a preview without enabling.
+        try:
+            await _derived_tick()
+        except Exception:
+            pass
+        # Return current values (if present)
+        def _get(eid: str):
+            st = hass.states.get(eid)
+            if not st:
+                return None
+            return {"entity_id": eid, "state": st.state, "attributes": dict(st.attributes)}
+
+        return {
+            "ok": True,
+            "suggestions": [
+                {
+                    "entity_id": "sensor.clawdbot_net_power_w",
+                    "why": "Shows whether you are net producing or consuming power right now.",
+                    "uses": [hass.data.get(DOMAIN, {}).get("mapping", {}).get("solar"), hass.data.get(DOMAIN, {}).get("mapping", {}).get("load")],
+                    "preview": _get("sensor.clawdbot_net_power_w"),
+                },
+                {
+                    "entity_id": "sensor.clawdbot_load_avg_15m_w",
+                    "why": "Smooths short-term noise to reveal your baseline household load.",
+                    "uses": [hass.data.get(DOMAIN, {}).get("mapping", {}).get("load")],
+                    "preview": _get("sensor.clawdbot_load_avg_15m_w"),
+                },
+                {
+                    "entity_id": "sensor.clawdbot_solar_avg_15m_w",
+                    "why": "Smooths solar output to help detect clouds / sustained changes.",
+                    "uses": [hass.data.get(DOMAIN, {}).get("mapping", {}).get("solar")],
+                    "preview": _get("sensor.clawdbot_solar_avg_15m_w"),
+                },
+                {
+                    "entity_id": "sensor.clawdbot_load_trend_w_per_min",
+                    "why": "Shows whether load is ramping up or down (good for detecting spikes early).",
+                    "uses": [hass.data.get(DOMAIN, {}).get("mapping", {}).get("load")],
+                    "preview": _get("sensor.clawdbot_load_trend_w_per_min"),
+                },
+                {
+                    "entity_id": "binary_sensor.clawdbot_load_spike",
+                    "why": "Flags sudden load spikes relative to baseline.",
+                    "uses": [hass.data.get(DOMAIN, {}).get("mapping", {}).get("load")],
+                    "preview": _get("binary_sensor.clawdbot_load_spike"),
+                },
+                {
+                    "entity_id": "binary_sensor.clawdbot_solar_drop",
+                    "why": "Flags sudden solar drops relative to baseline.",
+                    "uses": [hass.data.get(DOMAIN, {}).get("mapping", {}).get("solar")],
+                    "preview": _get("binary_sensor.clawdbot_solar_drop"),
+                },
+            ],
+        }
+
+    # Auto-start on boot if enabled
+    if runtime.get("derived_enabled"):
+        runtime["derived_task"] = hass.async_create_task(_derived_loop())
+
+    hass.services.async_register(DOMAIN, "derived_sensors_set_enabled", handle_derived_sensors_set_enabled, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "derived_sensors_status", handle_derived_sensors_status, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "derived_sensors_suggest", handle_derived_sensors_suggest, supports_response=SupportsResponse.ONLY)
 
     hass.services.async_register(DOMAIN, SERVICE_SEND_CHAT, handle_send_chat)
     hass.services.async_register(DOMAIN, "set_connection_overrides", handle_set_connection_overrides, supports_response=SupportsResponse.ONLY)
