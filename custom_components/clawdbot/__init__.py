@@ -541,8 +541,15 @@ PANEL_HTML = """<!doctype html>
     const params = new URLSearchParams();
     if (chatSessionKey) params.set('session_key', chatSessionKey);
     params.set('limit', String(limit || 20));
-    const resp = await hassFetch('/api/clawdbot/sessions_history?' + params.toString());
-    const data = resp && resp.json ? await resp.json() : resp;
+    const url = '/api/clawdbot/sessions_history?' + params.toString();
+
+    // Polling must work inside the same-origin iframe panel; use cookie-auth fetch.
+    const resp = await fetch(url, { credentials: 'same-origin' });
+    if (!resp.ok) {
+      const txt = await resp.text().catch(()=> '');
+      throw new Error(`HTTP ${resp.status} ${url} ${txt.slice(0,120)}`);
+    }
+    const data = await resp.json().catch(()=> ({}));
     return (data && Array.isArray(data.items)) ? data.items : [];
   }
 
