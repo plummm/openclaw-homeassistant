@@ -142,155 +142,18 @@ CHAT_STORE_VERSION = 1
 OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
-PANEL_HTML = """<!doctype html>
-<html>
-<head>
-  <meta charset=\"utf-8\"/>
-  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>
-  <meta http-equiv=\"Cache-Control\" content=\"no-store\"/>
-  <meta http-equiv=\"Pragma\" content=\"no-cache\"/>
-  <meta http-equiv=\"Expires\" content=\"0\"/>
-  <title>Clawdbot</title>
-  <style>
-    html{
-      --cb-page-bg:color-mix(in srgb, var(--primary-background-color) 92%, #000 8%);
-      --cb-card-bg:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, #fff 8%);
-      --cb-surface-bg:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 90%, var(--primary-background-color) 10%);
-      --cb-border:color-mix(in srgb, var(--divider-color) 68%, var(--primary-text-color) 22%);
-      --cb-border-strong:color-mix(in srgb, var(--divider-color) 58%, var(--primary-text-color) 32%);
-      --cb-shadow:0 10px 26px rgba(0,0,0,.14);
-      --cb-shadow-soft:0 6px 16px rgba(0,0,0,.12);
-      --cb-control-bg:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 86%, var(--primary-background-color) 14%);
-    }
-    html{background:var(--cb-page-bg);}
-    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;padding:18px;max-width:980px;margin:0 auto;
-      /* HA-native background (light/dark theme safe) */
-      background:linear-gradient(180deg,
-        color-mix(in srgb, var(--secondary-background-color) 75%, var(--cb-page-bg)) 0%,
-        var(--cb-page-bg) 220px);
-      color:var(--primary-text-color);
-    }
-    input,button,textarea,select{font:inherit;}
-    input,textarea,select,button{
-      height:44px;
-      padding:0 14px;
-      border-radius:12px;
-      border:1px solid var(--cb-border);
-      background:var(--cb-control-bg);
-      color:var(--primary-text-color);
-      outline:none;
-    }
-    input,textarea,select{width:100%;}
-    textarea{height:auto;padding:12px 14px;}
-    input:focus,textarea:focus,select:focus,button:focus-visible{
-      border-color:var(--mdc-theme-primary, var(--primary-color));
-      box-shadow:0 0 0 3px color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 22%, transparent);
-    }
-    code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;}
-    h1{font-size:24px;line-height:1.2;font-weight:800;margin:0 0 8px 0;letter-spacing:-0.2px;}
-    h2{font-size:17px;line-height:1.25;font-weight:800;margin:0 0 10px 0;}
-    .surface{
-      /* Outer container: keep subtle separation from page bg */
-      background:var(--cb-surface-bg);
-      border-radius:16px;
-      padding:20px;
-      border:1px solid var(--cb-border);
-      box-shadow:var(--cb-shadow);
-    }
-    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
-    .card{border:1px solid var(--cb-border-strong);border-radius:16px;padding:18px;margin:16px 0;
-      background:var(--cb-card-bg);
-      box-shadow:var(--cb-shadow-soft);
-    }
-    .muted{color:var(--secondary-text-color);font-size:12.5px;}
-    .ok{color:#0a7a2f;}
-    .bad{color:#a00000;}
-    .btn{height:44px;padding:0 16px;border:1px solid var(--cb-border);border-radius:12px;background:color-mix(in srgb, var(--secondary-background-color) 88%, var(--cb-card-bg));color:var(--primary-text-color);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;}
-    .btn:hover{filter:brightness(0.98);}
-    .btn:disabled{opacity:0.5;cursor:not-allowed;filter:none;}
-    .btn.primary{border-color:var(--mdc-theme-primary, var(--primary-color));background:var(--mdc-theme-primary, var(--primary-color));color:var(--text-primary-color, #fff);}
-    .btn.primary:hover{filter:brightness(0.95);}
-    .tabs{display:inline-flex;align-items:center;gap:0;margin-top:12px;margin-bottom:14px;
-      padding:3px;border-radius:14px;
-      background:color-mix(in srgb, var(--secondary-background-color) 92%, var(--cb-card-bg));
-      border:1px solid var(--cb-border);
-      box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--divider-color) 75%, transparent);
-    }
-    .tab{height:40px;min-width:96px;padding:0 14px;border:none;border-radius:10px;
-      background:transparent;
-      color:var(--primary-text-color);
-      cursor:pointer;display:flex;flex:0 0 auto;align-items:center;justify-content:center;
-      font-weight:700;
-    }
-    .tab + .tab{border-left:1px solid color-mix(in srgb, var(--divider-color) 70%, transparent);}
-    .tab:hover{background:color-mix(in srgb, var(--secondary-background-color) 78%, var(--cb-card-bg));}
-    .tab.active{
-      background:color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 18%, var(--cb-card-bg));
-      color:var(--primary-text-color);
-      position:relative;
-      box-shadow:inset 0 0 0 1px var(--cb-border-strong);
-    }
-    .tab.active::after{
-      content:"";position:absolute;left:12px;right:12px;bottom:6px;height:3px;border-radius:999px;
-      background:var(--mdc-theme-primary, var(--primary-color));
-    }
-    .hidden{display:none;}
-    .kv{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;}
-    .kv > div{background:color-mix(in srgb, var(--secondary-background-color) 90%, var(--cb-card-bg));border:1px solid var(--cb-border);border-radius:10px;padding:8px 10px;}
-    .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid var(--cb-border);background:var(--secondary-background-color);color:var(--primary-text-color);}
-    .pill.ok{border-color:var(--success-color, #2e7d32);background:color-mix(in srgb, var(--success-color, #2e7d32) 15%, transparent);color:var(--success-color, #2e7d32);}
-    .pill.bad{border-color:var(--error-color, #b00020);background:color-mix(in srgb, var(--error-color, #b00020) 15%, transparent);color:var(--error-color, #b00020);}
-    .entities{max-height:420px;overflow:auto;border:1px solid var(--cb-border-strong);border-radius:10px;padding:10px;box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--divider-color) 70%, transparent);}
-    .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
-    .setup-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start;}
-    @media (max-width: 860px){ .setup-grid{grid-template-columns:1fr;} }
-    .ent{display:flex;gap:10px;align-items:center;justify-content:space-between;border-bottom:1px solid color-mix(in srgb, var(--divider-color) 90%, transparent);padding:7px 0;}
-    .ent:last-child{border-bottom:none;}
-    .ent-id{font-weight:650;}
-    .ent-state{color:var(--secondary-text-color);}
-    .suggest-card{border:1px solid var(--cb-border);border-radius:12px;padding:12px;background:color-mix(in srgb, var(--secondary-background-color) 90%, var(--cb-card-bg));box-shadow:0 2px 8px rgba(0,0,0,.08);}
-    .choice{display:flex;gap:8px;align-items:flex-start;padding:4px 0;}
-    .choice input{margin-top:3px;}
-    .choice-main{font-size:13px;}
-    .choice-meta{font-size:12px;color:var(--secondary-text-color);}
-    .chat-shell{display:flex;flex-direction:column;height:min(68vh,720px);min-height:0;border:1px solid var(--cb-border-strong);border-radius:16px;background:var(--cb-card-bg);box-shadow:0 8px 18px rgba(0,0,0,.1);overflow:hidden;}
-    .chat-list{flex:1;min-height:0;overflow:auto;padding:0 16px 16px 16px;position:relative;background:linear-gradient(180deg, color-mix(in srgb, var(--secondary-background-color) 90%, transparent) 0%, transparent 65%);} 
-    .chat-stack{display:flex;flex-direction:column;gap:12px;min-height:100%;justify-content:flex-end;}
-    .chat-row{display:flex;align-items:flex-end;gap:10px;}
-    .chat-row.user{justify-content:flex-end;}
-    .chat-row.agent{justify-content:flex-start;}
-    .chat-bubble{max-width:72%;padding:12px 14px;border-radius:16px;border:1px solid var(--cb-border);background:var(--secondary-background-color);box-shadow:0 6px 14px rgba(0,0,0,.06);white-space:pre-wrap;}
-    .chat-row.user .chat-bubble{background:var(--mdc-theme-primary, var(--primary-color));border-color:var(--mdc-theme-primary, var(--primary-color));color:#fff;}
-    .chat-row.agent .chat-bubble{background:var(--cb-card-bg);border-color:var(--cb-border-strong);color:var(--primary-text-color);}
-    .chat-meta{font-size:12px;color:var(--secondary-text-color);margin-top:6px;display:flex;gap:8px;align-items:center;justify-content:space-between;}
-    .chat-input{display:flex;gap:10px;padding:12px;border-top:1px solid var(--cb-border);background:color-mix(in srgb, var(--secondary-background-color) 92%, var(--cb-card-bg));box-shadow:0 -10px 30px rgba(0,0,0,.08);}
-    .chat-input input{flex:1;min-width:220px;height:46px;}
-    .chat-bubble pre{margin:8px 0 0 0;padding:10px 12px;border-radius:12px;background:color-mix(in srgb, var(--primary-background-color) 70%, var(--cb-card-bg));border:1px solid var(--cb-border);overflow:auto;}
-    .chat-bubble code{background:color-mix(in srgb, var(--primary-background-color) 78%, var(--cb-card-bg));padding:2px 6px;border-radius:8px;}
-    .chat-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin:0 0 6px 0;}
-    .chat-head-left{display:flex;flex-direction:column;gap:3px;}
-    .chat-head-right{display:flex;align-items:center;gap:10px;}
-    .select{
-      background:var(--cb-control-bg);
-      color:var(--primary-text-color);
-      appearance:auto;
-      color-scheme: light dark;
-    }
-    select option,.select option{background:var(--cb-card-bg);color:var(--primary-text-color);}
-    .chat-session{height:40px;min-width:180px;max-width:520px;width:52vw;flex:1;}
-    .chat-load-top{display:flex;justify-content:center;margin:0 0 10px 0;}
-    .chat-load-top .btn{height:32px;font-size:12px;padding:0 12px;border-radius:999px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 70%, transparent);}
-    @media (max-width: 680px){ .chat-bubble{max-width:90%;} .chat-shell{height:72vh;} }
-  </style>
-</head>
-<body>
-  <div class=\"surface\">
-  <h1>Clawdbot</h1>
-  <div class="muted" id="debugStamp" style="display:none;margin:6px 0 0 0"></div>
-  <div class=\"muted\" style=\"margin:0 0 10px 0;\">Home Assistant panel (served by HA). Uses HA auth to call HA services which relay to OpenClaw.</div>
 
-  <script>
-    window.__CLAWDBOT_CONFIG__ = __CONFIG_JSON__;
+PANEL_BUILD_ID = "panel-js-split"
+
+PANEL_JS = r"""
+// Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
+(function(){
+  try{
+    const el = document.getElementById('clawdbot-config');
+    const txt = el ? (el.textContent || el.innerText || '{}') : '{}';
+    window.__CLAWDBOT_CONFIG__ = JSON.parse(txt || '{}');
+  } catch(e){ window.__CLAWDBOT_CONFIG__ = {}; }
+
     // Theme binding: copy HA CSS variables from parent document into this iframe.
     // CSS custom properties do not inherit across iframe boundaries.
     (function syncThemeVars(){
@@ -310,154 +173,7 @@ PANEL_HTML = """<!doctype html>
         }
       } catch(e) {}
     })();
-  </script>
 
-  <div class=\"tabs\">
-    <button type=\"button\" class=\"tab\" id=\"tabSetup\">Setup</button>
-    <button type=\"button\" class=\"tab active\" id=\"tabCockpit\">Cockpit</button>
-    <button type=\"button\" class=\"tab\" id=\"tabChat\">Chat</button>
-  </div>
-
-  <div id=\"viewSetup\" class=\"hidden\">
-    <div class=\"setup-grid\">
-    <div class=\"card\">
-      <h2>Commissioning</h2>
-      <div class=\"muted\">Verify configuration and connectivity before using the cockpit.</div>
-      <div class=\"kv\" id=\"cfgSummary\"></div>
-      <div style=\"margin-top:14px\">
-        <h2 style=\"margin:0 0 8px 0;font-size:15px\">Connection overrides</h2>
-        <div class=\"muted\" style=\"margin-bottom:8px\">Edit gateway_url/token/session key. Save/Apply persists to <code>.storage</code>. Reset clears overrides.</div>
-        <div class=\"row\">
-          <input id=\"connGatewayUrl\" style=\"flex:1;min-width:260px\" placeholder=\"gateway_url (e.g. http://host:7773)\"/>
-          <input id=\"connSessionKey\" style=\"flex:1;min-width:220px\" placeholder=\"session_key (e.g. main)\"/>
-        </div>
-        <div class=\"row\" style=\"margin-top:8px\">
-          <input id=\"connToken\" type=\"password\" style=\"flex:1;min-width:260px\" placeholder=\"token (stored locally)\"/>
-        </div>
-        <div class=\"row\" style=\"margin-top:8px\">
-          <button class=\"btn primary\" id=\"btnConnSave\">Save/Apply</button>
-          <button class=\"btn\" id=\"btnConnReset\">Reset to YAML defaults</button>
-          <span class=\"muted\" id=\"connResult\" style=\"min-width:180px;display:inline-block\"></span>
-        </div>
-      </div>
-      <div class=\"row\" style=\"margin-top:10px\">
-        <button class=\"btn primary\" id=\"btnGatewayTest\">Test gateway</button>
-        <span class=\"muted\" id=\"gwTestResult\"></span>
-      </div>
-
-      <div style=\"margin-top:14px\">
-        <div class=\"muted\" style=\"margin-bottom:8px\">Send test inbound event (calls <code>clawdbot.notify_event</code>):</div>
-        <div class=\"row\">
-          <input id=\"evtType\" placeholder=\"event_type\" value=\"clawdbot.test\"/>
-          <select id=\"evtSeverity\" class=\"select\">
-            <option value=\"info\" selected>info</option>
-            <option value=\"warning\">warning</option>
-            <option value=\"critical\">critical</option>
-          </select>
-          <input id=\"evtSource\" placeholder=\"source\" value=\"panel\"/>
-        </div>
-        <textarea id=\"evtAttrs\" style=\"margin-top:8px\" rows=\"3\" placeholder=\"attributes JSON (optional)\"></textarea>
-        <div class=\"row\" style=\"margin-top:8px\">
-          <button class=\"btn\" id=\"btnSendEvent\">Send test event</button>
-          <span class=\"muted\" id=\"evtResult\" style=\"min-width:180px;display:inline-block\"></span>
-        </div>
-      </div>
-    </div>
-
-    <div class=\"card\">
-      <h2>Core signal mapping</h2>
-      <div class=\"muted\">Select a suggestion per signal and confirm to save. Manual overrides remain available below.</div>
-      <div class=\"grid2\" id=\"suggestions\" style=\"margin-top:10px\"></div>
-      <div class=\"muted\" style=\"margin-top:10px\">Manual override (entity_id):</div>
-      <div class=\"row\" style=\"margin-top:8px\">
-        <input list=\"entityIdList\" id=\"mapSoc\" style=\"flex:1;min-width:220px\" placeholder=\"soc entity_id (e.g. sensor.battery_soc)\"/>
-        <input list=\"entityIdList\" id=\"mapVoltage\" style=\"flex:1;min-width:220px\" placeholder=\"voltage entity_id\"/>
-      </div>
-      <div class=\"row\" style=\"margin-top:8px\">
-        <input list=\"entityIdList\" id=\"mapSolar\" style=\"flex:1;min-width:220px\" placeholder=\"solar power entity_id\"/>
-        <input list=\"entityIdList\" id=\"mapLoad\" style=\"flex:1;min-width:220px\" placeholder=\"load/consumption entity_id\"/>
-      </div>
-      <datalist id=\"entityIdList\"></datalist>
-    </div>
-
-        </div>
-  </div>
-
-  <div id=\"viewCockpit\">
-    <div class=\"card\">
-      <h2>Recommendations (preview)</h2>
-      <div class=\"muted\">Informational only (no alerts). Based on your mapped signals + house memory.</div>
-      <div id=\"recs\" style=\"margin-top:10px\"><div class=\"muted\">No recommendations yet.</div></div>
-      <div class=\"muted\" id=\"recsText\" style=\"display:none\">Finish mapping core signals</div>
-    </div>
-
-    <div class=\"card\">
-      <h2>House memory</h2>
-      <div class=\"muted\">Derived from entities (heuristics). Read-only for now.</div>
-      <div id=\"houseMemory\" style=\"margin-top:10px\">
-        <ul style=\"margin:0;padding-left:18px\">
-          <li><b>Solar:</b> …</li>
-          <li><b>Battery:</b> …</li>
-          <li><b>Grid:</b> …</li>
-          <li><b>Generator:</b> …</li>
-        </ul>
-      </div>
-    </div>
-
-    <div class=\"card\">
-      <h2>Core signals (mapped)</h2>
-      <div class=\"muted\">Shows values for the configured entity mapping (or “unmapped”).</div>
-      <div id=\"mappedValues\" class=\"grid2\" style=\"margin-top:10px\"></div>
-    </div>
-
-    <div class=\"card\" id=\"statusCard\">
-      <div class=\"row\">
-        <div class=\"row\"><div><b>Status:</b> <span id=\"status\">checking…</span></div><span id=\"connPill\" class=\"pill\">…</span></div>
-        <button class=\"btn\" id=\"refreshBtn\">Refresh entities</button>
-      </div>
-      <div class=\"muted\" id=\"statusDetail\"></div>
-      <div class="muted" id="statusHint" style="margin-top:6px"></div>
-    </div>
-
-    <div class=\"card\">
-      <h2>Entities (local HA)</h2>
-      <div class=\"muted\">Lists entities from HA frontend state; controls call <code>clawdbot.ha_call_service</code>.</div>
-      <div class=\"row\" style=\"margin-top:8px\">
-        <input id=\"filter\" style=\"flex:1;min-width:240px\" placeholder=\"Filter (e.g. input_boolean, switch., light.kitchen)…\"/>
-        <button class=\"btn\" id=\"clearFilter\">Clear</button>
-      </div>
-      <div class=\"entities\" id=\"entities\" style=\"margin-top:10px\"></div>
-    </div>
-  </div>
-
-  <div id=\"viewChat\" class=\"hidden\">
-    <div class=\"chat-head\">
-      <div class=\"chat-head-left\">
-        <span class=\"muted\" style=\"font-size:12px\">Session</span>
-        <div class=\"row\" style=\"gap:8px;align-items:center;flex-wrap:nowrap;\">
-          <select id=\"chatSessionSelect\" class=\"select chat-session\"></select>
-          <button class=\"btn\" id=\"chatNewSessionBtn\" style=\"height:40px;border-radius:12px;padding:0 12px;white-space:nowrap;\">New session</button>
-        </div>
-      </div>
-      <div class=\"chat-head-right\">
-        <span class=\"muted\" style=\"font-size:12px\">Tokens: <span id=\"chatTokenUsage\">—</span></span>
-        <span id=\"chatPollDebug\" class=\"muted\" style=\"font-size:12px;display:none\"></span>
-      </div>
-    </div>
-    <div class=\"chat-load-top\" id=\"chatLoadTop\">
-      <button class=\"btn\" id=\"chatLoadOlderBtn\">Load older</button>
-    </div>
-    <div class=\"chat-shell\">
-      <div id=\"chatList\" class=\"chat-list\"></div>
-      <div id=\"chatTyping\" class=\"muted\" style=\"font-size:12px;padding:6px 12px;min-height:20px;line-height:20px\"></div>\n      <div class=\"chat-input\">
-        <input id=\"chatComposer\" placeholder=\"Ask Clawdbot…\"/>
-        <button class=\"btn primary\" id=\"chatComposerSend\" style=\"min-width:96px\">Send</button>
-      </div>
-    </div>
-  </div>
-  </div>
-
-<script>
 (function(){
   function qs(sel){ return document.querySelector(sel); }
   function setHidden(el, hidden){
@@ -571,7 +287,7 @@ PANEL_HTML = """<!doctype html>
       for (let i = 0; i < parts.length; i++){
         const seg = escapeHtml(parts[i]);
         if (i % 2 === 0){
-          html += seg.replaceAll('\\n', '<br/>');
+          html += seg.replaceAll('\\\\n', '<br/>');
         } else {
           html += `<pre><code>${seg}</code></pre>`;
         }
@@ -1261,7 +977,7 @@ PANEL_HTML = """<!doctype html>
       const present = obj && obj.present;
       const conf = obj && (obj.confidence ?? 0);
       const li = document.createElement('li');
-      li.innerHTML = `<b>${label}:</b> ${present ? 'present' : 'not detected'} <span class=\"muted\">(confidence ${Math.round((conf||0)*100)}%}</span>`;
+      li.innerHTML = `<b>${label}:</b> ${present ? 'present' : 'not detected'} <span class=\\"muted\\">(confidence ${Math.round((conf||0)*100)}%}</span>`;
       ul.appendChild(li);
     }
     el.appendChild(ul);
@@ -1909,6 +1625,307 @@ PANEL_HTML = """<!doctype html>
 
   init();
 })();
+})();
+
+"""
+
+PANEL_HTML = """<!doctype html>
+<html>
+<head>
+  <meta charset=\"utf-8\"/>
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>
+  <meta http-equiv=\"Cache-Control\" content=\"no-store\"/>
+  <meta http-equiv=\"Pragma\" content=\"no-cache\"/>
+  <meta http-equiv=\"Expires\" content=\"0\"/>
+  <title>Clawdbot</title>
+  <style>
+    html{
+      --cb-page-bg:color-mix(in srgb, var(--primary-background-color) 92%, #000 8%);
+      --cb-card-bg:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, #fff 8%);
+      --cb-surface-bg:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 90%, var(--primary-background-color) 10%);
+      --cb-border:color-mix(in srgb, var(--divider-color) 68%, var(--primary-text-color) 22%);
+      --cb-border-strong:color-mix(in srgb, var(--divider-color) 58%, var(--primary-text-color) 32%);
+      --cb-shadow:0 10px 26px rgba(0,0,0,.14);
+      --cb-shadow-soft:0 6px 16px rgba(0,0,0,.12);
+      --cb-control-bg:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 86%, var(--primary-background-color) 14%);
+    }
+    html{background:var(--cb-page-bg);}
+    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;padding:18px;max-width:980px;margin:0 auto;
+      /* HA-native background (light/dark theme safe) */
+      background:linear-gradient(180deg,
+        color-mix(in srgb, var(--secondary-background-color) 75%, var(--cb-page-bg)) 0%,
+        var(--cb-page-bg) 220px);
+      color:var(--primary-text-color);
+    }
+    input,button,textarea,select{font:inherit;}
+    input,textarea,select,button{
+      height:44px;
+      padding:0 14px;
+      border-radius:12px;
+      border:1px solid var(--cb-border);
+      background:var(--cb-control-bg);
+      color:var(--primary-text-color);
+      outline:none;
+    }
+    input,textarea,select{width:100%;}
+    textarea{height:auto;padding:12px 14px;}
+    input:focus,textarea:focus,select:focus,button:focus-visible{
+      border-color:var(--mdc-theme-primary, var(--primary-color));
+      box-shadow:0 0 0 3px color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 22%, transparent);
+    }
+    code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;}
+    h1{font-size:24px;line-height:1.2;font-weight:800;margin:0 0 8px 0;letter-spacing:-0.2px;}
+    h2{font-size:17px;line-height:1.25;font-weight:800;margin:0 0 10px 0;}
+    .surface{
+      /* Outer container: keep subtle separation from page bg */
+      background:var(--cb-surface-bg);
+      border-radius:16px;
+      padding:20px;
+      border:1px solid var(--cb-border);
+      box-shadow:var(--cb-shadow);
+    }
+    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
+    .card{border:1px solid var(--cb-border-strong);border-radius:16px;padding:18px;margin:16px 0;
+      background:var(--cb-card-bg);
+      box-shadow:var(--cb-shadow-soft);
+    }
+    .muted{color:var(--secondary-text-color);font-size:12.5px;}
+    .ok{color:#0a7a2f;}
+    .bad{color:#a00000;}
+    .btn{height:44px;padding:0 16px;border:1px solid var(--cb-border);border-radius:12px;background:color-mix(in srgb, var(--secondary-background-color) 88%, var(--cb-card-bg));color:var(--primary-text-color);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;}
+    .btn:hover{filter:brightness(0.98);}
+    .btn:disabled{opacity:0.5;cursor:not-allowed;filter:none;}
+    .btn.primary{border-color:var(--mdc-theme-primary, var(--primary-color));background:var(--mdc-theme-primary, var(--primary-color));color:var(--text-primary-color, #fff);}
+    .btn.primary:hover{filter:brightness(0.95);}
+    .tabs{display:inline-flex;align-items:center;gap:0;margin-top:12px;margin-bottom:14px;
+      padding:3px;border-radius:14px;
+      background:color-mix(in srgb, var(--secondary-background-color) 92%, var(--cb-card-bg));
+      border:1px solid var(--cb-border);
+      box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--divider-color) 75%, transparent);
+    }
+    .tab{height:40px;min-width:96px;padding:0 14px;border:none;border-radius:10px;
+      background:transparent;
+      color:var(--primary-text-color);
+      cursor:pointer;display:flex;flex:0 0 auto;align-items:center;justify-content:center;
+      font-weight:700;
+    }
+    .tab + .tab{border-left:1px solid color-mix(in srgb, var(--divider-color) 70%, transparent);}
+    .tab:hover{background:color-mix(in srgb, var(--secondary-background-color) 78%, var(--cb-card-bg));}
+    .tab.active{
+      background:color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 18%, var(--cb-card-bg));
+      color:var(--primary-text-color);
+      position:relative;
+      box-shadow:inset 0 0 0 1px var(--cb-border-strong);
+    }
+    .tab.active::after{
+      content:"";position:absolute;left:12px;right:12px;bottom:6px;height:3px;border-radius:999px;
+      background:var(--mdc-theme-primary, var(--primary-color));
+    }
+    .hidden{display:none;}
+    .kv{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;}
+    .kv > div{background:color-mix(in srgb, var(--secondary-background-color) 90%, var(--cb-card-bg));border:1px solid var(--cb-border);border-radius:10px;padding:8px 10px;}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid var(--cb-border);background:var(--secondary-background-color);color:var(--primary-text-color);}
+    .pill.ok{border-color:var(--success-color, #2e7d32);background:color-mix(in srgb, var(--success-color, #2e7d32) 15%, transparent);color:var(--success-color, #2e7d32);}
+    .pill.bad{border-color:var(--error-color, #b00020);background:color-mix(in srgb, var(--error-color, #b00020) 15%, transparent);color:var(--error-color, #b00020);}
+    .entities{max-height:420px;overflow:auto;border:1px solid var(--cb-border-strong);border-radius:10px;padding:10px;box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--divider-color) 70%, transparent);}
+    .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+    .setup-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start;}
+    @media (max-width: 860px){ .setup-grid{grid-template-columns:1fr;} }
+    .ent{display:flex;gap:10px;align-items:center;justify-content:space-between;border-bottom:1px solid color-mix(in srgb, var(--divider-color) 90%, transparent);padding:7px 0;}
+    .ent:last-child{border-bottom:none;}
+    .ent-id{font-weight:650;}
+    .ent-state{color:var(--secondary-text-color);}
+    .suggest-card{border:1px solid var(--cb-border);border-radius:12px;padding:12px;background:color-mix(in srgb, var(--secondary-background-color) 90%, var(--cb-card-bg));box-shadow:0 2px 8px rgba(0,0,0,.08);}
+    .choice{display:flex;gap:8px;align-items:flex-start;padding:4px 0;}
+    .choice input{margin-top:3px;}
+    .choice-main{font-size:13px;}
+    .choice-meta{font-size:12px;color:var(--secondary-text-color);}
+    .chat-shell{display:flex;flex-direction:column;height:min(68vh,720px);min-height:0;border:1px solid var(--cb-border-strong);border-radius:16px;background:var(--cb-card-bg);box-shadow:0 8px 18px rgba(0,0,0,.1);overflow:hidden;}
+    .chat-list{flex:1;min-height:0;overflow:auto;padding:0 16px 16px 16px;position:relative;background:linear-gradient(180deg, color-mix(in srgb, var(--secondary-background-color) 90%, transparent) 0%, transparent 65%);} 
+    .chat-stack{display:flex;flex-direction:column;gap:12px;min-height:100%;justify-content:flex-end;}
+    .chat-row{display:flex;align-items:flex-end;gap:10px;}
+    .chat-row.user{justify-content:flex-end;}
+    .chat-row.agent{justify-content:flex-start;}
+    .chat-bubble{max-width:72%;padding:12px 14px;border-radius:16px;border:1px solid var(--cb-border);background:var(--secondary-background-color);box-shadow:0 6px 14px rgba(0,0,0,.06);white-space:pre-wrap;}
+    .chat-row.user .chat-bubble{background:var(--mdc-theme-primary, var(--primary-color));border-color:var(--mdc-theme-primary, var(--primary-color));color:#fff;}
+    .chat-row.agent .chat-bubble{background:var(--cb-card-bg);border-color:var(--cb-border-strong);color:var(--primary-text-color);}
+    .chat-meta{font-size:12px;color:var(--secondary-text-color);margin-top:6px;display:flex;gap:8px;align-items:center;justify-content:space-between;}
+    .chat-input{display:flex;gap:10px;padding:12px;border-top:1px solid var(--cb-border);background:color-mix(in srgb, var(--secondary-background-color) 92%, var(--cb-card-bg));box-shadow:0 -10px 30px rgba(0,0,0,.08);}
+    .chat-input input{flex:1;min-width:220px;height:46px;}
+    .chat-bubble pre{margin:8px 0 0 0;padding:10px 12px;border-radius:12px;background:color-mix(in srgb, var(--primary-background-color) 70%, var(--cb-card-bg));border:1px solid var(--cb-border);overflow:auto;}
+    .chat-bubble code{background:color-mix(in srgb, var(--primary-background-color) 78%, var(--cb-card-bg));padding:2px 6px;border-radius:8px;}
+    .chat-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin:0 0 6px 0;}
+    .chat-head-left{display:flex;flex-direction:column;gap:3px;}
+    .chat-head-right{display:flex;align-items:center;gap:10px;}
+    .select{
+      background:var(--cb-control-bg);
+      color:var(--primary-text-color);
+      appearance:auto;
+      color-scheme: light dark;
+    }
+    select option,.select option{background:var(--cb-card-bg);color:var(--primary-text-color);}
+    .chat-session{height:40px;min-width:180px;max-width:520px;width:52vw;flex:1;}
+    .chat-load-top{display:flex;justify-content:center;margin:0 0 10px 0;}
+    .chat-load-top .btn{height:32px;font-size:12px;padding:0 12px;border-radius:999px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 70%, transparent);}
+    @media (max-width: 680px){ .chat-bubble{max-width:90%;} .chat-shell{height:72vh;} }
+  </style>
+</head>
+<body>
+  <div class=\"surface\">
+  <h1>Clawdbot</h1>
+  <div class="muted" id="debugStamp" style="display:none;margin:6px 0 0 0"></div>
+  <div class=\"muted\" style=\"margin:0 0 10px 0;\">Home Assistant panel (served by HA). Uses HA auth to call HA services which relay to OpenClaw.</div>
+
+  <script type=\"application/json\" id=\"clawdbot-config\">__CONFIG_JSON__</script>
+  <script src=\"/clawdbot-panel.js?v=__PANEL_BUILD_ID__\"></script>
+  </script>
+
+  <div class=\"tabs\">
+    <button type=\"button\" class=\"tab\" id=\"tabSetup\">Setup</button>
+    <button type=\"button\" class=\"tab active\" id=\"tabCockpit\">Cockpit</button>
+    <button type=\"button\" class=\"tab\" id=\"tabChat\">Chat</button>
+  </div>
+
+  <div id=\"viewSetup\" class=\"hidden\">
+    <div class=\"setup-grid\">
+    <div class=\"card\">
+      <h2>Commissioning</h2>
+      <div class=\"muted\">Verify configuration and connectivity before using the cockpit.</div>
+      <div class=\"kv\" id=\"cfgSummary\"></div>
+      <div style=\"margin-top:14px\">
+        <h2 style=\"margin:0 0 8px 0;font-size:15px\">Connection overrides</h2>
+        <div class=\"muted\" style=\"margin-bottom:8px\">Edit gateway_url/token/session key. Save/Apply persists to <code>.storage</code>. Reset clears overrides.</div>
+        <div class=\"row\">
+          <input id=\"connGatewayUrl\" style=\"flex:1;min-width:260px\" placeholder=\"gateway_url (e.g. http://host:7773)\"/>
+          <input id=\"connSessionKey\" style=\"flex:1;min-width:220px\" placeholder=\"session_key (e.g. main)\"/>
+        </div>
+        <div class=\"row\" style=\"margin-top:8px\">
+          <input id=\"connToken\" type=\"password\" style=\"flex:1;min-width:260px\" placeholder=\"token (stored locally)\"/>
+        </div>
+        <div class=\"row\" style=\"margin-top:8px\">
+          <button class=\"btn primary\" id=\"btnConnSave\">Save/Apply</button>
+          <button class=\"btn\" id=\"btnConnReset\">Reset to YAML defaults</button>
+          <span class=\"muted\" id=\"connResult\" style=\"min-width:180px;display:inline-block\"></span>
+        </div>
+      </div>
+      <div class=\"row\" style=\"margin-top:10px\">
+        <button class=\"btn primary\" id=\"btnGatewayTest\">Test gateway</button>
+        <span class=\"muted\" id=\"gwTestResult\"></span>
+      </div>
+
+      <div style=\"margin-top:14px\">
+        <div class=\"muted\" style=\"margin-bottom:8px\">Send test inbound event (calls <code>clawdbot.notify_event</code>):</div>
+        <div class=\"row\">
+          <input id=\"evtType\" placeholder=\"event_type\" value=\"clawdbot.test\"/>
+          <select id=\"evtSeverity\" class=\"select\">
+            <option value=\"info\" selected>info</option>
+            <option value=\"warning\">warning</option>
+            <option value=\"critical\">critical</option>
+          </select>
+          <input id=\"evtSource\" placeholder=\"source\" value=\"panel\"/>
+        </div>
+        <textarea id=\"evtAttrs\" style=\"margin-top:8px\" rows=\"3\" placeholder=\"attributes JSON (optional)\"></textarea>
+        <div class=\"row\" style=\"margin-top:8px\">
+          <button class=\"btn\" id=\"btnSendEvent\">Send test event</button>
+          <span class=\"muted\" id=\"evtResult\" style=\"min-width:180px;display:inline-block\"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class=\"card\">
+      <h2>Core signal mapping</h2>
+      <div class=\"muted\">Select a suggestion per signal and confirm to save. Manual overrides remain available below.</div>
+      <div class=\"grid2\" id=\"suggestions\" style=\"margin-top:10px\"></div>
+      <div class=\"muted\" style=\"margin-top:10px\">Manual override (entity_id):</div>
+      <div class=\"row\" style=\"margin-top:8px\">
+        <input list=\"entityIdList\" id=\"mapSoc\" style=\"flex:1;min-width:220px\" placeholder=\"soc entity_id (e.g. sensor.battery_soc)\"/>
+        <input list=\"entityIdList\" id=\"mapVoltage\" style=\"flex:1;min-width:220px\" placeholder=\"voltage entity_id\"/>
+      </div>
+      <div class=\"row\" style=\"margin-top:8px\">
+        <input list=\"entityIdList\" id=\"mapSolar\" style=\"flex:1;min-width:220px\" placeholder=\"solar power entity_id\"/>
+        <input list=\"entityIdList\" id=\"mapLoad\" style=\"flex:1;min-width:220px\" placeholder=\"load/consumption entity_id\"/>
+      </div>
+      <datalist id=\"entityIdList\"></datalist>
+    </div>
+
+        </div>
+  </div>
+
+  <div id=\"viewCockpit\">
+    <div class=\"card\">
+      <h2>Recommendations (preview)</h2>
+      <div class=\"muted\">Informational only (no alerts). Based on your mapped signals + house memory.</div>
+      <div id=\"recs\" style=\"margin-top:10px\"><div class=\"muted\">No recommendations yet.</div></div>
+      <div class=\"muted\" id=\"recsText\" style=\"display:none\">Finish mapping core signals</div>
+    </div>
+
+    <div class=\"card\">
+      <h2>House memory</h2>
+      <div class=\"muted\">Derived from entities (heuristics). Read-only for now.</div>
+      <div id=\"houseMemory\" style=\"margin-top:10px\">
+        <ul style=\"margin:0;padding-left:18px\">
+          <li><b>Solar:</b> …</li>
+          <li><b>Battery:</b> …</li>
+          <li><b>Grid:</b> …</li>
+          <li><b>Generator:</b> …</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class=\"card\">
+      <h2>Core signals (mapped)</h2>
+      <div class=\"muted\">Shows values for the configured entity mapping (or “unmapped”).</div>
+      <div id=\"mappedValues\" class=\"grid2\" style=\"margin-top:10px\"></div>
+    </div>
+
+    <div class=\"card\" id=\"statusCard\">
+      <div class=\"row\">
+        <div class=\"row\"><div><b>Status:</b> <span id=\"status\">checking…</span></div><span id=\"connPill\" class=\"pill\">…</span></div>
+        <button class=\"btn\" id=\"refreshBtn\">Refresh entities</button>
+      </div>
+      <div class=\"muted\" id=\"statusDetail\"></div>
+      <div class="muted" id="statusHint" style="margin-top:6px"></div>
+    </div>
+
+    <div class=\"card\">
+      <h2>Entities (local HA)</h2>
+      <div class=\"muted\">Lists entities from HA frontend state; controls call <code>clawdbot.ha_call_service</code>.</div>
+      <div class=\"row\" style=\"margin-top:8px\">
+        <input id=\"filter\" style=\"flex:1;min-width:240px\" placeholder=\"Filter (e.g. input_boolean, switch., light.kitchen)…\"/>
+        <button class=\"btn\" id=\"clearFilter\">Clear</button>
+      </div>
+      <div class=\"entities\" id=\"entities\" style=\"margin-top:10px\"></div>
+    </div>
+  </div>
+
+  <div id=\"viewChat\" class=\"hidden\">
+    <div class=\"chat-head\">
+      <div class=\"chat-head-left\">
+        <span class=\"muted\" style=\"font-size:12px\">Session</span>
+        <div class=\"row\" style=\"gap:8px;align-items:center;flex-wrap:nowrap;\">
+          <select id=\"chatSessionSelect\" class=\"select chat-session\"></select>
+          <button class=\"btn\" id=\"chatNewSessionBtn\" style=\"height:40px;border-radius:12px;padding:0 12px;white-space:nowrap;\">New session</button>
+        </div>
+      </div>
+      <div class=\"chat-head-right\">
+        <span class=\"muted\" style=\"font-size:12px\">Tokens: <span id=\"chatTokenUsage\">—</span></span>
+        <span id=\"chatPollDebug\" class=\"muted\" style=\"font-size:12px;display:none\"></span>
+      </div>
+    </div>
+    <div class=\"chat-load-top\" id=\"chatLoadTop\">
+      <button class=\"btn\" id=\"chatLoadOlderBtn\">Load older</button>
+    </div>
+    <div class=\"chat-shell\">
+      <div id=\"chatList\" class=\"chat-list\"></div>
+      <div id=\"chatTyping\" class=\"muted\" style=\"font-size:12px;padding:6px 12px;min-height:20px;line-height:20px\"></div>\n      <div class=\"chat-input\">
+        <input id=\"chatComposer\" placeholder=\"Ask Clawdbot…\"/>
+        <button class=\"btn primary\" id=\"chatComposerSend\" style=\"min-width:96px\">Send</button>
+      </div>
+    </div>
+  </div>
+  </div>
+
+
 </script>
 </body>
 </html>
@@ -1947,7 +1964,7 @@ class ClawdbotPanelView(HomeAssistantView):
             "chat_history": chat_history,
             "chat_history_has_older": chat_has_older,
         }
-        html = PANEL_HTML.replace("__CONFIG_JSON__", dumps(safe_cfg))
+        html = PANEL_HTML.replace("__CONFIG_JSON__", dumps(safe_cfg)).replace("__PANEL_BUILD_ID__", PANEL_BUILD_ID)
         return web.Response(
             text=html,
             content_type="text/html",
@@ -1957,6 +1974,27 @@ class ClawdbotPanelView(HomeAssistantView):
                 "Expires": "0",
             },
         )
+
+class ClawdbotPanelJsView(HomeAssistantView):
+    """Serves the panel JS as an external script (CSP-safe)."""
+
+    url = "/clawdbot-panel.js"
+    name = "api:clawdbot:panel_js"
+    requires_auth = False
+
+    async def get(self, request):
+        from aiohttp import web
+
+        return web.Response(
+            text=PANEL_JS,
+            content_type="application/javascript",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
+
 
 
 class ClawdbotMappingApiView(HomeAssistantView):
@@ -2722,6 +2760,7 @@ async def async_setup(hass, config):
     # HTTP view (served by HA)
     try:
         hass.http.register_view(ClawdbotPanelView)
+        hass.http.register_view(ClawdbotPanelJsView)
         hass.http.register_view(ClawdbotMappingApiView)
         hass.http.register_view(ClawdbotPanelSelfTestApiView)
         hass.http.register_view(ClawdbotHouseMemoryApiView)
