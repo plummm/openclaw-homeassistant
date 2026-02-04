@@ -158,7 +158,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.42"
+PANEL_BUILD_ID = "89337ab.43"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1759,14 +1759,16 @@ PANEL_HTML = """<!doctype html>
       --cb-control-bg:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 86%, var(--primary-background-color) 14%);
 
       /* Theme variables (overridden by JS presets) */
-      --claw-accent-a: rgba(0,245,255,.85);
-      --claw-accent-b: rgba(123,44,255,.85);
-      --claw-accent-c: rgba(255,62,142,.55);
-      --claw-bg-0: color-mix(in srgb, var(--cb-page-bg) 70%, transparent);
-      --claw-bg-1: rgba(0,245,255,.10);
-      --claw-bg-2: rgba(123,44,255,.10);
-      --claw-bg-3: rgba(255,62,142,.06);
-      --claw-btn-glow: rgba(0,245,255,.28);
+      --claw-accent-a: rgba(0,245,255,.90);
+      --claw-accent-b: rgba(123,44,255,.90);
+      --claw-accent-c: rgba(255,62,142,.70);
+      --claw-bg-0: color-mix(in srgb, var(--cb-page-bg) 65%, transparent);
+      --claw-bg-1: rgba(0,245,255,.14);
+      --claw-bg-2: rgba(123,44,255,.14);
+      --claw-bg-3: rgba(255,62,142,.10);
+      --claw-btn-glow: rgba(0,245,255,.34);
+      /* Contrast tint for main surface/cards (intentionally different from page background) */
+      --claw-surface-tint: color-mix(in srgb, var(--claw-accent-c) 22%, transparent);
     }
     html{background:var(--cb-page-bg);}
     body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
@@ -1808,13 +1810,16 @@ PANEL_HTML = """<!doctype html>
     h1{font-size:24px;line-height:1.2;font-weight:800;margin:0 0 8px 0;letter-spacing:-0.2px;}
     h2{font-size:17px;line-height:1.25;font-weight:800;margin:0 0 10px 0;}
     .surface{
-      /* Outer container: make the whole app feel themed (not plain white) */
-      background:linear-gradient(180deg,
-        color-mix(in srgb, var(--cb-surface-bg) 88%, transparent),
-        color-mix(in srgb, var(--claw-bg-1) 14%, transparent));
+      /* Outer container: use a contrasting tint so the app body is colorful too */
+      background:
+        radial-gradient(900px 420px at 12% 18%, color-mix(in srgb, var(--claw-surface-tint) 85%, transparent), transparent 62%),
+        radial-gradient(700px 420px at 88% 22%, color-mix(in srgb, var(--claw-accent-a) 12%, transparent), transparent 60%),
+        linear-gradient(180deg,
+          color-mix(in srgb, var(--cb-surface-bg) 84%, transparent),
+          color-mix(in srgb, var(--claw-bg-1) 10%, transparent));
       border-radius:18px;
       padding:20px;
-      border:1px solid color-mix(in srgb, var(--cb-border) 70%, var(--claw-accent-b) 10%);
+      border:1px solid color-mix(in srgb, var(--cb-border) 70%, var(--claw-accent-c) 18%);
       box-shadow:var(--cb-shadow);
       backdrop-filter: blur(10px);
     }

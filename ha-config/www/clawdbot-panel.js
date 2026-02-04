@@ -199,7 +199,7 @@ window.__clawdbotPanelInitError = null;
     try{ refreshBuildInfo(); } catch(e){}
   }
   const THEMES = {
-    nebula: { name:'Nebula', a:'#00f5ff', b:'#7b2cff', c:'#ff3e8e', bg1:'rgba(0,245,255,.22)', bg2:'rgba(123,44,255,.22)', bg3:'rgba(255,62,142,.16)', glow:'rgba(0,245,255,.42)' },
+    nebula: { name:'Nebula', a:'#00f5ff', b:'#7b2cff', c:'#ff3e8e', bg1:'rgba(0,245,255,.28)', bg2:'rgba(123,44,255,.28)', bg3:'rgba(255,62,142,.20)', glow:'rgba(0,245,255,.48)' },
     aurora: { name:'Aurora', a:'#3cffb4', b:'#00a6ff', c:'#b6ff3c', bg1:'rgba(60,255,180,.18)', bg2:'rgba(0,166,255,.22)', bg3:'rgba(182,255,60,.14)', glow:'rgba(60,255,180,.34)' },
     deep_ocean: { name:'Deep Ocean', a:'#00d4ff', b:'#0047ff', c:'#6a00ff', bg1:'rgba(0,212,255,.18)', bg2:'rgba(0,71,255,.24)', bg3:'rgba(106,0,255,.16)', glow:'rgba(0,212,255,.34)' },
     solar_flare: { name:'Solar Flare', a:'#ffb300', b:'#ff2d95', c:'#ff6b00', bg1:'rgba(255,179,0,.18)', bg2:'rgba(255,45,149,.24)', bg3:'rgba(255,107,0,.16)', glow:'rgba(255,179,0,.32)' },
@@ -216,6 +216,8 @@ window.__clawdbotPanelInitError = null;
     root.style.setProperty('--claw-bg-2', t.bg2);
     root.style.setProperty('--claw-bg-3', t.bg3);
     root.style.setProperty('--claw-btn-glow', t.glow);
+    // Surface tint deliberately uses accent-c for contrast vs page bg
+    root.style.setProperty('--claw-surface-tint', `color-mix(in srgb, ${t.c} 22%, transparent)`);
     try{
       const prev = document.getElementById('themePreview');
       if (prev) prev.style.background = `linear-gradient(120deg, color-mix(in srgb, ${t.a} 22%, transparent), color-mix(in srgb, ${t.b} 18%, transparent)), color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 85%, transparent)`;
