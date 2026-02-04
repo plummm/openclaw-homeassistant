@@ -268,6 +268,7 @@ PANEL_HTML = """<!doctype html>
       <div class=\"muted\" id=\"recsText\" style=\"display:none\">Finish mapping core signals</div>
     </div>
 
+    <div class=\"card\">
       <h2>House memory</h2>
       <div class=\"muted\">Derived from entities (heuristics). Read-only for now.</div>
       <div id=\"houseMemory\" style=\"margin-top:10px\">
