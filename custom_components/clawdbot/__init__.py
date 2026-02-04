@@ -158,7 +158,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.41"
+PANEL_BUILD_ID = "89337ab.42"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1769,48 +1769,62 @@ PANEL_HTML = """<!doctype html>
       --claw-btn-glow: rgba(0,245,255,.28);
     }
     html{background:var(--cb-page-bg);}
-    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;padding:18px;max-width:980px;margin:0 auto;
-      /* Themed background (light/dark safe, non-solid) */
+    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
+      padding:18px;max-width:none;margin:0;
+      /* Themed background (full-bleed, non-solid) */
       background:
-        radial-gradient(1200px 520px at 18% 0%, var(--claw-bg-1), transparent 60%),
-        radial-gradient(900px 520px at 82% 12%, var(--claw-bg-2), transparent 62%),
-        radial-gradient(860px 520px at 70% 92%, var(--claw-bg-3), transparent 58%),
+        radial-gradient(1400px 620px at 18% 0%, var(--claw-bg-1), transparent 60%),
+        radial-gradient(1200px 620px at 82% 12%, var(--claw-bg-2), transparent 62%),
+        radial-gradient(1000px 620px at 70% 92%, var(--claw-bg-3), transparent 58%),
+        radial-gradient(900px 520px at 50% 40%, color-mix(in srgb, var(--claw-accent-c) 24%, transparent), transparent 70%),
         linear-gradient(180deg,
-          color-mix(in srgb, var(--secondary-background-color) 75%, var(--cb-page-bg)) 0%,
-          var(--cb-page-bg) 260px);
+          color-mix(in srgb, var(--secondary-background-color) 65%, var(--cb-page-bg)) 0%,
+          var(--cb-page-bg) 340px);
       color:var(--primary-text-color);
     }
+    .surface{max-width:1180px;margin:0 auto;}
     input,button,textarea,select{font:inherit;}
     input,textarea,select,button{
       height:44px;
       padding:0 14px;
       border-radius:12px;
-      border:1px solid var(--cb-border);
-      background:var(--cb-control-bg);
+      border:1px solid color-mix(in srgb, var(--cb-border) 70%, var(--claw-accent-a) 14%);
+      background:linear-gradient(135deg,
+        color-mix(in srgb, var(--cb-control-bg) 90%, transparent),
+        color-mix(in srgb, var(--claw-bg-1) 18%, transparent));
       color:var(--primary-text-color);
       outline:none;
+      box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--divider-color) 55%, transparent);
     }
     input,textarea,select{width:100%;}
     textarea{height:auto;padding:12px 14px;}
     input:focus,textarea:focus,select:focus,button:focus-visible{
-      border-color:var(--mdc-theme-primary, var(--primary-color));
-      box-shadow:0 0 0 3px color-mix(in srgb, var(--mdc-theme-primary, var(--primary-color)) 22%, transparent);
+      border-color:color-mix(in srgb, var(--claw-accent-a) 55%, var(--cb-border));
+      outline:2px solid color-mix(in srgb, var(--claw-accent-a) 40%, transparent);
+      outline-offset:2px;
+      box-shadow:0 0 0 3px color-mix(in srgb, var(--claw-accent-a) 22%, transparent);
     }
     code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;}
     h1{font-size:24px;line-height:1.2;font-weight:800;margin:0 0 8px 0;letter-spacing:-0.2px;}
     h2{font-size:17px;line-height:1.25;font-weight:800;margin:0 0 10px 0;}
     .surface{
-      /* Outer container: keep subtle separation from page bg */
-      background:var(--cb-surface-bg);
-      border-radius:16px;
+      /* Outer container: make the whole app feel themed (not plain white) */
+      background:linear-gradient(180deg,
+        color-mix(in srgb, var(--cb-surface-bg) 88%, transparent),
+        color-mix(in srgb, var(--claw-bg-1) 14%, transparent));
+      border-radius:18px;
       padding:20px;
-      border:1px solid var(--cb-border);
+      border:1px solid color-mix(in srgb, var(--cb-border) 70%, var(--claw-accent-b) 10%);
       box-shadow:var(--cb-shadow);
+      backdrop-filter: blur(10px);
     }
     .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
-    .card{border:1px solid var(--cb-border-strong);border-radius:16px;padding:18px;margin:16px 0;
-      background:var(--cb-card-bg);
+    .card{border:1px solid color-mix(in srgb, var(--cb-border-strong) 70%, var(--claw-accent-b) 12%);border-radius:18px;padding:18px;margin:16px 0;
+      background:linear-gradient(180deg,
+        color-mix(in srgb, var(--cb-card-bg) 92%, transparent),
+        color-mix(in srgb, var(--claw-bg-2) 10%, transparent));
       box-shadow:var(--cb-shadow-soft);
+      backdrop-filter: blur(10px);
     }
     .muted{color:var(--secondary-text-color);font-size:12.5px;}
     .ok{color:#0a7a2f;}

@@ -199,11 +199,11 @@ window.__clawdbotPanelInitError = null;
     try{ refreshBuildInfo(); } catch(e){}
   }
   const THEMES = {
-    nebula: { name:'Nebula', a:'#00f5ff', b:'#7b2cff', c:'#ff3e8e', bg1:'rgba(0,245,255,.12)', bg2:'rgba(123,44,255,.12)', bg3:'rgba(255,62,142,.08)', glow:'rgba(0,245,255,.28)' },
-    aurora: { name:'Aurora', a:'#3cffb4', b:'#00a6ff', c:'#b6ff3c', bg1:'rgba(60,255,180,.10)', bg2:'rgba(0,166,255,.12)', bg3:'rgba(182,255,60,.06)', glow:'rgba(60,255,180,.22)' },
-    deep_ocean: { name:'Deep Ocean', a:'#00d4ff', b:'#0047ff', c:'#6a00ff', bg1:'rgba(0,212,255,.10)', bg2:'rgba(0,71,255,.12)', bg3:'rgba(106,0,255,.08)', glow:'rgba(0,212,255,.22)' },
-    solar_flare: { name:'Solar Flare', a:'#ffb300', b:'#ff2d95', c:'#ff6b00', bg1:'rgba(255,179,0,.10)', bg2:'rgba(255,45,149,.12)', bg3:'rgba(255,107,0,.08)', glow:'rgba(255,179,0,.20)' },
-    crimson_night: { name:'Crimson Night', a:'#ff2b2b', b:'#5b2bff', c:'#ff2da1', bg1:'rgba(255,43,43,.10)', bg2:'rgba(91,43,255,.12)', bg3:'rgba(255,45,161,.08)', glow:'rgba(255,43,43,.20)' },
+    nebula: { name:'Nebula', a:'#00f5ff', b:'#7b2cff', c:'#ff3e8e', bg1:'rgba(0,245,255,.22)', bg2:'rgba(123,44,255,.22)', bg3:'rgba(255,62,142,.16)', glow:'rgba(0,245,255,.42)' },
+    aurora: { name:'Aurora', a:'#3cffb4', b:'#00a6ff', c:'#b6ff3c', bg1:'rgba(60,255,180,.18)', bg2:'rgba(0,166,255,.22)', bg3:'rgba(182,255,60,.14)', glow:'rgba(60,255,180,.34)' },
+    deep_ocean: { name:'Deep Ocean', a:'#00d4ff', b:'#0047ff', c:'#6a00ff', bg1:'rgba(0,212,255,.18)', bg2:'rgba(0,71,255,.24)', bg3:'rgba(106,0,255,.16)', glow:'rgba(0,212,255,.34)' },
+    solar_flare: { name:'Solar Flare', a:'#ffb300', b:'#ff2d95', c:'#ff6b00', bg1:'rgba(255,179,0,.18)', bg2:'rgba(255,45,149,.24)', bg3:'rgba(255,107,0,.16)', glow:'rgba(255,179,0,.32)' },
+    crimson_night: { name:'Crimson Night', a:'#ff2b2b', b:'#5b2bff', c:'#ff2da1', bg1:'rgba(255,43,43,.18)', bg2:'rgba(91,43,255,.24)', bg3:'rgba(255,45,161,.16)', glow:'rgba(255,43,43,.32)' },
   };
 
   function applyThemePreset(key, {silent=false, mood=null}={}){
