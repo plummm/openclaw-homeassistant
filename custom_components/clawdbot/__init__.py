@@ -178,7 +178,8 @@ PANEL_HTML = """<!doctype html>
     .choice-main{font-size:13px;}
     .choice-meta{font-size:12px;color:var(--secondary-text-color);}
     .chat-shell{display:flex;flex-direction:column;height:min(68vh,720px);border:1px solid var(--divider-color);border-radius:16px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent);box-shadow:0 6px 18px rgba(0,0,0,.06);overflow:hidden;}
-    .chat-list{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:12px;background:linear-gradient(180deg, color-mix(in srgb, var(--secondary-background-color) 90%, transparent) 0%, transparent 65%);}
+    .chat-list{flex:1;overflow:auto;padding:16px;position:relative;background:linear-gradient(180deg, color-mix(in srgb, var(--secondary-background-color) 90%, transparent) 0%, transparent 65%);} 
+    .chat-stack{display:flex;flex-direction:column;gap:12px;min-height:100%;justify-content:flex-end;}
     .chat-row{display:flex;align-items:flex-end;gap:10px;}
     .chat-row.user{justify-content:flex-end;}
     .chat-row.agent{justify-content:flex-start;}
@@ -374,6 +375,7 @@ PANEL_HTML = """<!doctype html>
     const prevScrollTop = list.scrollTop;
     list.innerHTML = '';
 
+    // Load-older control must be the first child inside the scroll container.
     if (chatHasOlder || chatLoadingOlder) {
       const loadWrap = document.createElement('div');
       loadWrap.className = 'chat-load';
@@ -386,10 +388,9 @@ PANEL_HTML = """<!doctype html>
       list.appendChild(loadWrap);
     }
 
-    // Spacer to keep short histories visually anchored near bottom without affecting sticky header.
-    const spacer = document.createElement('div');
-    spacer.style.flex = '1';
-    list.appendChild(spacer);
+    const stack = document.createElement('div');
+    stack.className = 'chat-stack';
+    list.appendChild(stack);
 
     if (!chatItems || !chatItems.length) {
       const empty = document.createElement('div');
@@ -397,7 +398,7 @@ PANEL_HTML = """<!doctype html>
       empty.style.textAlign = 'center';
       empty.style.marginTop = '18px';
       empty.textContent = 'No messages yet. Say hi.';
-      list.appendChild(empty);
+      stack.appendChild(empty);
       return;
     }
 
@@ -422,7 +423,7 @@ PANEL_HTML = """<!doctype html>
       meta.innerHTML = `<span>${msg.role === 'user' ? 'You' : 'Clawdbot'}</span><span>${msg.ts || ''}</span>`;
       bubble.appendChild(meta);
       row.appendChild(bubble);
-      list.appendChild(row);
+      stack.appendChild(row);
     }
     if (preserveScroll) {
       const nextScrollHeight = list.scrollHeight;
