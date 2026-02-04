@@ -1349,10 +1349,14 @@ PANEL_HTML = """<!doctype html>
     const parent = window.parent;
     if (!parent) throw new Error('No parent window');
 
-    // Path 1: legacy global hassConnection promise
+    // Path 1: legacy global hassConnection promise (add timeout; some builds keep it pending)
     try{
       if (parent.hassConnection && parent.hassConnection.then) {
-        const hc = await parent.hassConnection;
+        const timeoutMs = 1500;
+        const hc = await Promise.race([
+          parent.hassConnection,
+          new Promise((_, rej) => setTimeout(() => rej(new Error('hassConnection timeout')), timeoutMs)),
+        ]);
         if (hc && hc.conn) return { conn: hc.conn, hass: hc.hass };
       }
     } catch(e) {}
@@ -1374,7 +1378,11 @@ PANEL_HTML = """<!doctype html>
       for (const r of roots){
         try{
           if (r.hassConnection && r.hassConnection.then) {
-            const hc = await r.hassConnection;
+            const timeoutMs = 1500;
+            const hc = await Promise.race([
+              r.hassConnection,
+              new Promise((_, rej) => setTimeout(() => rej(new Error('hassConnection timeout')), timeoutMs)),
+            ]);
             if (hc && hc.conn) return { conn: hc.conn, hass: hc.hass };
           }
         } catch(e) {}
