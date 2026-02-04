@@ -155,7 +155,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.24"
+PANEL_BUILD_ID = "89337ab.25"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -3553,6 +3553,30 @@ async def async_setup(hass, config):
         res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
         key = _extract_session_key(res)
         if not key:
+            # Return a sanitized debug summary (never include token).
+            try:
+                import json as _json
+
+                def _summ(obj, depth=0):
+                    if depth > 2:
+                        return "…"
+                    if isinstance(obj, dict):
+                        out = {"_keys": sorted(list(obj.keys()))[:30]}
+                        for k in ("ok", "error", "message", "status", "result", "details", "response"):
+                            if k in obj:
+                                out[k] = _summ(obj.get(k), depth + 1)
+                        return out
+                    if isinstance(obj, list):
+                        return {"_list_len": len(obj)}
+                    if isinstance(obj, (str, int, float, bool)) or obj is None:
+                        s = str(obj)
+                        return s[:300]
+                    return str(type(obj))
+
+                dbg = _summ(res)
+                _LOGGER.warning("chat_new_session: gateway sessions_spawn returned no key; debug=%s", _json.dumps(dbg)[:1200])
+            except Exception:
+                _LOGGER.warning("chat_new_session: gateway sessions_spawn returned no key (failed to summarize)")
             raise HomeAssistantError("gateway did not return session key")
 
         cfg = hass.data.get(DOMAIN, {})
