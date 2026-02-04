@@ -166,6 +166,22 @@ window.__clawdbotPanelInitError = null;
     }
   }
 
+  async function refreshBuildInfo(){
+    const el = qs('#buildInfo');
+    if (!el) return;
+    try{
+      const resp = await callServiceResponse('clawdbot','build_info',{});
+      const data = (resp && resp.response) ? resp.response : resp;
+      const r = data && data.result ? data.result : data;
+      const p = r && r.panel_build_id ? String(r.panel_build_id) : '—';
+      const i = r && r.integration_build_id ? String(r.integration_build_id) : '—';
+      const g = r && r.gateway_origin ? String(r.gateway_origin) : '';
+      el.textContent = `Build: panel ${p} · integration ${i}${g ? ` · gateway ${g}` : ''}`;
+    } catch(e){
+      el.textContent = '';
+    }
+  }
+
   function renderConfigSummary(){
     const cfg = (window.__CLAWDBOT_CONFIG__ || {});
     const root = qs('#cfgSummary');
@@ -180,6 +196,7 @@ window.__clawdbotPanelInitError = null;
       d.innerHTML = `<div class="muted">${k}</div><div><b>${String(v)}</b></div>`;
       root.appendChild(d);
     }
+    try{ refreshBuildInfo(); } catch(e){}
   }
   function fillConnectionInputs(){
     const cfg = (window.__CLAWDBOT_CONFIG__ || {});

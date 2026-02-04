@@ -155,7 +155,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.31"
+PANEL_BUILD_ID = "89337ab.32"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1927,6 +1927,7 @@ PANEL_HTML = """<!doctype html>
       <h2>Commissioning</h2>
       <div class=\"muted\">Verify configuration and connectivity before using the cockpit.</div>
       <div class=\"kv\" id=\"cfgSummary\"></div>
+      <div class=\"muted\" id=\"buildInfo\" style=\"margin-top:8px\"></div>
       <div style=\"margin-top:14px\">
         <h2 style=\"margin:0 0 8px 0;font-size:15px\">Connection overrides</h2>
         <div class=\"muted\" style=\"margin-bottom:8px\">Edit gateway_url/token/session key. Save/Apply persists to <code>.storage</code>. Reset clears overrides.</div>
