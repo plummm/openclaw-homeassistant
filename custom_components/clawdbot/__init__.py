@@ -632,8 +632,20 @@ PANEL_HTML = """<!doctype html>
     // Always show *something* immediately so the control isn't an empty chevron.
     ensureSessionSelectValue();
     try{
-      const resp = await hassFetch('/api/clawdbot/sessions?limit=50');
-      const data = resp && resp.json ? await resp.json() : resp;
+      const apiPath = 'clawdbot/sessions?limit=50';
+      let data;
+      try{
+        const p = window.parent;
+        if (p && p.hass && typeof p.hass.callApi === 'function') {
+          if (DEBUG_UI) console.debug('[clawdbot chat] refreshSessions via parent.hass.callApi', apiPath);
+          data = await p.hass.callApi('GET', apiPath);
+        }
+      } catch(e){}
+      if (!data) {
+        const resp = await hassFetch('/api/' + apiPath);
+        data = resp && resp.json ? await resp.json() : resp;
+      }
+
       const r = data && data.result ? data.result : data;
       const sessions = (r && (r.sessions || r.items || r.result || r)) || [];
       const arr = Array.isArray(sessions) ? sessions : (sessions.sessions || sessions.items || []);
@@ -660,6 +672,7 @@ PANEL_HTML = """<!doctype html>
       sel.value = current || fallback;
     } catch(e){
       // best-effort only
+      if (DEBUG_UI) console.debug('[clawdbot chat] refreshSessions failed', e);
     }
   }
 
@@ -668,13 +681,26 @@ PANEL_HTML = """<!doctype html>
       const params = new URLSearchParams();
       params.set('limit', '50');
       if (chatSessionKey) params.set('session_key', chatSessionKey);
-      const resp = await hassFetch('/api/clawdbot/chat_history?' + params.toString());
-      const data = resp && resp.json ? await resp.json() : resp;
+      const apiPath = 'clawdbot/chat_history?' + params.toString();
+
+      let data;
+      try{
+        const p = window.parent;
+        if (p && p.hass && typeof p.hass.callApi === 'function') {
+          if (DEBUG_UI) console.debug('[clawdbot chat] loadChatLatest via parent.hass.callApi', apiPath);
+          data = await p.hass.callApi('GET', apiPath);
+        }
+      } catch(e){}
+      if (!data) {
+        const resp = await hassFetch('/api/' + apiPath);
+        data = resp && resp.json ? await resp.json() : resp;
+      }
+
       chatItems = (data && Array.isArray(data.items)) ? data.items : [];
       chatHasOlder = !!(data && data.has_older);
       syncChatSeenIds();
     } catch(e){
-      // ignore
+      if (DEBUG_UI) console.debug('[clawdbot chat] loadChatLatest failed', e);
     }
   }
 
@@ -698,8 +724,19 @@ PANEL_HTML = """<!doctype html>
       params.set('limit', '50');
       params.set('before_id', beforeId);
       if (chatSessionKey) params.set('session_key', chatSessionKey);
-      const resp = await hassFetch('/api/clawdbot/chat_history?' + params.toString());
-      const data = resp && resp.json ? await resp.json() : resp;
+      const apiPath = 'clawdbot/chat_history?' + params.toString();
+      let data;
+      try{
+        const p = window.parent;
+        if (p && p.hass && typeof p.hass.callApi === 'function') {
+          if (DEBUG_UI) console.debug('[clawdbot chat] loadOlderChat via parent.hass.callApi', apiPath);
+          data = await p.hass.callApi('GET', apiPath);
+        }
+      } catch(e){}
+      if (!data) {
+        const resp = await hassFetch('/api/' + apiPath);
+        data = resp && resp.json ? await resp.json() : resp;
+      }
       const items = (data && Array.isArray(data.items)) ? data.items : [];
       const existing = new Set((chatItems || []).map((it)=>it && it.id).filter(Boolean));
       const prepend = [];
