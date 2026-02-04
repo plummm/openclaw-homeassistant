@@ -149,7 +149,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.17"
+PANEL_BUILD_ID = "89337ab.18"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -4208,6 +4208,195 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, "derived_sensors_set_enabled", handle_derived_sensors_set_enabled, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "derived_sensors_status", handle_derived_sensors_status, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "derived_sensors_suggest", handle_derived_sensors_suggest, supports_response=SupportsResponse.ONLY)
+
+    # --- Agent 0 analysis services (token-safe) ---
+    AGENT0_MAX_ENTITIES = 12
+    AGENT0_MAX_HOURS = 72
+    AGENT0_MAX_BUCKETS = 800
+    AGENT0_MIN_BUCKET_MINUTES = 5
+
+    def _state_info(eid: str):
+        st = hass.states.get(eid) if eid else None
+        if not st:
+            return None
+        attrs = st.attributes or {}
+        return {
+            "entity_id": st.entity_id,
+            "state": st.state,
+            "attributes": {
+                "friendly_name": attrs.get("friendly_name"),
+                "unit_of_measurement": attrs.get("unit_of_measurement"),
+                "device_class": attrs.get("device_class"),
+                "state_class": attrs.get("state_class"),
+                "icon": attrs.get("icon"),
+            },
+            "last_updated": st.last_updated.isoformat() if st.last_updated else None,
+            "last_changed": st.last_changed.isoformat() if st.last_changed else None,
+        }
+
+    async def handle_agent0_get_context(call):
+        cfg = hass.data.get(DOMAIN, {})
+        mapping = cfg.get("mapping", {}) or {}
+        rt = _runtime(hass)
+
+        entity_ids = [
+            mapping.get("soc"),
+            mapping.get("voltage"),
+            mapping.get("solar"),
+            mapping.get("load"),
+        ]
+        entity_ids = [e for e in entity_ids if isinstance(e, str) and e]
+
+        derived_entities = [
+            "sensor.clawdbot_net_power_w",
+            "sensor.clawdbot_load_avg_15m_w",
+            "sensor.clawdbot_solar_avg_15m_w",
+            "sensor.clawdbot_load_trend_w_per_min",
+            "binary_sensor.clawdbot_load_spike",
+            "binary_sensor.clawdbot_solar_drop",
+        ]
+
+        return {
+            "ok": True,
+            "timezone": hass.config.time_zone,
+            "unit_system": {
+                "name": getattr(hass.config.units, "name", None),
+                "temperature_unit": getattr(hass.config.units, "temperature_unit", None),
+            },
+            "mapping": dict(mapping),
+            "entities": [it for it in (_state_info(e) for e in entity_ids) if it],
+            "derived": {
+                "enabled": bool(rt.get("derived_enabled")),
+                "last_update": rt.get("derived_last_update"),
+                "entities": [it for it in (_state_info(e) for e in derived_entities) if it],
+            },
+        }
+
+    async def handle_agent0_history_stats(call):
+        # Inputs
+        entity_ids = call.data.get("entity_ids") or []
+        if isinstance(entity_ids, str):
+            entity_ids = [entity_ids]
+        if not isinstance(entity_ids, list):
+            raise HomeAssistantError("entity_ids must be a list")
+        entity_ids = [e for e in entity_ids if isinstance(e, str) and e]
+        if len(entity_ids) > AGENT0_MAX_ENTITIES:
+            raise HomeAssistantError(f"Too many entity_ids (max {AGENT0_MAX_ENTITIES})")
+
+        period_hours = call.data.get("period_hours", 24)
+        try:
+            period_hours = float(period_hours)
+        except Exception:
+            raise HomeAssistantError("period_hours must be a number")
+        if period_hours <= 0:
+            raise HomeAssistantError("period_hours must be > 0")
+        if period_hours > AGENT0_MAX_HOURS:
+            period_hours = AGENT0_MAX_HOURS
+
+        bucket_minutes = call.data.get("bucket_minutes", 15)
+        try:
+            bucket_minutes = int(bucket_minutes)
+        except Exception:
+            raise HomeAssistantError("bucket_minutes must be an integer")
+        bucket_minutes = max(AGENT0_MIN_BUCKET_MINUTES, bucket_minutes)
+
+        stat = str(call.data.get("stat", "mean")).lower().strip()
+        if stat not in ("mean", "min", "max", "last"):
+            raise HomeAssistantError("stat must be one of: mean|min|max|last")
+
+        # Cap buckets
+        import math
+        buckets = int(math.ceil((period_hours * 60.0) / float(bucket_minutes)))
+        if buckets > AGENT0_MAX_BUCKETS:
+            buckets = AGENT0_MAX_BUCKETS
+            period_hours = (buckets * bucket_minutes) / 60.0
+
+        # Fetch history from recorder
+        from datetime import timedelta
+        from homeassistant.util import dt as dt_util
+
+        end = dt_util.utcnow()
+        start = end - timedelta(hours=period_hours)
+
+        try:
+            from homeassistant.components.recorder import history
+        except Exception as e:
+            raise HomeAssistantError(f"Recorder history not available: {e}")
+
+        hist = await history.get_significant_states(
+            hass,
+            start,
+            end,
+            entity_ids,
+            minimal_response=True,
+            include_start_time_state=True,
+        )
+
+        def _num(x):
+            try:
+                if x is None:
+                    return None
+                s = str(x).strip()
+                if s in ("unknown", "unavailable", "None", ""):
+                    return None
+                return float(s)
+            except Exception:
+                return None
+
+        out = {
+            "ok": True,
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "bucket_minutes": bucket_minutes,
+            "stat": stat,
+            "series": {},
+        }
+
+        # Prebuild bucket edges
+        edges = [start + timedelta(minutes=bucket_minutes * i) for i in range(buckets + 1)]
+        # Emit one point per bucket (timestamp at bucket end)
+        for eid in entity_ids:
+            states = hist.get(eid) or []
+            # states are recorder States; use last_updated/last_changed and state
+            points = []
+            j = 0
+            n = len(states)
+            for bi in range(buckets):
+                b0 = edges[bi]
+                b1 = edges[bi + 1]
+                vals = []
+                while j < n:
+                    st = states[j]
+                    t = getattr(st, "last_updated", None) or getattr(st, "last_changed", None)
+                    if t is None:
+                        j += 1
+                        continue
+                    if t < b0:
+                        j += 1
+                        continue
+                    if t >= b1:
+                        break
+                    v = _num(getattr(st, "state", None))
+                    if v is not None:
+                        vals.append(v)
+                    j += 1
+                vout = None
+                if vals:
+                    if stat == "min":
+                        vout = min(vals)
+                    elif stat == "max":
+                        vout = max(vals)
+                    elif stat == "last":
+                        vout = vals[-1]
+                    else:
+                        vout = sum(vals) / float(len(vals))
+                points.append({"t": b1.isoformat(), "v": vout})
+            out["series"][eid] = points
+
+        return out
+
+    hass.services.async_register(DOMAIN, "agent0_get_context", handle_agent0_get_context, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "agent0_history_stats", handle_agent0_history_stats, supports_response=SupportsResponse.ONLY)
 
     hass.services.async_register(DOMAIN, SERVICE_SEND_CHAT, handle_send_chat)
     hass.services.async_register(DOMAIN, "set_connection_overrides", handle_set_connection_overrides, supports_response=SupportsResponse.ONLY)
