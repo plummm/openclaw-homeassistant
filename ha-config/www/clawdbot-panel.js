@@ -1961,7 +1961,21 @@ async function fetchStatesRest(hass){
         const resp = await callServiceResponse('clawdbot','sessions_spawn', { label: label || undefined });
         const data = (resp && resp.response) ? resp.response : resp;
         const r = data && data.result ? data.result : data;
-        const key = r && (r.sessionKey || r.session_key || r.key);
+        let key = null;
+        // sessions_spawn wraps OpenClaw; accept multiple shapes.
+        key = (r && (r.sessionKey || r.session_key || r.key)) || null;
+        if (!key && r && r.result) {
+          const rr = r.result;
+          key = rr && (rr.sessionKey || rr.session_key || rr.key) || null;
+        }
+        if (!key && r && r.details) {
+          const dd = r.details;
+          key = dd && (dd.sessionKey || dd.session_key || dd.key) || null;
+        }
+        if (!key) {
+          toast('New session failed: no session key returned');
+          return;
+        }
         await refreshSessions();
         if (key && sessionSel) {
           sessionSel.value = key;
@@ -1970,8 +1984,11 @@ async function fetchStatesRest(hass){
           renderChat({ autoScroll: true });
           await refreshTokenUsage();
           if (chatPollingActive) scheduleChatPoll(CHAT_POLL_INITIAL_MS);
+          toast('Created new session');
         }
       } catch(e){
+        const msg = String(e && (e.message || e) || e);
+        toast('New session failed: ' + msg);
         console.warn('sessions_spawn failed', e);
       }
     };
