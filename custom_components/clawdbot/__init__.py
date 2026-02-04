@@ -2200,6 +2200,37 @@ class ClawdbotSessionStatusApiView(HomeAssistantView):
 class ClawdbotSessionsSendApiView(HomeAssistantView):
     """Authenticated API for sending chat messages into an OpenClaw session."""
 
+    url = "/api/clawdbot/sessions_send"
+    name = "api:clawdbot:sessions_send"
+    requires_auth = True
+
+    async def post(self, request):
+        from aiohttp import web
+
+        hass = request.app["hass"]
+        cfg = hass.data.get(DOMAIN, {})
+        token = cfg.get("token")
+        gateway_origin = cfg.get("gateway_origin")
+        session: aiohttp.ClientSession = cfg.get("session")
+        if not token or not gateway_origin or session is None:
+            return web.json_response({"ok": False, "error": "gateway not configured"}, status=400)
+
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+
+        session_key = data.get("session_key") or data.get("sessionKey") or cfg.get("target") or DEFAULT_SESSION_KEY
+        message = data.get("message")
+        if not isinstance(message, str) or not message.strip():
+            return web.json_response({"ok": False, "error": "message is required"}, status=400)
+
+        payload = {"tool": "sessions_send", "args": {"sessionKey": str(session_key), "message": message}}
+        res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
+        return web.json_response({"ok": True, "result": res})
+
 
 class ClawdbotSessionsSpawnApiView(HomeAssistantView):
     """Authenticated API for spawning a new OpenClaw session (best-effort)."""
