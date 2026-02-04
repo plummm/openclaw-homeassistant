@@ -145,7 +145,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.11"
+PANEL_BUILD_ID = "89337ab.12"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -1951,7 +1951,15 @@ PANEL_HTML = """<!doctype html>
       <h2>Entity configuration</h2>
       <div class=\"muted\">Pick the 4 signals the Cockpit uses. We auto-suggest; click Select to search (no giant lists).</div>
 
-      <div id=\"entityConfig\" style=\"margin-top:12px\">
+      <div class=\"row\" style=\"margin-top:12px;justify-content:space-between;align-items:center\">
+        <div class=\"muted\">Suggestions will prefill automatically when empty. Review then confirm.</div>
+        <div class=\"row\" style=\"gap:8px\">
+          <button class=\"btn primary\" id=\"btnConfirmAll\">Confirm all</button>
+          <span class=\"muted\" id=\"confirmAllResult\"></span>
+        </div>
+      </div>
+
+      <div id=\"entityConfig\" style=\"margin-top:10px\">
         <div class=\"cfg-row\">
           <div class=\"cfg-label\">Battery SOC</div>
           <div class=\"cfg-value\" id=\"cfgSocValue\">—</div>
