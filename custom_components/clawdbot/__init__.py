@@ -1347,11 +1347,54 @@ PANEL_HTML = """<!doctype html>
   async function getHass(){
     const parent = window.parent;
     if (!parent) throw new Error('No parent window');
-    if (parent.hassConnection && parent.hassConnection.then) {
-      const conn = await parent.hassConnection;
-      if (conn && conn.conn) return { conn: conn.conn, hass: conn.hass };
-    }
-    if (parent.hass && parent.hass.connection) return { conn: parent.hass.connection, hass: parent.hass };
+
+    // Path 1: legacy global hassConnection promise
+    try{
+      if (parent.hassConnection && parent.hassConnection.then) {
+        const hc = await parent.hassConnection;
+        if (hc && hc.conn) return { conn: hc.conn, hass: hc.hass };
+      }
+    } catch(e) {}
+
+    // Path 2: legacy global hass
+    try{
+      if (parent.hass && parent.hass.connection) return { conn: parent.hass.connection, hass: parent.hass };
+    } catch(e) {}
+
+    // Path 3: query DOM for HA root element, then read hass / hassConnection
+    try{
+      const doc = parent.document;
+      const roots = [
+        doc && doc.querySelector && doc.querySelector('home-assistant'),
+        doc && doc.querySelector && doc.querySelector('home-assistant-main'),
+        doc && doc.querySelector && doc.querySelector('hc-main'),
+      ].filter(Boolean);
+
+      for (const r of roots){
+        try{
+          if (r.hassConnection && r.hassConnection.then) {
+            const hc = await r.hassConnection;
+            if (hc && hc.conn) return { conn: hc.conn, hass: hc.hass };
+          }
+        } catch(e) {}
+        try{
+          if (r.hass && r.hass.connection) return { conn: r.hass.connection, hass: r.hass };
+        } catch(e) {}
+        // some HA builds tuck hass on appEl._hass
+        try{
+          if (r._hass && r._hass.connection) return { conn: r._hass.connection, hass: r._hass };
+        } catch(e) {}
+        // shadowRoot hop
+        try{
+          const sr = r.shadowRoot;
+          if (sr){
+            const inner = sr.querySelector('home-assistant') || sr.querySelector('home-assistant-main');
+            if (inner && inner.hass && inner.hass.connection) return { conn: inner.hass.connection, hass: inner.hass };
+          }
+        } catch(e) {}
+      }
+    } catch(e) {}
+
     throw new Error('Unable to access Home Assistant frontend connection from iframe');
   }
 
