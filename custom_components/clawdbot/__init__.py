@@ -155,7 +155,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.35"
+PANEL_BUILD_ID = "89337ab.36"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -3413,10 +3413,26 @@ async def async_setup(hass, config):
         # Fingerprint-based dedupe (cross-source) at store-write time
         try:
             import hashlib as _hashlib
-            import time as _time
+            import re as _re
 
-            fp_bucket = int(_time.time() // 2)
-            fp = _hashlib.sha256(f"{session}|{role}|{text}|{fp_bucket}".encode("utf-8")).hexdigest()
+            # Normalize whitespace to make dedupe resilient.
+            norm = _re.sub(r"\s+", " ", text).strip()
+
+            # Bucket based on item_ts (not wall clock) to avoid collapsing many distinct messages.
+            # item_ts is ISO; we fall back to wall clock if parsing fails.
+            fp_bucket = None
+            try:
+                from homeassistant.util import dt as _dt_util
+
+                dt_obj = _dt_util.parse_datetime(item_ts.replace("Z", "+00:00"))
+                if dt_obj is not None:
+                    fp_bucket = int(dt_obj.timestamp() // 2)
+            except Exception:
+                fp_bucket = None
+            if fp_bucket is None:
+                fp_bucket = int(__import__("time").time() // 2)
+
+            fp = _hashlib.sha256(f"{session}|{role}|{norm}|{fp_bucket}".encode("utf-8")).hexdigest()
         except Exception:
             fp = None
 
@@ -3754,14 +3770,12 @@ async def async_setup(hass, config):
 
             # Filter internal control/meta lines that should never surface in HA chat UI.
             txt_norm = text.strip()
-            blocked_substrings = (
-                "ANNOUNCE_SKIP",
-                "HEARTBEAT_OK",
-                "NO_REPLY",
-                "Agent-to-agent announce step.",
-                "agent-to-agent announce step.",
-            )
-            if any(s in txt_norm for s in blocked_substrings):
+            import re as _re
+            if _re.search(r"\bANNOUNCE_\w+\b", txt_norm):
+                continue
+            if _re.search(r"\b(HEARTBEAT_OK|NO_REPLY)\b", txt_norm):
+                continue
+            if _re.search(r"agent-to-agent announce", txt_norm, flags=_re.I):
                 continue
 
             ts_ms = None
@@ -4838,18 +4852,24 @@ async def async_setup(hass, config):
 
         role_counts = {}
         fp = set()
+        fp_missing = 0
         id_set = set()
         bad = 0
+        bad_samples = []
         for it in items:
             role = it.get("role") or ""
             role_counts[role] = role_counts.get(role, 0) + 1
             if it.get("fingerprint"):
                 fp.add(it.get("fingerprint"))
+            else:
+                fp_missing += 1
             if it.get("id"):
                 id_set.add(it.get("id"))
             txt = it.get("text")
             if isinstance(txt, str) and bad_re.search(txt):
                 bad += 1
+                if len(bad_samples) < 3:
+                    bad_samples.append(txt[:240])
 
         return {
             "ok": True,
@@ -4858,7 +4878,9 @@ async def async_setup(hass, config):
             "role_counts": role_counts,
             "unique_ids": len(id_set),
             "unique_fingerprints": len(fp),
+            "fingerprint_missing": fp_missing,
             "bad_marker_matches": bad,
+            "bad_marker_samples": bad_samples,
         }
 
     hass.services.async_register(DOMAIN, "chat_debug_stats", handle_chat_debug_stats, supports_response=SupportsResponse.ONLY)
