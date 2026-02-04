@@ -688,6 +688,15 @@ PANEL_HTML = """<!doctype html>
     }
   }
 
+  function maxChatTs(){
+    let max = '';
+    for (const it of (chatItems || [])){
+      const ts = it && it.ts ? String(it.ts) : '';
+      if (ts && ts > max) max = ts;
+    }
+    return max;
+  }
+
   async function loadChatLatest(){
     try{
       const params = new URLSearchParams();
@@ -810,13 +819,33 @@ PANEL_HTML = """<!doctype html>
       chatLastPollTs = Date.now();
       chatLastPollError = null;
 
-      // Refresh from HA chat_history API (authoritative for panel)
-      await loadChatLatest();
+      // Incremental refresh: fetch only items newer than current max ts (avoids capped moving-window)
+      const afterTs = maxChatTs();
+      const params = new URLSearchParams();
+      params.set('limit', '200');
+      if (currentSession) params.set('session_key', currentSession);
+      if (afterTs) params.set('after_ts', afterTs);
+      const apiPath = 'clawdbot/chat_history?' + params.toString();
+      const data = await hassApiGet(apiPath);
+      const newer = (data && Array.isArray(data.items)) ? data.items : [];
 
-      // Stable +N: count newly-seen IDs after refresh (length can stay constant due to trimming)
+      // Merge new items onto existing list
+      if (newer.length) {
+        const existing = new Set((chatItems || []).map(chatItemKey));
+        for (const it of newer){
+          const k = chatItemKey(it);
+          if (!k || existing.has(k)) continue;
+          chatItems.push(it);
+          existing.add(k);
+        }
+        // keep last 200 for UI responsiveness
+        if (chatItems.length > 200) chatItems = chatItems.slice(-200);
+      }
+
+      // +N: count newly-seen agent keys among returned items
       let appendedCount = 0;
       const nextSeen = new Set(Array.from(seenBefore));
-      for (const it of (chatItems || [])){
+      for (const it of newer){
         const key = chatItemKey(it);
         if (!key) continue;
         if (nextSeen.has(key)) continue;
@@ -835,8 +864,8 @@ PANEL_HTML = """<!doctype html>
           role: it && it.role,
           ts: it && it.ts,
         }));
-        chatLastPollDebugDetail = `seen:${seenBefore.size} items:${(chatItems||[]).length} tail:${(tail[tail.length-1]&&tail[tail.length-1].key)||'—'}`;
-        console.debug('[clawdbot chat] poll ok', {session: currentSession, appended: chatLastPollAppended, beforeIdsCount: seenBefore.size, afterItemsCount: (chatItems||[]).length, tail});
+        chatLastPollDebugDetail = `seen:${seenBefore.size} items:${(chatItems||[]).length} new:${newer.length} tailTs:${(tail[tail.length-1]&&tail[tail.length-1].ts)||'—'}`;
+        console.debug('[clawdbot chat] poll ok', {session: currentSession, appended: chatLastPollAppended, afterTs, newerCount: newer.length, tail});
       }
     } catch(e){
       chatLastPollTs = Date.now();
@@ -1919,7 +1948,26 @@ class ClawdbotChatHistoryApiView(HomeAssistantView):
             filtered = [it for it in items if it.get("session_key") == session_key]
         else:
             filtered = items
+        # Optional incremental paging
+        after_ts = request.query.get("after_ts") or request.query.get("since_ts")
         before_id = request.query.get("before_id")
+
+        # Always sort by timestamp ascending (oldest->newest) for deterministic paging.
+        def _ts(it: dict) -> str:
+            try:
+                return str(it.get("ts") or "")
+            except Exception:
+                return ""
+
+        filtered.sort(key=_ts)
+
+        if after_ts:
+            # Return items strictly newer than after_ts
+            candidates = [it for it in filtered if str(it.get("ts") or "") > str(after_ts)]
+            # Cap to limit (newest-last)
+            page = candidates[:limit]
+            has_older = False
+            return web.json_response({"ok": True, "items": page, "has_older": has_older})
 
         if before_id:
             idx = None
