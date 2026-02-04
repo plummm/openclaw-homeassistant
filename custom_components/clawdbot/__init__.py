@@ -996,39 +996,55 @@ PANEL_HTML = """<!doctype html>
     renderMappedValues(null);
     renderSuggestions(null);
 
-    qs('#tabSetup').onclick = (ev) => {
-      try{ ev && ev.preventDefault && ev.preventDefault(); }catch(e){}
-      try{ ev && ev.stopPropagation && ev.stopPropagation(); }catch(e){}
-      qs('#tabSetup').classList.add('active');
-      qs('#tabCockpit').classList.remove('active');
-      qs('#tabChat').classList.remove('active');
-      setHidden(qs('#viewSetup'), false);
-      setHidden(qs('#viewCockpit'), true);
-      setHidden(qs('#viewChat'), true);
+    async function switchTab(which){
+      const setup = qs('#tabSetup');
+      const cockpit = qs('#tabCockpit');
+      const chat = qs('#tabChat');
+      if (!setup || !cockpit || !chat) return;
+
+      setup.classList.toggle('active', which === 'setup');
+      cockpit.classList.toggle('active', which === 'cockpit');
+      chat.classList.toggle('active', which === 'chat');
+
+      setHidden(qs('#viewSetup'), which !== 'setup');
+      setHidden(qs('#viewCockpit'), which !== 'cockpit');
+      setHidden(qs('#viewChat'), which !== 'chat');
+
+      if (which === 'cockpit') {
+        try{ const { hass } = await getHass(); await refreshEntities(); renderMappedValues(hass); renderHouseMemory(); renderRecommendations(hass); } catch(e){}
+      }
+      if (which === 'chat') {
+        loadChatFromConfig();
+        renderChat();
+      }
+    }
+
+    const bindTab = (id, which) => {
+      const el = qs(id);
+      if (!el) return;
+      el.onclick = (ev) => {
+        try{ ev && ev.preventDefault && ev.preventDefault(); }catch(e){}
+        try{ ev && ev.stopPropagation && ev.stopPropagation(); }catch(e){}
+        switchTab(which);
+      };
     };
-    qs('#tabCockpit').onclick = async (ev) => {
-      try{ ev && ev.preventDefault && ev.preventDefault(); }catch(e){}
-      try{ ev && ev.stopPropagation && ev.stopPropagation(); }catch(e){}
-      qs('#tabCockpit').classList.add('active');
-      qs('#tabSetup').classList.remove('active');
-      qs('#tabChat').classList.remove('active');
-      setHidden(qs('#viewSetup'), true);
-      setHidden(qs('#viewCockpit'), false);
-      setHidden(qs('#viewChat'), true);
-      try{ const { hass } = await getHass(); await refreshEntities(); renderMappedValues(hass); renderHouseMemory(); renderRecommendations(hass); } catch(e){}
-    };
-    qs('#tabChat').onclick = (ev) => {
-      try{ ev && ev.preventDefault && ev.preventDefault(); }catch(e){}
-      try{ ev && ev.stopPropagation && ev.stopPropagation(); }catch(e){}
-      qs('#tabChat').classList.add('active');
-      qs('#tabSetup').classList.remove('active');
-      qs('#tabCockpit').classList.remove('active');
-      setHidden(qs('#viewSetup'), true);
-      setHidden(qs('#viewCockpit'), true);
-      setHidden(qs('#viewChat'), false);
-      loadChatFromConfig();
-      renderChat();
-    };
+
+    bindTab('#tabSetup','setup');
+    bindTab('#tabCockpit','cockpit');
+    bindTab('#tabChat','chat');
+
+    // Extra robustness: event delegation so clicks on child nodes still switch.
+    try{
+      const tabs = qs('.tabs');
+      if (tabs) tabs.addEventListener('click', (ev) => {
+        const t = ev.target;
+        if (!t) return;
+        const id = t.id || (t.closest ? (t.closest('button')||{}).id : '');
+        if (id === 'tabSetup') switchTab('setup');
+        if (id === 'tabCockpit') switchTab('cockpit');
+        if (id === 'tabChat') switchTab('chat');
+      }, true);
+    } catch(e){}
 
     qs('#refreshBtn').onclick = refreshEntities;
     qs('#clearFilter').onclick = () => { qs('#filter').value=''; getHass().then(({hass})=>renderEntities(hass,'')); };
