@@ -191,10 +191,10 @@ PANEL_HTML = """<!doctype html>
     .chat-input input{flex:1;min-width:220px;height:46px;}
     .chat-bubble pre{margin:8px 0 0 0;padding:10px 12px;border-radius:12px;background:color-mix(in srgb, var(--primary-background-color) 65%, transparent);border:1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);overflow:auto;}
     .chat-bubble code{background:color-mix(in srgb, var(--primary-background-color) 70%, transparent);padding:2px 6px;border-radius:8px;}
-    .chat-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin:0 0 8px 0;}
-    .chat-head-left{display:flex;flex-direction:column;gap:4px;}
+    .chat-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin:0 0 6px 0;}
+    .chat-head-left{display:flex;flex-direction:column;gap:3px;}
     .chat-head-right{display:flex;align-items:center;gap:10px;}
-    .chat-session{height:40px;min-width:340px;max-width:520px;width:52vw;border-radius:12px;padding:0 12px;
+    .chat-session{height:40px;min-width:180px;max-width:520px;width:52vw;border-radius:12px;padding:0 12px;flex:1;
       border:1px solid color-mix(in srgb, var(--divider-color) 78%, #000 14%);
       background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 72%, transparent);
       color:var(--primary-text-color);
@@ -338,7 +338,7 @@ PANEL_HTML = """<!doctype html>
     </div>
     <div class=\"chat-shell\">
       <div id=\"chatList\" class=\"chat-list\"></div>
-      <div id=\"chatTyping\" class=\"muted\" style=\"font-size:12px;padding:8px 12px;display:none\">Clawdbot is typing…</div>\n      <div class=\"chat-input\">
+      <div id=\"chatTyping\" class=\"muted\" style=\"font-size:12px;padding:6px 12px;min-height:18px\"></div>\n      <div class=\"chat-input\">
         <input id=\"chatComposer\" placeholder=\"Ask Clawdbot…\"/>
         <button class=\"btn primary\" id=\"chatComposerSend\" style=\"min-width:96px\">Send</button>
       </div>
@@ -505,7 +505,15 @@ PANEL_HTML = """<!doctype html>
 
   function setTyping(on){
     const el = qs('#chatTyping');
-    if (el) el.style.display = on ? 'inline' : 'none';
+    if (!el) return;
+    if (on) {
+      el.textContent = 'Clawdbot is typing…';
+      el.style.opacity = '1';
+    } else {
+      // Keep reserved space to avoid layout jump.
+      el.textContent = '';
+      el.style.opacity = '0.75';
+    }
   }
 
   function setTokenUsage(text){
@@ -528,9 +536,25 @@ PANEL_HTML = """<!doctype html>
     }
   }
 
+  function ensureSessionSelectValue(){
+    const sel = qs('#chatSessionSelect');
+    if (!sel) return;
+    const current = chatSessionKey || sel.value || '';
+    const fallback = current || (window.__CLAWDBOT_CONFIG__ && (window.__CLAWDBOT_CONFIG__.session_key || window.__CLAWDBOT_CONFIG__.target)) || 'main';
+    if (!sel.options || sel.options.length === 0) {
+      const o = document.createElement('option');
+      o.value = fallback;
+      o.textContent = fallback;
+      sel.appendChild(o);
+      sel.value = fallback;
+    }
+  }
+
   async function refreshSessions(){
     const sel = qs('#chatSessionSelect');
     if (!sel) return;
+    // Always show *something* immediately so the control isn't an empty chevron.
+    ensureSessionSelectValue();
     try{
       const resp = await hassFetch('/api/clawdbot/sessions?limit=50');
       const data = resp && resp.json ? await resp.json() : resp;
@@ -1238,6 +1262,7 @@ PANEL_HTML = """<!doctype html>
       }
       if (which === 'chat') {
         loadChatFromConfig();
+        ensureSessionSelectValue();
         await refreshSessions();
         // Prefer live fetch for the selected session (keeps dropdown + history in sync)
         await loadChatLatest();
