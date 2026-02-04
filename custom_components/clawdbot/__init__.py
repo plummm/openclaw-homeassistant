@@ -151,11 +151,14 @@ CHAT_STORE_VERSION = 1
 CHAT_SESSIONS_STORE_KEY = "clawdbot_chat_sessions"
 CHAT_SESSIONS_STORE_VERSION = 1
 
+THEME_STORE_KEY = "clawdbot_theme"
+THEME_STORE_VERSION = 1
+
 OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.40"
+PANEL_BUILD_ID = "89337ab.41"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1754,13 +1757,27 @@ PANEL_HTML = """<!doctype html>
       --cb-shadow:0 10px 26px rgba(0,0,0,.14);
       --cb-shadow-soft:0 6px 16px rgba(0,0,0,.12);
       --cb-control-bg:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 86%, var(--primary-background-color) 14%);
+
+      /* Theme variables (overridden by JS presets) */
+      --claw-accent-a: rgba(0,245,255,.85);
+      --claw-accent-b: rgba(123,44,255,.85);
+      --claw-accent-c: rgba(255,62,142,.55);
+      --claw-bg-0: color-mix(in srgb, var(--cb-page-bg) 70%, transparent);
+      --claw-bg-1: rgba(0,245,255,.10);
+      --claw-bg-2: rgba(123,44,255,.10);
+      --claw-bg-3: rgba(255,62,142,.06);
+      --claw-btn-glow: rgba(0,245,255,.28);
     }
     html{background:var(--cb-page-bg);}
     body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;padding:18px;max-width:980px;margin:0 auto;
-      /* HA-native background (light/dark theme safe) */
-      background:linear-gradient(180deg,
-        color-mix(in srgb, var(--secondary-background-color) 75%, var(--cb-page-bg)) 0%,
-        var(--cb-page-bg) 220px);
+      /* Themed background (light/dark safe, non-solid) */
+      background:
+        radial-gradient(1200px 520px at 18% 0%, var(--claw-bg-1), transparent 60%),
+        radial-gradient(900px 520px at 82% 12%, var(--claw-bg-2), transparent 62%),
+        radial-gradient(860px 520px at 70% 92%, var(--claw-bg-3), transparent 58%),
+        linear-gradient(180deg,
+          color-mix(in srgb, var(--secondary-background-color) 75%, var(--cb-page-bg)) 0%,
+          var(--cb-page-bg) 260px);
       color:var(--primary-text-color);
     }
     input,button,textarea,select{font:inherit;}
@@ -1798,11 +1815,22 @@ PANEL_HTML = """<!doctype html>
     .muted{color:var(--secondary-text-color);font-size:12.5px;}
     .ok{color:#0a7a2f;}
     .bad{color:#a00000;}
-    .btn{height:44px;padding:0 16px;border:1px solid var(--cb-border);border-radius:12px;background:color-mix(in srgb, var(--secondary-background-color) 88%, var(--cb-card-bg));color:var(--primary-text-color);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;}
-    .btn:hover{filter:brightness(0.98);}
-    .btn:disabled{opacity:0.5;cursor:not-allowed;filter:none;}
-    .btn.primary{border-color:var(--mdc-theme-primary, var(--primary-color));background:var(--mdc-theme-primary, var(--primary-color));color:var(--text-primary-color, #fff);}
-    .btn.primary:hover{filter:brightness(0.95);}
+    .btn{height:44px;padding:0 16px;border:1px solid var(--cb-border);border-radius:12px;
+      background:linear-gradient(135deg,
+        color-mix(in srgb, var(--secondary-background-color) 88%, var(--cb-card-bg)),
+        color-mix(in srgb, var(--claw-bg-2) 18%, transparent));
+      color:var(--primary-text-color);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;
+      transition:transform .12s ease, filter .12s ease, box-shadow .12s ease;
+      box-shadow:0 0 0 rgba(0,0,0,0);
+    }
+    .btn:hover{filter:brightness(1.04); box-shadow:0 0 0 1px color-mix(in srgb, var(--claw-accent-a) 25%, transparent), 0 10px 30px rgba(0,0,0,.12);}
+    .btn:active{transform:translateY(1px) scale(.99);}
+    .btn:disabled{opacity:0.5;cursor:not-allowed;filter:none;transform:none;box-shadow:none;}
+    .btn.primary{border-color:color-mix(in srgb, var(--claw-accent-a) 40%, var(--cb-border-strong));
+      background:linear-gradient(135deg, var(--claw-accent-a), var(--claw-accent-b));
+      color:#081019;box-shadow:0 8px 24px color-mix(in srgb, var(--claw-btn-glow) 60%, transparent);
+    }
+    .btn.primary:hover{filter:brightness(1.02);}
     .tabs{display:inline-flex;align-items:center;gap:0;margin-top:12px;margin-bottom:14px;
       padding:3px;border-radius:14px;
       background:color-mix(in srgb, var(--secondary-background-color) 92%, var(--cb-card-bg));
@@ -1930,6 +1958,22 @@ PANEL_HTML = """<!doctype html>
       <div class=\"muted\">Verify configuration and connectivity before using the cockpit.</div>
       <div class=\"kv\" id=\"cfgSummary\"></div>
       <div class=\"muted\" id=\"buildInfo\" style=\"margin-top:8px\"></div>
+      <div style=\"margin-top:14px\">
+        <h2 style=\"margin:0 0 8px 0;font-size:15px\">Theme</h2>
+        <div class=\"muted\" style=\"margin-bottom:8px\">Pick a preset theme (affects background, cards, buttons). Optional auto-mode lets the agent shift themes based on “mood”.</div>
+        <div class=\"row\">
+          <select id=\"themePreset\" class=\"select\" style=\"min-width:240px\"></select>
+          <label class=\"muted\" style=\"display:flex;align-items:center;gap:8px\">
+            <input type=\"checkbox\" id=\"themeAuto\"/>
+            Auto (mood)
+          </label>
+          <button class=\"btn primary\" id=\"btnThemeApply\">Apply</button>
+          <button class=\"btn\" id=\"btnThemeReset\">Reset</button>
+          <span class=\"muted\" id=\"themeResult\"></span>
+        </div>
+        <div id=\"themePreview\" style=\"margin-top:10px;height:64px;border-radius:16px;border:1px solid var(--divider-color);background:linear-gradient(120deg, rgba(0,245,255,.18), rgba(123,44,255,.18)), color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 85%, transparent)\"></div>
+      </div>
+
       <div style=\"margin-top:14px\">
         <h2 style=\"margin:0 0 8px 0;font-size:15px\">Connection overrides</h2>
         <div class=\"muted\" style=\"margin-bottom:8px\">Edit gateway_url/token/session key. Save/Apply persists to <code>.storage</code>. Reset clears overrides.</div>
@@ -2254,6 +2298,7 @@ class ClawdbotPanelView(HomeAssistantView):
             "house_memory": cfg.get("house_memory", {}),
             "chat_history": chat_history,
             "chat_history_has_older": chat_has_older,
+            "theme": cfg.get("theme", {}),
         }
         html = PANEL_HTML.replace("__CONFIG_JSON__", dumps(safe_cfg)).replace("__PANEL_BUILD_ID__", PANEL_BUILD_ID)
         return web.Response(
@@ -3095,12 +3140,22 @@ async def async_setup(hass, config):
     chat_sessions["items"] = items
     await chat_sessions_store.async_save(chat_sessions)
 
+    # Load theme settings (Store-backed)
+    theme_store = Store(hass, THEME_STORE_VERSION, THEME_STORE_KEY)
+    theme_cfg = await theme_store.async_load() or {}
+    if not isinstance(theme_cfg, dict):
+        theme_cfg = {}
+    theme_preset = theme_cfg.get("preset") or "nebula"
+    theme_auto = bool(theme_cfg.get("auto"))
+
     hass.data[DOMAIN].update(
         {
             "chat_store": chat_store,
             "chat_history": chat_history[-500:],
             "chat_sessions_store": chat_sessions_store,
             "chat_sessions": chat_sessions,
+            "theme_store": theme_store,
+            "theme": {"preset": theme_preset, "auto": theme_auto},
         }
     )
 
@@ -4928,6 +4983,44 @@ async def async_setup(hass, config):
         }
 
     hass.services.async_register(DOMAIN, "chat_debug_stats", handle_chat_debug_stats, supports_response=SupportsResponse.ONLY)
+
+    async def handle_theme_set(call):
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("theme_store")
+        if store is None:
+            raise HomeAssistantError("theme store not initialized")
+
+        preset = call.data.get("preset")
+        auto = call.data.get("auto")
+        current = cfg.get("theme", {})
+        if not isinstance(current, dict):
+            current = {}
+
+        out = {
+            "preset": current.get("preset") or "nebula",
+            "auto": bool(current.get("auto")),
+        }
+        if isinstance(preset, str) and preset.strip():
+            out["preset"] = preset.strip()
+        if auto is not None:
+            out["auto"] = bool(auto)
+
+        await store.async_save(out)
+        cfg["theme"] = out
+        return {"ok": True, "theme": out}
+
+    async def handle_theme_reset(call):
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("theme_store")
+        if store is None:
+            raise HomeAssistantError("theme store not initialized")
+        out = {"preset": "nebula", "auto": False}
+        await store.async_save(out)
+        cfg["theme"] = out
+        return {"ok": True, "theme": out}
+
+    hass.services.async_register(DOMAIN, "theme_set", handle_theme_set, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "theme_reset", handle_theme_reset, supports_response=SupportsResponse.ONLY)
 
     async def handle_chat_store_sanitize(call):
         """Sanitize chat store for a session: remove control/plumbing lines and dedupe."""

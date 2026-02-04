@@ -198,6 +198,99 @@ window.__clawdbotPanelInitError = null;
     }
     try{ refreshBuildInfo(); } catch(e){}
   }
+  const THEMES = {
+    nebula: { name:'Nebula', a:'#00f5ff', b:'#7b2cff', c:'#ff3e8e', bg1:'rgba(0,245,255,.12)', bg2:'rgba(123,44,255,.12)', bg3:'rgba(255,62,142,.08)', glow:'rgba(0,245,255,.28)' },
+    aurora: { name:'Aurora', a:'#3cffb4', b:'#00a6ff', c:'#b6ff3c', bg1:'rgba(60,255,180,.10)', bg2:'rgba(0,166,255,.12)', bg3:'rgba(182,255,60,.06)', glow:'rgba(60,255,180,.22)' },
+    deep_ocean: { name:'Deep Ocean', a:'#00d4ff', b:'#0047ff', c:'#6a00ff', bg1:'rgba(0,212,255,.10)', bg2:'rgba(0,71,255,.12)', bg3:'rgba(106,0,255,.08)', glow:'rgba(0,212,255,.22)' },
+    solar_flare: { name:'Solar Flare', a:'#ffb300', b:'#ff2d95', c:'#ff6b00', bg1:'rgba(255,179,0,.10)', bg2:'rgba(255,45,149,.12)', bg3:'rgba(255,107,0,.08)', glow:'rgba(255,179,0,.20)' },
+    crimson_night: { name:'Crimson Night', a:'#ff2b2b', b:'#5b2bff', c:'#ff2da1', bg1:'rgba(255,43,43,.10)', bg2:'rgba(91,43,255,.12)', bg3:'rgba(255,45,161,.08)', glow:'rgba(255,43,43,.20)' },
+  };
+
+  function applyThemePreset(key, {silent=false, mood=null}={}){
+    const t = THEMES[key] || THEMES.nebula;
+    const root = document.documentElement;
+    root.style.setProperty('--claw-accent-a', t.a);
+    root.style.setProperty('--claw-accent-b', t.b);
+    root.style.setProperty('--claw-accent-c', t.c);
+    root.style.setProperty('--claw-bg-1', t.bg1);
+    root.style.setProperty('--claw-bg-2', t.bg2);
+    root.style.setProperty('--claw-bg-3', t.bg3);
+    root.style.setProperty('--claw-btn-glow', t.glow);
+    try{
+      const prev = document.getElementById('themePreview');
+      if (prev) prev.style.background = `linear-gradient(120deg, color-mix(in srgb, ${t.a} 22%, transparent), color-mix(in srgb, ${t.b} 18%, transparent)), color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 85%, transparent)`;
+    } catch(e){}
+    if (!silent) toast(`Theme: ${t.name}${mood ? ` (mood: ${mood})` : ''}`);
+  }
+
+  function fillThemeInputs(){
+    const cfg = (window.__CLAWDBOT_CONFIG__ || {});
+    const theme = (cfg.theme || {});
+    const sel = document.getElementById('themePreset');
+    const auto = document.getElementById('themeAuto');
+    if (sel && !sel.__filled) {
+      sel.__filled = true;
+      sel.innerHTML = '';
+      for (const [k,v] of Object.entries(THEMES)) {
+        const o = document.createElement('option');
+        o.value = k;
+        o.textContent = v.name;
+        sel.appendChild(o);
+      }
+    }
+    if (sel) sel.value = theme.preset || 'nebula';
+    if (auto) auto.checked = !!theme.auto;
+    applyThemePreset(theme.preset || 'nebula', {silent:true});
+  }
+
+  async function saveTheme(){
+    const sel = document.getElementById('themePreset');
+    const auto = document.getElementById('themeAuto');
+    const result = document.getElementById('themeResult');
+    const preset = sel ? sel.value : 'nebula';
+    const isAuto = auto ? !!auto.checked : false;
+    if (result) result.textContent = 'saving…';
+    const resp = await callServiceResponse('clawdbot','theme_set',{preset, auto:isAuto});
+    const data = (resp && resp.response) ? resp.response : resp;
+    const r = data && data.result ? data.result : data;
+    if (r && r.theme) {
+      window.__CLAWDBOT_CONFIG__.theme = r.theme;
+      fillThemeInputs();
+      if (result) result.textContent = 'ok';
+      applyThemePreset(r.theme.preset || preset, {silent:false});
+    } else {
+      if (result) result.textContent = 'error';
+    }
+  }
+
+  async function resetTheme(){
+    const result = document.getElementById('themeResult');
+    if (result) result.textContent = 'resetting…';
+    const resp = await callServiceResponse('clawdbot','theme_reset',{});
+    const data = (resp && resp.response) ? resp.response : resp;
+    const r = data && data.result ? data.result : data;
+    if (r && r.theme) {
+      window.__CLAWDBOT_CONFIG__.theme = r.theme;
+      fillThemeInputs();
+      if (result) result.textContent = 'ok';
+      applyThemePreset(r.theme.preset || 'nebula', {silent:false});
+    } else {
+      if (result) result.textContent = 'error';
+    }
+  }
+
+  function moodThemeKey(hass){
+    // Deterministic + low-chatter: based on gateway/derived + time-of-day
+    const cfg = (window.__CLAWDBOT_CONFIG__ || {});
+    const theme = cfg.theme || {};
+    if (!theme.auto) return theme.preset || 'nebula';
+    const h = (new Date()).getHours();
+    // night
+    if (h >= 22 || h < 6) return 'crimson_night';
+    // day
+    return 'aurora';
+  }
+
   function fillConnectionInputs(){
     const cfg = (window.__CLAWDBOT_CONFIG__ || {});
     const set = (id, val) => { const el = qs('#'+id); if (el) el.value = (val == null ? '' : String(val)); };
@@ -1985,6 +2078,7 @@ async function fetchStatesRest(hass){
     try {
     renderConfigSummary();
     fillConnectionInputs();
+    fillThemeInputs();
     fillMappingInputs();
     renderHouseMemory();
     renderMappedValues(null);
@@ -2068,6 +2162,9 @@ async function fetchStatesRest(hass){
       }, true);
     } catch(e){}
 
+    // Apply theme ASAP (before first render)
+    try{ fillThemeInputs(); } catch(e){}
+
     // Normalize initial state (ensures non-active views are truly hidden).
     switchTab('cockpit');
 
@@ -2079,6 +2176,13 @@ async function fetchStatesRest(hass){
     if (btnSave) btnSave.onclick = () => saveConnectionOverrides('save');
     const btnReset = qs('#btnConnReset');
     if (btnReset) btnReset.onclick = () => saveConnectionOverrides('reset');
+
+    const btnThemeApply = qs('#btnThemeApply');
+    if (btnThemeApply) btnThemeApply.onclick = async () => { try{ await saveTheme(); } catch(e){ toast('Theme save failed: ' + String(e)); } };
+    const btnThemeReset = qs('#btnThemeReset');
+    if (btnThemeReset) btnThemeReset.onclick = async () => { try{ await resetTheme(); } catch(e){ toast('Theme reset failed: ' + String(e)); } };
+    const themeSel = qs('#themePreset');
+    if (themeSel) themeSel.onchange = () => { try{ applyThemePreset(themeSel.value, {silent:true}); } catch(e){} };
 
     const btnDerEnable = qs('#btnDerivedEnable');
     if (btnDerEnable) btnDerEnable.onclick = async () => {
