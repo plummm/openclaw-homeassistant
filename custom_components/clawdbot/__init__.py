@@ -2067,13 +2067,28 @@ class ClawdbotSessionStatusApiView(HomeAssistantView):
             usage = usage or d.get("usage")
             busy = busy if busy is not None else d.get("busy")
 
-        safe_usage = {}
+        # Return ONLY numeric token counters + busy flag. Never include raw status text.
+        safe_usage = None
         if isinstance(usage, dict):
+            safe_usage = {}
             for k in ("totalTokens", "input", "output", "cacheRead", "cacheWrite"):
-                if k in usage:
-                    safe_usage[k] = usage.get(k)
+                v = usage.get(k)
+                if isinstance(v, (int, float)):
+                    safe_usage[k] = v
 
-        return web.json_response({"ok": True, "session_key": session_key, "busy": bool(busy) if busy is not None else None, "usage": safe_usage or None})
+        out = {"ok": True, "session_key": session_key, "busy": bool(busy) if busy is not None else None, "usage": safe_usage}
+
+        # Belt-and-suspenders: scrub any accidental token-like strings.
+        def _scrub(obj):
+            if isinstance(obj, dict):
+                return {k: _scrub(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_scrub(v) for v in obj]
+            if isinstance(obj, str) and "sk-" in obj:
+                return "[REDACTED]"
+            return obj
+
+        return web.json_response(_scrub(out))
 
 
 class ClawdbotSessionsSendApiView(HomeAssistantView):
