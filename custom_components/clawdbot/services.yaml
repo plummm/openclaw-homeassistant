@@ -117,3 +117,33 @@ chat_history_delta:
         number:
           min: 1
           max: 500
+set_connection_overrides:
+  name: Save/Apply connection overrides
+  description: Persist gateway_url/token/session_key overrides to HA storage and apply immediately.
+  fields:
+    gateway_url:
+      required: false
+      selector:
+        text:
+    token:
+      required: false
+      selector:
+        text:
+    session_key:
+      required: false
+      selector:
+        text:
+
+reset_connection_overrides:
+  name: Reset connection overrides
+  description: Clear stored overrides and revert to YAML defaults.
+  fields: {}
+
+set_mapping:
+  name: Set core signal mapping
+  description: Save entity_id mapping for soc/voltage/solar/load.
+  fields:
+    mapping:
+      required: true
+      selector:
+        object:

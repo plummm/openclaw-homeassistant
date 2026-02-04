@@ -98,6 +98,39 @@ def _derive_gateway_origin(panel_url: str) -> str:
 def _iso_from_ms(ts_ms: int) -> str:
     return dt.datetime.fromtimestamp(ts_ms / 1000, tz=dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
+def _runtime(hass) -> dict[str, Any]:
+    """Return the runtime config dict (single source of truth for services)."""
+    try:
+        return (hass.data.get(DOMAIN, {}) or {}).get("runtime", {}) or {}
+    except Exception:
+        return {}
+
+
+def _runtime_gateway_parts(hass) -> tuple[aiohttp.ClientSession, str, str, str]:
+    """Return (session, gateway_origin, token, session_key) or raise HomeAssistantError."""
+    rt = _runtime(hass)
+    session: aiohttp.ClientSession | None = rt.get("session")
+    gateway_origin = rt.get("gateway_origin")
+    token = rt.get("token")
+    session_key = rt.get("session_key") or DEFAULT_SESSION_KEY
+
+    if not gateway_origin:
+        raise HomeAssistantError("gateway_url not set (use Setup → Save/Apply)")
+    if not token:
+        raise HomeAssistantError("token not set (use Setup → Save/Apply)")
+    if session is None:
+        raise HomeAssistantError("gateway session not initialized")
+    return session, str(gateway_origin), str(token), str(session_key)
+
+
+def _runtime_gateway_parts_http(hass) -> tuple[aiohttp.ClientSession | None, str | None, str | None, str | None, str | None]:
+    """HTTP-view helper: returns (session, origin, token, session_key, error)."""
+    try:
+        session, origin, token, session_key = _runtime_gateway_parts(hass)
+        return session, origin, token, session_key, None
+    except Exception as e:
+        return None, None, None, None, str(e)
+
 
 MAPPING_STORE_KEY = "clawdbot_mapping"
 MAPPING_STORE_VERSION = 1
@@ -105,6 +138,9 @@ HOUSEMEM_STORE_KEY = "clawdbot_house_memory"
 HOUSEMEM_STORE_VERSION = 1
 CHAT_STORE_KEY = "clawdbot_chat_history"
 CHAT_STORE_VERSION = 1
+
+OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
+OVERRIDES_STORE_VERSION = 1
 
 PANEL_HTML = """<!doctype html>
 <html>
@@ -287,6 +323,22 @@ PANEL_HTML = """<!doctype html>
       <h2>Commissioning</h2>
       <div class=\"muted\">Verify configuration and connectivity before using the cockpit.</div>
       <div class=\"kv\" id=\"cfgSummary\"></div>
+      <div style=\"margin-top:14px\">
+        <h2 style=\"margin:0 0 8px 0;font-size:15px\">Connection overrides</h2>
+        <div class=\"muted\" style=\"margin-bottom:8px\">Edit gateway_url/token/session key. Save/Apply persists to <code>.storage</code>. Reset clears overrides.</div>
+        <div class=\"row\">
+          <input id=\"connGatewayUrl\" style=\"flex:1;min-width:260px\" placeholder=\"gateway_url (e.g. http://host:7773)\"/>
+          <input id=\"connSessionKey\" style=\"flex:1;min-width:220px\" placeholder=\"session_key (e.g. main)\"/>
+        </div>
+        <div class=\"row\" style=\"margin-top:8px\">
+          <input id=\"connToken\" type=\"password\" style=\"flex:1;min-width:260px\" placeholder=\"token (stored locally)\"/>
+        </div>
+        <div class=\"row\" style=\"margin-top:8px\">
+          <button class=\"btn primary\" id=\"btnConnSave\">Save/Apply</button>
+          <button class=\"btn\" id=\"btnConnReset\">Reset to YAML defaults</button>
+          <span class=\"muted\" id=\"connResult\" style=\"min-width:180px;display:inline-block\"></span>
+        </div>
+      </div>
       <div class=\"row\" style=\"margin-top:10px\">
         <button class=\"btn primary\" id=\"btnGatewayTest\">Test gateway</button>
         <span class=\"muted\" id=\"gwTestResult\"></span>
@@ -317,25 +369,17 @@ PANEL_HTML = """<!doctype html>
       <div class=\"grid2\" id=\"suggestions\" style=\"margin-top:10px\"></div>
       <div class=\"muted\" style=\"margin-top:10px\">Manual override (entity_id):</div>
       <div class=\"row\" style=\"margin-top:8px\">
-        <input id=\"mapSoc\" style=\"flex:1;min-width:220px\" placeholder=\"soc entity_id (e.g. sensor.battery_soc)\"/>
-        <input id=\"mapVoltage\" style=\"flex:1;min-width:220px\" placeholder=\"voltage entity_id\"/>
+        <input list=\"entityIdList\" id=\"mapSoc\" style=\"flex:1;min-width:220px\" placeholder=\"soc entity_id (e.g. sensor.battery_soc)\"/>
+        <input list=\"entityIdList\" id=\"mapVoltage\" style=\"flex:1;min-width:220px\" placeholder=\"voltage entity_id\"/>
       </div>
       <div class=\"row\" style=\"margin-top:8px\">
-        <input id=\"mapSolar\" style=\"flex:1;min-width:220px\" placeholder=\"solar power entity_id\"/>
-        <input id=\"mapLoad\" style=\"flex:1;min-width:220px\" placeholder=\"load/consumption entity_id\"/>
+        <input list=\"entityIdList\" id=\"mapSolar\" style=\"flex:1;min-width:220px\" placeholder=\"solar power entity_id\"/>
+        <input list=\"entityIdList\" id=\"mapLoad\" style=\"flex:1;min-width:220px\" placeholder=\"load/consumption entity_id\"/>
       </div>
+      <datalist id=\"entityIdList\"></datalist>
     </div>
 
-    <div class=\"card\">
-      <h2>Chat</h2>
-      <div class=\"muted\">Calls HA service <code>clawdbot.send_chat</code>.</div>
-      <div class=\"row\" style=\"margin-top:8px\">
-        <input id=\"chatInput\" style=\"flex:1;min-width:240px\" placeholder=\"Type message…\"/>
-        <button class=\"btn primary\" id=\"chatSend\">Send</button>
-      </div>
-      <div class=\"muted\" id=\"chatResult\" style=\"margin-top:8px\"></div>
-    </div>
-    </div>
+        </div>
   </div>
 
   <div id=\"viewCockpit\">
@@ -540,7 +584,7 @@ PANEL_HTML = """<!doctype html>
     const items = [
       ['gateway_url', cfg.gateway_url || '(missing)'],
       ['token', cfg.has_token ? 'present' : 'missing'],
-      ['target', cfg.target || '(missing)'],
+      ['session_key', cfg.session_key || '(missing)'],
     ];
     root.innerHTML = '';
     for (const [k,v] of items){
@@ -548,6 +592,40 @@ PANEL_HTML = """<!doctype html>
       d.innerHTML = `<div class="muted">${k}</div><div><b>${String(v)}</b></div>`;
       root.appendChild(d);
     }
+  function fillConnectionInputs(){
+    const cfg = (window.__CLAWDBOT_CONFIG__ || {});
+    const set = (id, val) => { const el = qs('#'+id); if (el) el.value = (val == null ? '' : String(val)); };
+    set('connGatewayUrl', cfg.gateway_url || '');
+    set('connSessionKey', cfg.session_key || '');
+    // Token is never echoed back; leave blank.
+  }
+
+  async function saveConnectionOverrides(kind){
+    const resultEl = qs('#connResult');
+    if (resultEl) resultEl.textContent = (kind === 'reset') ? 'resetting…' : 'saving…';
+    try{
+      let resp;
+      if (kind === 'reset') {
+        resp = await callServiceResponse('clawdbot','reset_connection_overrides', {});
+      } else {
+        const gateway_url = (qs('#connGatewayUrl') ? qs('#connGatewayUrl').value : '').trim();
+        const session_key = (qs('#connSessionKey') ? qs('#connSessionKey').value : '').trim();
+        const token = (qs('#connToken') ? qs('#connToken').value : '').trim();
+        resp = await callServiceResponse('clawdbot','set_connection_overrides', { gateway_url, session_key, token });
+      }
+      const data = (resp && resp.response) ? resp.response : resp;
+      const r = data && data.result ? data.result : data;
+      if (r && r.gateway_url !== undefined) window.__CLAWDBOT_CONFIG__.gateway_url = r.gateway_url;
+      if (r && r.session_key) window.__CLAWDBOT_CONFIG__.session_key = r.session_key;
+      if (r && r.has_token !== undefined) window.__CLAWDBOT_CONFIG__.has_token = !!r.has_token;
+      fillConnectionInputs();
+      renderConfigSummary();
+      if (resultEl) resultEl.textContent = 'ok';
+    } catch(e){
+      if (resultEl) resultEl.textContent = 'error: ' + String(e);
+    }
+  }
+
   }
 
   function loadChatFromConfig(){
@@ -561,7 +639,7 @@ PANEL_HTML = """<!doctype html>
       text: it.text,
     }));
     chatHasOlder = !!cfg.chat_history_has_older;
-    chatSessionKey = cfg.session_key || cfg.target || null;
+    chatSessionKey = cfg.session_key || null;
 
     // Dev/test toggle: enable `?debug=1` to force showing paging control for UI QA.
     if (DEBUG_UI && (chatItems && chatItems.length >= 1)) chatHasOlder = true;
@@ -650,7 +728,7 @@ PANEL_HTML = """<!doctype html>
     const sel = qs('#chatSessionSelect');
     if (!sel) return;
     const current = chatSessionKey || sel.value || '';
-    const fallback = current || (window.__CLAWDBOT_CONFIG__ && (window.__CLAWDBOT_CONFIG__.session_key || window.__CLAWDBOT_CONFIG__.target)) || 'main';
+    const fallback = current || (window.__CLAWDBOT_CONFIG__ && (window.__CLAWDBOT_CONFIG__.session_key)) || 'main';
     if (!sel.options || sel.options.length === 0) {
       const o = document.createElement('option');
       o.value = fallback;
@@ -685,7 +763,7 @@ PANEL_HTML = """<!doctype html>
       };
       const seen = new Set();
       // Ensure there's always a visible value even if sessions_list parse fails.
-      const fallback = current || (window.__CLAWDBOT_CONFIG__ && (window.__CLAWDBOT_CONFIG__.session_key || window.__CLAWDBOT_CONFIG__.target)) || 'main';
+      const fallback = current || (window.__CLAWDBOT_CONFIG__ && (window.__CLAWDBOT_CONFIG__.session_key)) || 'main';
       if (fallback) { sel.appendChild(mkOpt(fallback, fallback)); seen.add(fallback); }
       for (const s of arr){
         const key = s && (s.sessionKey || s.session_key || s.key || s.id);
@@ -1496,11 +1574,35 @@ PANEL_HTML = """<!doctype html>
     const { hass } = await getHass();
     const states = hass && hass.states ? hass.states : {};
     _allIds = Object.keys(states).sort();
+    buildMappingDatalist(hass);
     renderEntities(hass, qs('#filter').value);
+
+  function buildMappingDatalist(hass){
+    const dl = document.getElementById('entityIdList');
+    if (!dl) return;
+    const states = hass && hass.states ? hass.states : {};
+    dl.innerHTML = '';
+    // Filter out noisy domains for mapping UX; keep sensors, numbers by default.
+    const allow = (id) => {
+      if (!id || typeof id !== 'string') return false;
+      if (id.startsWith('automation.') || id.startsWith('update.')) return false;
+      return true;
+    };
+    for (const id of _allIds){
+      if (!allow(id)) continue;
+      const st = states[id];
+      const name = (st && st.attributes && st.attributes.friendly_name) ? String(st.attributes.friendly_name) : '';
+      const opt = document.createElement('option');
+      opt.value = id;
+      if (name) opt.label = name;
+      dl.appendChild(opt);
+    }
+  }
   }
 
   async function init(){
     renderConfigSummary();
+    fillConnectionInputs();
     fillMappingInputs();
     renderHouseMemory();
     renderMappedValues(null);
@@ -1576,6 +1678,11 @@ PANEL_HTML = """<!doctype html>
     qs('#clearFilter').onclick = () => { qs('#filter').value=''; getHass().then(({hass})=>renderEntities(hass,'')); };
     qs('#filter').oninput = async () => { try{ const { hass } = await getHass(); renderEntities(hass, qs('#filter').value); } catch(e){} };
 
+    const btnSave = qs('#btnConnSave');
+    if (btnSave) btnSave.onclick = () => saveConnectionOverrides('save');
+    const btnReset = qs('#btnConnReset');
+    if (btnReset) btnReset.onclick = () => saveConnectionOverrides('reset');
+
     qs('#btnGatewayTest').onclick = async () => {
       qs('#gwTestResult').textContent = 'running…';
       try{
@@ -1610,19 +1717,6 @@ PANEL_HTML = """<!doctype html>
         if (resultEl) resultEl.textContent = 'Sent (ok)';
       } catch(e){
         if (resultEl) resultEl.textContent = 'Error: ' + String(e);
-      }
-    };
-
-    qs('#chatSend').onclick = async () => {
-      const msg = qs('#chatInput').value.trim();
-      if (!msg) return;
-      qs('#chatResult').textContent = 'sending…';
-      try{
-        await callService('clawdbot','send_chat',{message: msg});
-        qs('#chatResult').textContent = 'sent';
-        qs('#chatInput').value = '';
-      } catch(e){
-        qs('#chatResult').textContent = 'error: ' + String(e);
       }
     };
 
@@ -1725,25 +1819,26 @@ class ClawdbotPanelView(HomeAssistantView):
         from aiohttp import web
         from json import dumps
 
-        cfg = request.app["hass"].data.get(DOMAIN, {})
+        hass = request.app["hass"]
+        cfg = hass.data.get(DOMAIN, {})
+        rt = _runtime(hass)
         chat_history = cfg.get("chat_history", []) or []
         if not isinstance(chat_history, list):
             chat_history = []
-        session_key = cfg.get("target") or DEFAULT_SESSION_KEY
+        session_key = rt.get("session_key") or DEFAULT_SESSION_KEY
         session_items = [it for it in chat_history if isinstance(it, dict) and it.get("session_key") == session_key]
         if not session_items:
             session_items = [it for it in chat_history if isinstance(it, dict)]
         chat_history = session_items[-50:]
         chat_has_older = len(session_items) > len(chat_history)
         safe_cfg = {
-            "gateway_url": cfg.get("gateway_url") or cfg.get("gateway_origin"),
-            "has_token": bool(cfg.get("has_token")),
-            "target": cfg.get("target"),
+            "gateway_url": rt.get("gateway_url") or rt.get("gateway_origin"),
+            "has_token": bool(rt.get("token")),
+            "session_key": rt.get("session_key") or DEFAULT_SESSION_KEY,
             "mapping": cfg.get("mapping", {}),
             "house_memory": cfg.get("house_memory", {}),
             "chat_history": chat_history,
             "chat_history_has_older": chat_has_older,
-            "session_key": session_key,
         }
         html = PANEL_HTML.replace("__CONFIG_JSON__", dumps(safe_cfg))
         return web.Response(
@@ -2013,12 +2108,9 @@ class ClawdbotSessionsApiView(HomeAssistantView):
         from aiohttp import web
 
         hass = request.app["hass"]
-        cfg = hass.data.get(DOMAIN, {})
-        token = cfg.get("token")
-        gateway_origin = cfg.get("gateway_origin")
-        session: aiohttp.ClientSession = cfg.get("session")
-        if not token or not gateway_origin or session is None:
-            return web.json_response({"ok": False, "error": "gateway not configured"}, status=400)
+        session, gateway_origin, token, session_key, err = _runtime_gateway_parts_http(hass)
+        if err:
+            return web.json_response({"ok": False, "error": err}, status=400)
 
         limit = 50
         try:
@@ -2046,12 +2138,9 @@ class ClawdbotSessionsHistoryApiView(HomeAssistantView):
         from aiohttp import web
 
         hass = request.app["hass"]
-        cfg = hass.data.get(DOMAIN, {})
-        token = cfg.get("token")
-        gateway_origin = cfg.get("gateway_origin")
-        session: aiohttp.ClientSession = cfg.get("session")
-        if not token or not gateway_origin or session is None:
-            return web.json_response({"ok": False, "error": "gateway not configured"}, status=400)
+        session, gateway_origin, token, session_key, err = _runtime_gateway_parts_http(hass)
+        if err:
+            return web.json_response({"ok": False, "error": err}, status=400)
 
         session_key = request.query.get("session_key")
         if not session_key:
@@ -2206,12 +2295,9 @@ class ClawdbotSessionStatusApiView(HomeAssistantView):
         from aiohttp import web
 
         hass = request.app["hass"]
-        cfg = hass.data.get(DOMAIN, {})
-        token = cfg.get("token")
-        gateway_origin = cfg.get("gateway_origin")
-        session: aiohttp.ClientSession = cfg.get("session")
-        if not token or not gateway_origin or session is None:
-            return web.json_response({"ok": False, "error": "gateway not configured"}, status=400)
+        session, gateway_origin, token, session_key, err = _runtime_gateway_parts_http(hass)
+        if err:
+            return web.json_response({"ok": False, "error": err}, status=400)
 
         session_key = request.query.get("session_key")
         if not session_key:
@@ -2272,12 +2358,9 @@ class ClawdbotSessionsSendApiView(HomeAssistantView):
         from aiohttp import web
 
         hass = request.app["hass"]
-        cfg = hass.data.get(DOMAIN, {})
-        token = cfg.get("token")
-        gateway_origin = cfg.get("gateway_origin")
-        session: aiohttp.ClientSession = cfg.get("session")
-        if not token or not gateway_origin or session is None:
-            return web.json_response({"ok": False, "error": "gateway not configured"}, status=400)
+        session, gateway_origin, token, session_key, err = _runtime_gateway_parts_http(hass)
+        if err:
+            return web.json_response({"ok": False, "error": err}, status=400)
 
         try:
             data = await request.json()
@@ -2286,7 +2369,8 @@ class ClawdbotSessionsSendApiView(HomeAssistantView):
         if not isinstance(data, dict):
             data = {}
 
-        session_key = data.get("session_key") or data.get("sessionKey") or cfg.get("target") or DEFAULT_SESSION_KEY
+        rt = _runtime(hass)
+        session_key = data.get("session_key") or data.get("sessionKey") or rt.get("session_key") or DEFAULT_SESSION_KEY
         message = data.get("message")
         if not isinstance(message, str) or not message.strip():
             return web.json_response({"ok": False, "error": "message is required"}, status=400)
@@ -2307,12 +2391,9 @@ class ClawdbotSessionsSpawnApiView(HomeAssistantView):
         from aiohttp import web
 
         hass = request.app["hass"]
-        cfg = hass.data.get(DOMAIN, {})
-        token = cfg.get("token")
-        gateway_origin = cfg.get("gateway_origin")
-        session: aiohttp.ClientSession = cfg.get("session")
-        if not token or not gateway_origin or session is None:
-            return web.json_response({"ok": False, "error": "gateway not configured"}, status=400)
+        session, gateway_origin, token, session_key, err = _runtime_gateway_parts_http(hass)
+        if err:
+            return web.json_response({"ok": False, "error": err}, status=400)
 
         try:
             data = await request.json()
@@ -2336,12 +2417,9 @@ class ClawdbotSessionsSpawnApiView(HomeAssistantView):
         from aiohttp import web
 
         hass = request.app["hass"]
-        cfg = hass.data.get(DOMAIN, {})
-        token = cfg.get("token")
-        gateway_origin = cfg.get("gateway_origin")
-        session: aiohttp.ClientSession = cfg.get("session")
-        if not token or not gateway_origin or session is None:
-            return web.json_response({"ok": False, "error": "gateway not configured"}, status=400)
+        session, gateway_origin, token, session_key, err = _runtime_gateway_parts_http(hass)
+        if err:
+            return web.json_response({"ok": False, "error": err}, status=400)
 
         try:
             data = await request.json()
@@ -2440,7 +2518,7 @@ def _compute_house_memory_from_states(states: dict, mapping: dict | None = None)
         "generator": pack(gen_ev, mapped_ids=[], base_if_mapped=0.75, require_hits=2),
     }
 async def async_setup(hass, config):
-    conf = config.get(DOMAIN, {})
+    conf = config.get(DOMAIN, {}) or {}
     # For MVP: always serve panel content from HA itself.
     # This avoids OpenClaw Control UI auth/device-identity and makes the iframe same-origin.
     panel_url = PANEL_PATH
@@ -2448,15 +2526,49 @@ async def async_setup(hass, config):
     title = conf.get("title", DEFAULT_TITLE)
     icon = conf.get("icon", DEFAULT_ICON)
 
-    token = conf.get(CONF_TOKEN)
-    session_key = conf.get(CONF_SESSION_KEY, DEFAULT_SESSION_KEY)
+    hass.data.setdefault(DOMAIN, {})
+    # Keep the YAML conf around so we can recompute effective config after resetting overrides.
+    hass.data[DOMAIN]["yaml_conf"] = conf
 
-    # Panel URL is for the browser iframe. Gateway URL is for HA->Clawdbot service calls.
-    gateway_origin = str(conf.get(CONF_GATEWAY_URL, _derive_gateway_origin(panel_url))).rstrip("/")
-    session = aiohttp.ClientSession()
+    # Load Store-backed connection overrides.
+    overrides_store = Store(hass, OVERRIDES_STORE_VERSION, OVERRIDES_STORE_KEY)
+    overrides = await overrides_store.async_load() or {}
+    if not isinstance(overrides, dict):
+        overrides = {}
+
+    def _pick(key: str, yaml_key: str | None = None, default=None):
+        if key in overrides:
+            return overrides.get(key)
+        if yaml_key is not None and yaml_key in conf:
+            return conf.get(yaml_key)
+        return default
+
+    gateway_url = _pick("gateway_url", CONF_GATEWAY_URL, None)
+    token = _pick("token", CONF_TOKEN, None)
+    session_key = _pick("session_key", CONF_SESSION_KEY, DEFAULT_SESSION_KEY)
+
+    gateway_origin = None
+    if isinstance(gateway_url, str) and gateway_url.strip():
+        gateway_origin = _derive_gateway_origin(gateway_url).rstrip("/")
+
+    # Use Home Assistant's configured aiohttp session factory.
+    from homeassistant.helpers.aiohttp_client import async_create_clientsession
+
+    session = async_create_clientsession(hass)
+
+    runtime = {
+        "gateway_url": gateway_url,
+        "gateway_origin": gateway_origin,
+        "token": token,
+        "has_token": bool(token),
+        "session_key": session_key,
+        "session": session,
+        "overrides_store": overrides_store,
+        "overrides": overrides,
+    }
+    hass.data[DOMAIN]["runtime"] = runtime
 
     # Store sanitized config for the panel (never expose the token).
-    hass.data.setdefault(DOMAIN, {})
 
     # Load persisted mappings
     store = Store(hass, MAPPING_STORE_VERSION, MAPPING_STORE_KEY)
@@ -2481,12 +2593,6 @@ async def async_setup(hass, config):
 
     hass.data[DOMAIN].update(
         {
-            "gateway_origin": gateway_origin,
-            "gateway_url": conf.get(CONF_GATEWAY_URL, None),
-            "has_token": bool(token),
-            "token": token,
-            "session": session,
-            "target": session_key,
             "store": store,
             "mapping": mapping,
             "house_store": house_store,
@@ -2540,11 +2646,6 @@ async def async_setup(hass, config):
     except Exception:
         _LOGGER.exception("Failed to register Clawdbot panel")
 
-    # Ensure we close the aiohttp session
-    async def _close_session(_evt):
-        await session.close()
-
-    hass.bus.async_listen_once("homeassistant_stop", _close_session)
 
     async def _notify(title: str, message: str) -> None:
         await hass.services.async_call(
@@ -2555,9 +2656,124 @@ async def async_setup(hass, config):
         )
 
     # Services
+
+    async def _apply_runtime_from_overrides(hass) -> dict[str, Any]:
+        """Recompute effective connection config, update runtime, and swap aiohttp session."""
+        cfg = hass.data.get(DOMAIN, {})
+        rt = cfg.get("runtime")
+        if not isinstance(rt, dict):
+            raise HomeAssistantError("runtime not initialized")
+
+        yaml_conf = cfg.get("yaml_conf", {}) or {}
+        store: Store = rt.get("overrides_store")
+        if store is None:
+            raise HomeAssistantError("overrides store not initialized")
+
+        overrides = await store.async_load() or {}
+        if not isinstance(overrides, dict):
+            overrides = {}
+
+        def pick(key: str, yaml_key: str, default=None):
+            if key in overrides:
+                return overrides.get(key)
+            return yaml_conf.get(yaml_key, default)
+
+        gateway_url = pick("gateway_url", CONF_GATEWAY_URL, None)
+        token_val = pick("token", CONF_TOKEN, None)
+        session_key_val = pick("session_key", CONF_SESSION_KEY, DEFAULT_SESSION_KEY)
+
+        gateway_origin = None
+        if isinstance(gateway_url, str) and gateway_url.strip():
+            gateway_origin = _derive_gateway_origin(gateway_url).rstrip("/")
+
+        # Swap session (safe close; never block).
+        old = rt.get("session")
+        if old is not None:
+            try:
+                await old.close()
+            except Exception:
+                _LOGGER.warning("Failed to close old aiohttp session", exc_info=True)
+
+        from homeassistant.helpers.aiohttp_client import async_create_clientsession
+        rt["session"] = async_create_clientsession(hass)
+
+        rt.update(
+            {
+                "gateway_url": gateway_url,
+                "gateway_origin": gateway_origin,
+                "token": token_val,
+                "has_token": bool(token_val),
+                "session_key": session_key_val,
+                "overrides": overrides,
+            }
+        )
+        return {
+            "ok": True,
+            "gateway_url": gateway_url,
+            "has_token": bool(token_val),
+            "session_key": session_key_val,
+        }
+
+    async def handle_set_connection_overrides(call):
+        hass = call.hass
+        cfg = hass.data.get(DOMAIN, {})
+        rt = cfg.get("runtime")
+        if not isinstance(rt, dict):
+            raise HomeAssistantError("runtime not initialized")
+        store: Store = rt.get("overrides_store")
+        if store is None:
+            raise HomeAssistantError("overrides store not initialized")
+
+        yaml_conf = cfg.get("yaml_conf", {}) or {}
+        overrides = await store.async_load() or {}
+        if not isinstance(overrides, dict):
+            overrides = {}
+
+        gw_in = call.data.get("gateway_url")
+        sk_in = call.data.get("session_key")
+        token_in = call.data.get("token")
+
+        # gateway_url + session_key are prefilled in UI; blank => leave unchanged.
+        if isinstance(gw_in, str):
+            gw_in = gw_in.strip()
+            if gw_in:
+                if gw_in == (yaml_conf.get(CONF_GATEWAY_URL) or ""):
+                    overrides.pop("gateway_url", None)
+                else:
+                    overrides["gateway_url"] = gw_in
+        if isinstance(sk_in, str):
+            sk_in = sk_in.strip()
+            if sk_in:
+                if sk_in == (yaml_conf.get(CONF_SESSION_KEY) or DEFAULT_SESSION_KEY):
+                    overrides.pop("session_key", None)
+                else:
+                    overrides["session_key"] = sk_in
+
+        # token is never prefilled; blank => keep current token override/yaml.
+        if isinstance(token_in, str):
+            token_in = token_in.strip()
+            if token_in:
+                if token_in == (yaml_conf.get(CONF_TOKEN) or ""):
+                    overrides.pop("token", None)
+                else:
+                    overrides["token"] = token_in
+
+        await store.async_save(overrides)
+        return await _apply_runtime_from_overrides(hass)
+
+    async def handle_reset_connection_overrides(call):
+        hass = call.hass
+        rt = _runtime(hass)
+        store: Store = rt.get("overrides_store")
+        if store is None:
+            raise HomeAssistantError("overrides store not initialized")
+        await store.async_save({})
+        return await _apply_runtime_from_overrides(hass)
+
     async def handle_send_chat(call):
-        if not token:
-            raise RuntimeError("clawdbot.token is required to use services")
+        hass = call.hass
+        session, gateway_origin, token, session_key = _runtime_gateway_parts(hass)
+
         message = call.data.get("message")
         if not message:
             raise RuntimeError("message is required")
@@ -2626,8 +2842,8 @@ async def async_setup(hass, config):
           entity_id: optional str
           attributes: optional dict
         """
-        if not token:
-            raise RuntimeError("clawdbot.token is required to use services")
+        hass = call.hass
+        session, gateway_origin, token, _default_session_key = _runtime_gateway_parts(hass)
 
         event_type = call.data.get("event_type")
         severity = (call.data.get("severity") or "info").lower()
@@ -2694,7 +2910,8 @@ async def async_setup(hass, config):
 
         role = call.data.get("role")
         text = call.data.get("text")
-        session = call.data.get("session_key") or cfg.get("target") or DEFAULT_SESSION_KEY
+        rt = _runtime(hass)
+        session = call.data.get("session_key") or rt.get("session_key") or DEFAULT_SESSION_KEY
         provided_id = call.data.get("id")
         provided_ts = call.data.get("ts")
 
@@ -2736,17 +2953,16 @@ async def async_setup(hass, config):
 
         Panel cannot reliably POST /api/* due to HA auth boundaries, so it must call a HA service.
         """
-        if not token:
-            raise RuntimeError("clawdbot.token is required to use services")
+        hass = call.hass
+        session, gateway_origin, token, default_session_key = _runtime_gateway_parts(hass)
 
         message = call.data.get("message")
         if not isinstance(message, str) or not message.strip():
             raise RuntimeError("message is required")
 
-        hass = call.hass
         cfg = hass.data.get(DOMAIN, {})
 
-        session_key_local = call.data.get("session_key") or call.data.get("session") or cfg.get("target") or DEFAULT_SESSION_KEY
+        session_key_local = call.data.get("session_key") or call.data.get("session") or default_session_key
         if not isinstance(session_key_local, str) or not session_key_local:
             session_key_local = DEFAULT_SESSION_KEY
 
@@ -2785,8 +3001,8 @@ async def async_setup(hass, config):
             pass
 
     async def handle_sessions_list(call):
-        if not token:
-            raise RuntimeError("clawdbot.token is required to use services")
+        hass = call.hass
+        session, gateway_origin, token, _default_session_key = _runtime_gateway_parts(hass)
         limit = 50
         try:
             limit = int(call.data.get("limit", 50))
@@ -2801,17 +3017,17 @@ async def async_setup(hass, config):
         return {"result": res}
 
     async def handle_sessions_spawn(call):
-        if not token:
-            raise RuntimeError("clawdbot.token is required to use services")
+        hass = call.hass
+        session, gateway_origin, token, _default_session_key = _runtime_gateway_parts(hass)
         label = call.data.get("label")
         payload = {"tool": "sessions_spawn", "args": {"task": "(new chat session)", "label": label or None, "cleanup": "keep"}}
         res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
         return {"result": res}
 
     async def handle_session_status_get(call):
-        if not token:
-            raise RuntimeError("clawdbot.token is required to use services")
-        session_key = call.data.get("session_key") or cfg.get("target") or DEFAULT_SESSION_KEY
+        hass = call.hass
+        session, gateway_origin, token, default_session_key = _runtime_gateway_parts(hass)
+        session_key = call.data.get("session_key") or default_session_key
         payload = {"tool": "session_status", "args": {"sessionKey": session_key}}
         res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
         return {"result": res}
@@ -2821,16 +3037,15 @@ async def async_setup(hass, config):
 
         This is the reliable path for the iframe panel because it avoids panel→/api auth boundaries.
         """
-        if not token:
-            raise RuntimeError("clawdbot.token is required to use services")
-
         hass = call.hass
+        session, gateway_origin, token, default_session_key = _runtime_gateway_parts(hass)
+
         cfg = hass.data.get(DOMAIN, {})
         store: Store = cfg.get("chat_store")
         if store is None:
             raise RuntimeError("chat history store not initialized")
 
-        session_key_local = call.data.get("session_key") or cfg.get("target") or DEFAULT_SESSION_KEY
+        session_key_local = call.data.get("session_key") or default_session_key
         if not isinstance(session_key_local, str) or not session_key_local:
             session_key_local = DEFAULT_SESSION_KEY
 
@@ -3035,7 +3250,8 @@ async def async_setup(hass, config):
         if limit > 500:
             limit = 500
 
-        session_key = call.data.get("session_key") or cfg.get("target") or DEFAULT_SESSION_KEY
+        rt = _runtime(hass)
+        session_key = call.data.get("session_key") or rt.get("session_key") or DEFAULT_SESSION_KEY
         after_ts = call.data.get("after_ts") or call.data.get("since_ts")
         before_id = call.data.get("before_id")
 
@@ -3086,7 +3302,8 @@ async def async_setup(hass, config):
         if limit > 500:
             limit = 500
 
-        session = call.data.get("session_key") or cfg.get("target") or DEFAULT_SESSION_KEY
+        rt = _runtime(hass)
+        session = call.data.get("session_key") or rt.get("session_key") or DEFAULT_SESSION_KEY
         before_id = call.data.get("before_id")
 
         all_items = await store.async_load() or []
@@ -3139,8 +3356,8 @@ async def async_setup(hass, config):
         cfg["chat_history"] = deduped
 
     async def handle_gateway_test(call):
-        if not token:
-            raise RuntimeError("clawdbot.token is required to use services")
+        hass = call.hass
+        session, gateway_origin, token, _default_session_key = _runtime_gateway_parts(hass)
         # Lightweight ping via listing sessions (no side effects)
         payload = {"tool": "sessions_list", "args": {"limit": 1}}
         try:
@@ -3151,8 +3368,8 @@ async def async_setup(hass, config):
             raise
 
     async def handle_tools_invoke(call):
-        if not token:
-            raise RuntimeError("clawdbot.token is required to use services")
+        hass = call.hass
+        session, gateway_origin, token, _default_session_key = _runtime_gateway_parts(hass)
         tool = call.data.get("tool")
         args = call.data.get("args", {})
         if not tool:
@@ -3241,6 +3458,8 @@ async def async_setup(hass, config):
         await _notify("Clawdbot: ha_call_service", f"Called {domain}.{service_name} target={target} data={service_data}")
 
     hass.services.async_register(DOMAIN, SERVICE_SEND_CHAT, handle_send_chat)
+    hass.services.async_register(DOMAIN, "set_connection_overrides", handle_set_connection_overrides, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "reset_connection_overrides", handle_reset_connection_overrides, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, SERVICE_NOTIFY_EVENT, handle_notify_event)
     hass.services.async_register(DOMAIN, SERVICE_GATEWAY_TEST, handle_gateway_test)
     hass.services.async_register(DOMAIN, SERVICE_SET_MAPPING, handle_set_mapping)
