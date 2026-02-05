@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.80"
+PANEL_BUILD_ID = "89337ab.81"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -2650,10 +2650,22 @@ class ClawdbotSttWhisperApiView(HomeAssistantView):
     name = "api:clawdbot:stt_whisper"
     requires_auth = True
 
+    async def _unauthorized(self):
+        from aiohttp import web
+
+        return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+
     async def post(self, request):
         from aiohttp import web
         from aiohttp import FormData
         import time
+
+        # Auth guard: return JSON on 401 so panel can display a friendly error
+        try:
+            if not getattr(request, "user", None) or not request.user.is_authenticated:
+                return await self._unauthorized()
+        except Exception:
+            return await self._unauthorized()
 
         hass = request.app["hass"]
         cfg = hass.data.get(DOMAIN, {})

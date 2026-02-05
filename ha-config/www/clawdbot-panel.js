@@ -1512,10 +1512,17 @@ window.__clawdbotPanelInitError = null;
             try{ stream.getTracks().forEach(t => t.stop()); }catch(e){}
 
             const blob = new Blob(chunks, { type: 'audio/webm' });
-            const r = await fetch('/api/clawdbot/stt_whisper', { method: 'POST', body: blob });
+            const r = await fetch('/api/clawdbot/stt_whisper', { method: 'POST', body: blob, credentials: 'include' });
             const j = await r.json().catch(()=>null);
+            if (r.status === 401) {
+              setCaption('login required', 'bad');
+              btn.textContent = 'Listen';
+              _speechActive = false;
+              return;
+            }
             if (!r.ok || !j || !j.ok) {
-              setCaption('whisper error', 'bad');
+              const err = (j && j.error) ? String(j.error) : ('http ' + String(r.status));
+              setCaption(err, 'bad');
               btn.textContent = 'Listen';
               _speechActive = false;
               return;
