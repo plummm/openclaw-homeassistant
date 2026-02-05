@@ -1635,14 +1635,96 @@ window.__clawdbotPanelInitError = null;
       try{ if (ev.target === modal) close(); }catch(e){}
     });
 
-    surpriseBtn.onclick = async () => {
-      const txt = surpriseDraft();
-      ta.value = txt;
-      setHint('Draft generated. Edit freely, then hit Generate.');
-      // Persist draft in HA so Agent0 can see it / we can restore later
+    const SURPRISE_LABEL = 'avatar-surprise-agent0';
+    const SURPRISE_PROMPT = [
+      "You are the agent. The user is setting your profile avatar.",
+      "Write a short self-description that will be used as an image prompt.",
+      "Output plain text only (no markdown), 2–6 sentences.",
+      "Must include: gender presentation (or explicitly androgynous), apparent age range, face + hair details (tasteful), outfit + accessories, vibe/attitude, 1–2 interests/hobbies, and one childhood detail (one clause is enough).",
+      "Keep it PG. Do not mention Home Assistant, Discord, OpenClaw, or the word 'prompt'.",
+      "End with exactly one final sentence:",
+      "Image style: profile pic, head shot style, character face to the camera, clean background."
+    ].join("\n");
+
+    const ensureSurpriseSession = async () => {
       try{
-        await callServiceResponse('clawdbot','avatar_prompt_set', { agent_id: 'agent0', text: txt });
+        const rr = await callServiceResponse('clawdbot','chat_list_sessions', {});
+        const data = (rr && rr.response) ? rr.response : rr;
+        const r = data && data.result ? data.result : data;
+        const items = (r && Array.isArray(r.items)) ? r.items : [];
+        for (const it of items) {
+          if (it && it.label === SURPRISE_LABEL && it.key) return String(it.key);
+        }
       } catch(e){}
+      // Create new
+      const rr2 = await callServiceResponse('clawdbot','chat_new_session', { label: SURPRISE_LABEL });
+      const data2 = (rr2 && rr2.response) ? rr2.response : rr2;
+      const r2 = data2 && data2.result ? data2.result : data2;
+      const key = r2 && r2.session_key ? r2.session_key : null;
+      if (!key) throw new Error('failed to create session');
+      return String(key);
+    };
+
+    const waitForAssistant = async (sessionKey, timeoutMs=15000) => {
+      const start = Date.now();
+      let after = null;
+      while ((Date.now()-start) < timeoutMs) {
+        try{
+          // Pull latest gateway history into HA store
+          await callService('clawdbot','chat_poll', { session_key: sessionKey, limit: 50 });
+        } catch(e){}
+
+        try{
+          const rr = await callServiceResponse('clawdbot','chat_history_delta', { session_key: sessionKey, after_ts: after, limit: 200 });
+          const data = (rr && rr.response) ? rr.response : rr;
+          const r = data && data.result ? data.result : data;
+          const items = (r && Array.isArray(r.items)) ? r.items : [];
+          if (items.length) {
+            after = items[items.length-1].ts || after;
+          }
+          // Find last assistant message
+          for (let i=items.length-1; i>=0; i--) {
+            const it = items[i];
+            if (it && it.role === 'assistant' && it.text) return String(it.text);
+          }
+        } catch(e){}
+
+        await new Promise(res=>setTimeout(res, 700));
+      }
+      return null;
+    };
+
+    surpriseBtn.onclick = async () => {
+      try{
+        surpriseBtn.disabled = true;
+        setHint('Agent thinking…');
+        const sessionKey = await ensureSurpriseSession();
+
+        // Send prompt
+        try{ await callService('clawdbot','chat_send', { session_key: sessionKey, message: SURPRISE_PROMPT }); } catch(e){}
+
+        const reply = await waitForAssistant(sessionKey, 15000);
+        if (!reply) {
+          toast('Surprise me timed out');
+          setHint('');
+          return;
+        }
+
+        let txt = String(reply || '').trim();
+        if (txt && !txt.toLowerCase().includes('image style:')) {
+          txt = txt + "\n" + "Image style: profile pic, head shot style, character face to the camera, clean background.";
+        }
+        ta.value = txt;
+        setHint('Draft generated. Edit freely, then hit Generate.');
+
+        // Persist draft in HA
+        try{ await callServiceResponse('clawdbot','avatar_prompt_set', { agent_id: 'agent0', text: txt }); } catch(e){}
+      } catch(e){
+        toast('Surprise me failed');
+        setHint('');
+      } finally {
+        try{ surpriseBtn.disabled = false; }catch(e){}
+      }
     };
 
     genBtn.onclick = async () => {
