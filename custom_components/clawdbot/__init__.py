@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.68"
+PANEL_BUILD_ID = "89337ab.69"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1867,8 +1867,12 @@ PANEL_HTML = """<!doctype html>
     .agent-mood.mood-tired{color:#c7cbd1; text-shadow:0 1px 0 rgba(0,0,0,.25);} 
 
     /* Mood / sentiment color accents */
-    .agent-hero{border-color: color-mix(in srgb, var(--cb-border-strong) 65%, var(--claw-accent-a) 20%);
-      position:relative; overflow:hidden;}
+    .agent-hero{
+      /* override .card background so mood tint fully controls hero fill */
+      background: transparent !important;
+      border-color: color-mix(in srgb, var(--cb-border-strong) 55%, var(--claw-accent-a) 25%);
+      position:relative; overflow:hidden;
+    }
 
     /* Mood tint overlay: must cover the full rounded rectangle */
     .agent-hero::before{content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none; z-index:0;
@@ -1881,15 +1885,15 @@ PANEL_HTML = """<!doctype html>
     .agent-hero.mood-calm::before{background: radial-gradient(900px 260px at 20% 10%, rgba(0,245,255,.22), transparent 60%),
                                   radial-gradient(900px 260px at 80% 0%, rgba(123,44,255,.10), transparent 62%);} 
 
-    .agent-hero.mood-alert{box-shadow:0 0 0 1px rgba(255,64,64,.55), 0 0 38px rgba(255,64,64,.26), var(--cb-shadow-soft);}
+    .agent-hero.mood-alert{border-color: rgba(255,64,64,.55); box-shadow:0 0 0 1px rgba(255,64,64,.55), 0 0 38px rgba(255,64,64,.26), var(--cb-shadow-soft);}
     .agent-hero.mood-alert::before{background: radial-gradient(900px 260px at 18% 10%, rgba(255,64,64,.22), transparent 60%),
                                    radial-gradient(900px 260px at 78% 0%, rgba(255,62,142,.10), transparent 62%);} 
 
-    .agent-hero.mood-focused{box-shadow:0 0 0 1px color-mix(in srgb, var(--claw-accent-b) 35%, transparent), 0 0 34px color-mix(in srgb, var(--claw-accent-b) 24%, transparent), var(--cb-shadow-soft);}
+    .agent-hero.mood-focused{border-color: rgba(181,123,255,.55); box-shadow:0 0 0 1px color-mix(in srgb, var(--claw-accent-b) 35%, transparent), 0 0 34px color-mix(in srgb, var(--claw-accent-b) 24%, transparent), var(--cb-shadow-soft);}
     .agent-hero.mood-focused::before{background: radial-gradient(900px 260px at 22% 10%, rgba(181,123,255,.22), transparent 60%),
                                      radial-gradient(900px 260px at 82% 0%, rgba(0,245,255,.08), transparent 62%);} 
 
-    .agent-hero.mood-degraded{box-shadow:0 0 0 1px rgba(255,166,0,.48), 0 0 34px rgba(255,166,0,.20), var(--cb-shadow-soft);}
+    .agent-hero.mood-degraded{border-color: rgba(255,166,0,.52); box-shadow:0 0 0 1px rgba(255,166,0,.48), 0 0 34px rgba(255,166,0,.20), var(--cb-shadow-soft);}
     .agent-hero.mood-degraded::before{background: radial-gradient(900px 260px at 20% 10%, rgba(255,166,0,.20), transparent 60%),
                                       radial-gradient(900px 260px at 80% 0%, rgba(255,64,64,.08), transparent 62%);} 
 
