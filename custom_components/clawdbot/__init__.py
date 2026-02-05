@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.62"
+PANEL_BUILD_ID = "89337ab.63"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -5645,6 +5645,19 @@ async def async_setup(hass, config):
 
         await prof_store.async_save(prof)
         cfg["agent_profile"] = prof
+
+        # Notify listeners (panel) that agent state changed.
+        try:
+            hass.bus.async_fire(
+                "clawdbot_agent_state_changed",
+                {
+                    "updated_ts": now,
+                    "source": prof.get("source"),
+                    "mood": prof.get("mood"),
+                },
+            )
+        except Exception:
+            pass
 
         appended = False
         if isinstance(journal, dict):

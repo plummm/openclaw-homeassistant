@@ -1026,6 +1026,39 @@ window.__clawdbotPanelInitError = null;
     }
   }
 
+  let _agentAutoRefreshTimer = null;
+  let _agentStateSubUnsub = null;
+
+  async function refreshAgentState(){
+    try{
+      const resp = await callServiceResponse('clawdbot','agent_state_get', {});
+      const data = (resp && resp.response) ? resp.response : resp;
+      const r = data && data.result ? data.result : data;
+      const prof = r && r.profile ? r.profile : null;
+      if (prof) {
+        window.__CLAWDBOT_CONFIG__.agent_profile = prof;
+        const moodEl = document.getElementById('agentMood');
+        const descEl = document.getElementById('agentDesc');
+        const metaEl = document.getElementById('agentMeta');
+        if (moodEl) moodEl.textContent = `· mood: ${prof.mood || 'calm'}`;
+        if (descEl) descEl.textContent = prof.description || '—';
+        if (metaEl) {
+          const src = prof.source ? String(prof.source) : '—';
+          const ts = prof.updated_ts ? String(prof.updated_ts) : '—';
+          metaEl.textContent = `source: ${src} · updated: ${ts}`;
+        }
+        try{
+          const hero = document.getElementById('agentHeroCard');
+          const mood = prof.mood ? String(prof.mood) : 'calm';
+          if (hero) {
+            hero.classList.remove('mood-calm','mood-alert','mood-focused','mood-degraded','mood-lost','mood-playful','mood-tired');
+            hero.classList.add('mood-' + mood);
+          }
+        } catch(e){}
+      }
+    } catch(e){}
+  }
+
   async function renderAgentView(){
     // Uptime ticker
     const uptimeEl = document.getElementById('agentUptime');
@@ -1040,19 +1073,7 @@ window.__clawdbotPanelInitError = null;
     if (sessPill) { sessPill.textContent = 'session: ' + sess; }
 
     // Agent profile (mood + description)
-    try{
-      const prof = cfg.agent_profile || {};
-      const moodEl = document.getElementById('agentMood');
-      const descEl = document.getElementById('agentDesc');
-      const metaEl = document.getElementById('agentMeta');
-      if (moodEl) moodEl.textContent = `· mood: ${prof.mood || 'calm'}`;
-      if (descEl) descEl.textContent = prof.description || 'Ship ops / energy monitoring assistant';
-      if (metaEl) {
-        const src = prof.source ? String(prof.source) : '—';
-        const ts = prof.updated_ts ? String(prof.updated_ts) : '—';
-        metaEl.textContent = `source: ${src} · updated: ${ts}`;
-      }
-    } catch(e){}
+    try{ await refreshAgentState(); } catch(e){}
 
     // Derived sensors status
     const derivedPill = document.getElementById('agentDerivedPill');
@@ -1142,23 +1163,7 @@ window.__clawdbotPanelInitError = null;
         btnPulse.disabled = true;
         agentAddActivity('pulse', 'Pulse sent');
         try{
-          const resp = await callServiceResponse('clawdbot','agent_state_get', {});
-          const data = (resp && resp.response) ? resp.response : resp;
-          const r = data && data.result ? data.result : data;
-          const prof = r && r.profile ? r.profile : null;
-          if (prof) {
-            window.__CLAWDBOT_CONFIG__.agent_profile = prof;
-            const moodEl = document.getElementById('agentMood');
-            const descEl = document.getElementById('agentDesc');
-            const metaEl = document.getElementById('agentMeta');
-            if (moodEl) moodEl.textContent = `· mood: ${prof.mood || 'calm'}`;
-            if (descEl) descEl.textContent = prof.description || '—';
-            if (metaEl) {
-              const src = prof.source ? String(prof.source) : '—';
-              const ts = prof.updated_ts ? String(prof.updated_ts) : '—';
-              metaEl.textContent = `source: ${src} · updated: ${ts}`;
-            }
-          }
+          await refreshAgentState();
           await refreshAgentJournal();
           toast('Pulse synced');
         } catch(e){
@@ -1168,6 +1173,25 @@ window.__clawdbotPanelInitError = null;
         }
       };
     }
+
+    // Live refresh: subscribe to HA event; fallback poll while Agent tab is visible.
+    try{
+      if (_agentAutoRefreshTimer) { clearInterval(_agentAutoRefreshTimer); _agentAutoRefreshTimer=null; }
+      _agentAutoRefreshTimer = setInterval(async () => {
+        try{ await refreshAgentState(); await refreshAgentJournal(); }catch(e){}
+      }, 15000);
+    } catch(e){}
+
+    try{
+      if (!_agentStateSubUnsub) {
+        const { conn } = await getHass();
+        if (conn && conn.subscribeEvents) {
+          _agentStateSubUnsub = await conn.subscribeEvents(async (_ev) => {
+            try{ await refreshAgentState(); await refreshAgentJournal(); }catch(e){}
+          }, 'clawdbot_agent_state_changed');
+        }
+      }
+    } catch(e){}
 
     bindSpeechUi();
   }
