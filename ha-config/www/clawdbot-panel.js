@@ -1028,6 +1028,8 @@ window.__clawdbotPanelInitError = null;
 
   let _agentAutoRefreshTimer = null;
   let _agentStateSubUnsub = null;
+  let _agentRefreshInFlight = false;
+  let _agentLastRefreshMs = 0;
 
   async function refreshAgentState(){
     try{
@@ -1156,11 +1158,28 @@ window.__clawdbotPanelInitError = null;
     agentAddActivity('status', 'Agent view refreshed');
 
     // Live refresh: subscribe to HA event; fallback poll while Agent tab is visible.
+    const refreshNow = async () => {
+      try{
+        const view = document.getElementById('viewAgent');
+        if (view && view.classList && view.classList.contains('hidden')) return;
+      } catch(e){}
+
+      const now = Date.now();
+      if (_agentRefreshInFlight) return;
+      if (now - _agentLastRefreshMs < 1000) return; // debounce
+      _agentRefreshInFlight = true;
+      try{
+        await refreshAgentState();
+        await refreshAgentJournal();
+        _agentLastRefreshMs = Date.now();
+      } catch(e){} finally {
+        _agentRefreshInFlight = false;
+      }
+    };
+
     try{
       if (_agentAutoRefreshTimer) { clearInterval(_agentAutoRefreshTimer); _agentAutoRefreshTimer=null; }
-      _agentAutoRefreshTimer = setInterval(async () => {
-        try{ await refreshAgentState(); await refreshAgentJournal(); }catch(e){}
-      }, 15000);
+      _agentAutoRefreshTimer = setInterval(refreshNow, 15000);
     } catch(e){}
 
     try{
@@ -1168,7 +1187,7 @@ window.__clawdbotPanelInitError = null;
         const { conn } = await getHass();
         if (conn && conn.subscribeEvents) {
           _agentStateSubUnsub = await conn.subscribeEvents(async (_ev) => {
-            try{ await refreshAgentState(); await refreshAgentJournal(); }catch(e){}
+            try{ await refreshNow(); }catch(e){}
           }, 'clawdbot_agent_state_changed');
         }
       }
