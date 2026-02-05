@@ -1676,7 +1676,7 @@ window.__clawdbotPanelInitError = null;
       return [s1,s2,s3,s4].join(' ');
     };
 
-    const STYLE_LINE = 'Image style: profile pic, head shot style, character face to the camera';
+    const STYLE_LINE = 'Image style: profile pic, head shot style, character face to the camera, clean background.';
 
     const setHint = (t) => { try{ if (hint) hint.textContent = String(t||''); }catch(e){} };
     const setDbg = (t) => { try{ if (dbg) dbg.textContent = String(t||''); }catch(e){} };
@@ -1688,6 +1688,23 @@ window.__clawdbotPanelInitError = null;
         img.onerror = () => { try{ img.style.display='none'; }catch(e){} try{ if (fb) fb.style.display='flex'; }catch(e){} };
       } catch(e){}
     };
+
+    // Listen for HA event when Agent0 pushes generated avatar to HA
+    try{
+      if (!window.__clawdbotAvatarSub) {
+        getHass().then(({conn}) => {
+          try{
+            if (conn && conn.subscribeEvents) {
+              conn.subscribeEvents((_ev) => {
+                try{ setHint('Avatar updated'); }catch(e){}
+                try{ setDbg('avatar_changed'); }catch(e){}
+                try{ setAvatarPreview(); }catch(e){}
+              }, 'clawdbot_avatar_changed').then((unsub)=>{ window.__clawdbotAvatarSub = unsub; }).catch(()=>{});
+            }
+          } catch(e){}
+        }).catch(()=>{});
+      }
+    } catch(e){}
 
     btn.onclick = () => {
       setHint('');
