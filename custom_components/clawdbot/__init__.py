@@ -163,6 +163,9 @@ JOURNAL_STORE_VERSION = 1
 AGENT_PROFILE_STORE_KEY = "clawdbot_agent_profile"
 AGENT_PROFILE_STORE_VERSION = 1
 
+AVATAR_STORE_KEY = "clawdbot_avatar"
+AVATAR_STORE_VERSION = 1
+
 AGENT_STATE_WEBHOOK_STORE_KEY = "clawdbot_agent_state_webhook"
 AGENT_STATE_WEBHOOK_STORE_VERSION = 1
 
@@ -170,7 +173,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.96"
+PANEL_BUILD_ID = "89337ab.97"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -2358,7 +2361,7 @@ PANEL_HTML = """<!doctype html>
       <div style=\"position:absolute;inset:0;background:radial-gradient(circle at 20% 30%, rgba(0,245,255,.22), transparent 60%), radial-gradient(circle at 70% 40%, rgba(123,44,255,.20), transparent 65%);filter:blur(0px);pointer-events:none;z-index:1\"></div>
       <div class=\"row\" style=\"position:relative;z-index:1;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap\">
         <div class=\"row\" style=\"gap:14px;align-items:center\">
-          <button type=\"button\" id=\"agentAvatarBtn\" class=\"btn\" style=\"width:128px;height:128px;border-radius:28px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg, rgba(0,245,255,.25), rgba(123,44,255,.25));border:1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));font-weight:800;letter-spacing:.5px;font-size:28px;cursor:pointer\">A0</button>\n          <div id=\"avatarGenModal\" class=\"modal hidden\">\n            <div class=\"modal-card\" style=\"max-width:680px\">\n              <div style=\"display:flex;justify-content:space-between;align-items:center;gap:10px\">\n                <div style=\"font-weight:900\">Describe your agent</div>\n                <button class=\"btn\" id=\"avatarGenClose\">Close</button>\n              </div>\n              <div class=\"muted\" style=\"margin-top:8px\">Describe what your agent looks like. Or hit <b>Surprise me</b> to auto-draft a backstory + appearance.</div>\n              <textarea id=\"avatarGenText\" style=\"margin-top:12px;width:100%;min-height:140px;resize:vertical;border-radius:14px;border:1px solid var(--cb-border-strong);padding:12px;background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color);font-family:inherit\" placeholder=\"e.g., Warm smile, short black hair, futuristic pilot jacket...\"></textarea>\n              <div class=\"row\" style=\"justify-content:flex-end;gap:10px;margin-top:12px\">\n                <button class=\"btn\" id=\"avatarGenSurprise\">Surprise me</button>\n                <button class=\"btn primary\" id=\"avatarGenGenerate\">Generate</button>\n              </div>\n              <div class=\"muted\" id=\"avatarGenHint\" style=\"margin-top:10px;font-size:12px\"></div>\n            </div>\n          </div>
+          <button type=\"button\" id=\"agentAvatarBtn\" class=\"btn\" style=\"width:128px;height:128px;border-radius:28px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:linear-gradient(135deg, rgba(0,245,255,.25), rgba(123,44,255,.25));border:1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));font-weight:800;letter-spacing:.5px;font-size:28px;cursor:pointer;position:relative;padding:0\">\n            <img id=\"agentAvatarImg\" alt=\"agent avatar\" style=\"display:none;width:100%;height:100%;object-fit:cover\"/>\n            <div id=\"agentAvatarFallback\" style=\"display:flex;align-items:center;justify-content:center;width:100%;height:100%\">A0</div>\n          </button>\n          <div id=\"avatarGenModal\" class=\"modal hidden\">\n            <div class=\"modal-card\" style=\"max-width:680px\">\n              <div style=\"display:flex;justify-content:space-between;align-items:center;gap:10px\">\n                <div style=\"font-weight:900\">Describe your agent</div>\n                <button class=\"btn\" id=\"avatarGenClose\">Close</button>\n              </div>\n              <div class=\"muted\" style=\"margin-top:8px\">Describe what your agent looks like. Or hit <b>Surprise me</b> to auto-draft a backstory + appearance.</div>\n              <textarea id=\"avatarGenText\" style=\"margin-top:12px;width:100%;min-height:140px;resize:vertical;border-radius:14px;border:1px solid var(--cb-border-strong);padding:12px;background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color);font-family:inherit\" placeholder=\"e.g., Warm smile, short black hair, futuristic pilot jacket...\"></textarea>\n              <div class=\"row\" style=\"justify-content:flex-end;gap:10px;margin-top:12px\">\n                <button class=\"btn\" id=\"avatarGenSurprise\">Surprise me</button>\n                <button class=\"btn primary\" id=\"avatarGenGenerate\">Generate</button>\n              </div>\n              <div class=\"muted\" id=\"avatarGenHint\" style=\"margin-top:10px;font-size:12px\"></div>\n            </div>\n          </div>
           <div style=\"display:flex;flex-direction:column;gap:4px;min-width:260px\">
             <div class=\"agent-title\">Agent 0 <span class=\"agent-mood\" id=\"agentMood\">· mood: calm</span></div>
             <div class=\"agent-desc\" id=\"agentDesc\">Ship ops / energy monitoring assistant</div>
@@ -2758,6 +2761,49 @@ class ClawdbotSttWhisperApiView(HomeAssistantView):
         if not isinstance(text, str):
             text = ""
         return web.json_response({"ok": True, "text": text.strip()})
+
+
+class ClawdbotAvatarPngView(HomeAssistantView):
+    """Serve stored avatar PNG (generated)"""
+
+    url = "/api/clawdbot/avatar.png"
+    name = "api:clawdbot:avatar_png"
+    requires_auth = False
+
+    async def get(self, request):
+        from aiohttp import web
+        import base64
+
+        cfg = request.app["hass"].data.get(DOMAIN, {})
+        avatar = cfg.get("avatar")
+        if not isinstance(avatar, dict):
+            raise web.HTTPNotFound()
+
+        png_b64 = avatar.get("png_b64")
+        if not isinstance(png_b64, str) or not png_b64:
+            raise web.HTTPNotFound()
+
+        b64 = png_b64
+        if b64.startswith("data:"):
+            try:
+                b64 = b64.split(",", 1)[1]
+            except Exception:
+                raise web.HTTPNotFound()
+
+        try:
+            raw = base64.b64decode(b64)
+        except Exception:
+            raise web.HTTPNotFound()
+
+        return web.Response(
+            body=raw,
+            content_type="image/png",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
 
 class ClawdbotHouseMemoryApiView(HomeAssistantView):
@@ -3463,6 +3509,11 @@ async def async_setup(hass, config):
     if not isinstance(agent_profile, dict):
         agent_profile = {}
 
+    avatar_store = Store(hass, AVATAR_STORE_VERSION, AVATAR_STORE_KEY)
+    avatar = await avatar_store.async_load() or {}
+    if not isinstance(avatar, dict):
+        avatar = {}
+
     hass.data[DOMAIN].update(
         {
             "chat_store": chat_store,
@@ -3479,6 +3530,8 @@ async def async_setup(hass, config):
             "journal": journal_items[-200:],
             "agent_profile_store": agent_profile_store,
             "agent_profile": agent_profile,
+            "avatar_store": avatar_store,
+            "avatar": avatar,
             "agent_state_webhook_store": agent_state_webhook_store,
             "agent_state_webhook": agent_state_webhook,
         }
@@ -3491,6 +3544,7 @@ async def async_setup(hass, config):
         hass.http.register_view(ClawdbotMappingApiView)
         hass.http.register_view(ClawdbotPanelSelfTestApiView)
         hass.http.register_view(ClawdbotSttWhisperApiView)
+        hass.http.register_view(ClawdbotAvatarPngView)
         hass.http.register_view(ClawdbotHouseMemoryApiView)
         hass.http.register_view(ClawdbotChatHistoryApiView)
         hass.http.register_view(ClawdbotSessionsApiView)
@@ -5971,6 +6025,117 @@ async def async_setup(hass, config):
 
         return {"ok": True, "cleared": cleared}
 
+    async def handle_avatar_prompt_set(call):
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("avatar_store")
+        if store is None:
+            raise HomeAssistantError("avatar store not initialized")
+
+        agent_id = call.data.get("agent_id") or "agent0"
+        text = call.data.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise HomeAssistantError("text is required")
+        text = text.strip()
+
+        avatar = cfg.get("avatar")
+        if not isinstance(avatar, dict):
+            avatar = {}
+        avatar["agent_id"] = str(agent_id)
+        avatar["prompt_text"] = text
+        import datetime as _dt
+        avatar["prompt_updated_ts"] = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+        await store.async_save(avatar)
+        cfg["avatar"] = avatar
+        return {"ok": True}
+
+    async def handle_avatar_generate_request(call):
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("avatar_store")
+        if store is None:
+            raise HomeAssistantError("avatar store not initialized")
+
+        agent_id = call.data.get("agent_id") or "agent0"
+        prompt = call.data.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise HomeAssistantError("prompt is required")
+
+        import datetime as _dt
+        import uuid as _uuid
+
+        request_id = call.data.get("request_id")
+        if not isinstance(request_id, str) or not request_id.strip():
+            request_id = _uuid.uuid4().hex
+
+        now = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+        avatar = cfg.get("avatar")
+        if not isinstance(avatar, dict):
+            avatar = {}
+        avatar.update(
+            {
+                "agent_id": str(agent_id),
+                "last_request_id": request_id,
+                "last_prompt": str(prompt),
+                "last_request_ts": now,
+            }
+        )
+        await store.async_save(avatar)
+        cfg["avatar"] = avatar
+
+        # Emit event for Agent0/host listener
+        try:
+            hass.bus.async_fire(
+                "clawdbot_avatar_generate_requested",
+                {"request_id": request_id, "agent_id": str(agent_id), "prompt": str(prompt), "ts": now},
+            )
+        except Exception:
+            pass
+
+        return {"ok": True, "request_id": request_id}
+
+    async def handle_avatar_set_b64(call):
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("avatar_store")
+        if store is None:
+            raise HomeAssistantError("avatar store not initialized")
+
+        import base64
+        agent_id = call.data.get("agent_id") or "agent0"
+        png_b64 = call.data.get("png_b64")
+        if not isinstance(png_b64, str) or not png_b64.strip():
+            raise HomeAssistantError("png_b64 is required")
+        b64 = png_b64.strip()
+        if b64.startswith("data:"):
+            try:
+                b64 = b64.split(",", 1)[1]
+            except Exception:
+                raise HomeAssistantError("invalid data url")
+        try:
+            raw = base64.b64decode(b64)
+        except Exception:
+            raise HomeAssistantError("invalid base64")
+        if len(raw) > 350_000:
+            raise HomeAssistantError("image too large")
+
+        avatar = cfg.get("avatar")
+        if not isinstance(avatar, dict):
+            avatar = {}
+        avatar["agent_id"] = str(agent_id)
+        avatar["png_b64"] = b64
+        import datetime as _dt
+        avatar["updated_ts"] = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+        await store.async_save(avatar)
+        cfg["avatar"] = avatar
+
+        try:
+            hass.bus.async_fire("clawdbot_avatar_changed", {"agent_id": str(agent_id), "updated_ts": avatar.get("updated_ts")})
+        except Exception:
+            pass
+
+        return {"ok": True}
+
     async def handle_agent_pulse(call):
         """Pulse is now read-only: refresh the latest agent-managed state."""
         return await handle_agent_state_get(call)
@@ -6007,6 +6172,11 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, "agent_state_set", handle_agent_state_set, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "agent_state_reset", handle_agent_state_reset, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "agent_state_webhook_get", handle_agent_state_webhook_get, supports_response=SupportsResponse.ONLY)
+
+    hass.services.async_register(DOMAIN, "avatar_prompt_set", handle_avatar_prompt_set, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "avatar_generate_request", handle_avatar_generate_request, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "avatar_set_b64", handle_avatar_set_b64, supports_response=SupportsResponse.ONLY)
+
     # Back-compat: pulse now just refreshes state (read-only)
     hass.services.async_register(DOMAIN, "agent_pulse", handle_agent_pulse, supports_response=SupportsResponse.ONLY)
 

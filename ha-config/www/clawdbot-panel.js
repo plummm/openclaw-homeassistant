@@ -1582,6 +1582,8 @@ window.__clawdbotPanelInitError = null;
     const surpriseBtn = document.getElementById('avatarGenSurprise');
     const genBtn = document.getElementById('avatarGenGenerate');
     const hint = document.getElementById('avatarGenHint');
+    const img = document.getElementById('agentAvatarImg');
+    const fb = document.getElementById('agentAvatarFallback');
     if (!btn || !modal || !ta || !closeBtn || !surpriseBtn || !genBtn) return;
 
     const open = () => { try{ modal.classList.remove('hidden'); }catch(e){} };
@@ -1610,8 +1612,20 @@ window.__clawdbotPanelInitError = null;
 
     const STYLE_LINE = 'Image style: profile pic, head shot style, character face to the camera';
 
+    const setHint = (t) => { try{ if (hint) hint.textContent = String(t||''); }catch(e){} };
+    const setAvatarPreview = () => {
+      try{
+        if (!img) return;
+        img.src = `/api/clawdbot/avatar.png?ts=${Date.now()}`;
+        img.onload = () => { try{ img.style.display='block'; }catch(e){} try{ if (fb) fb.style.display='none'; }catch(e){} };
+        img.onerror = () => { try{ img.style.display='none'; }catch(e){} try{ if (fb) fb.style.display='flex'; }catch(e){} };
+      } catch(e){}
+    };
+
     btn.onclick = () => {
-      try{ if (hint) hint.textContent = ''; }catch(e){}
+      setHint('');
+      // refresh avatar display state (if already generated)
+      setAvatarPreview();
       open();
     };
     closeBtn.onclick = close;
@@ -1619,10 +1633,14 @@ window.__clawdbotPanelInitError = null;
       try{ if (ev.target === modal) close(); }catch(e){}
     });
 
-    surpriseBtn.onclick = () => {
+    surpriseBtn.onclick = async () => {
       const txt = surpriseDraft();
       ta.value = txt;
-      try{ if (hint) hint.textContent = 'Draft generated. Edit freely, then hit Generate.'; }catch(e){}
+      setHint('Draft generated. Edit freely, then hit Generate.');
+      // Persist draft in HA so Agent0 can see it / we can restore later
+      try{
+        await callServiceResponse('clawdbot','avatar_prompt_set', { agent_id: 'agent0', text: txt });
+      } catch(e){}
     };
 
     genBtn.onclick = async () => {
@@ -1636,13 +1654,25 @@ window.__clawdbotPanelInitError = null;
         ta.value = txt;
       }
 
-      // MVP: we only assemble the final prompt for image generation.
-      // Next step is wiring an image-gen backend (Agent0/host or HA-stored key).
+      try{ genBtn.disabled = true; }catch(e){}
+      setHint('Requesting image generation…');
+
+      // Persist prompt + request generation (Agent0/host listens to HA event)
       try{
-        await navigator.clipboard.writeText(txt);
-        toast('Prompt copied. Image gen not wired yet.');
+        await callServiceResponse('clawdbot','avatar_prompt_set', { agent_id: 'agent0', text: txt });
+      } catch(e){}
+
+      try{
+        const rr = await callServiceResponse('clawdbot','avatar_generate_request', { agent_id: 'agent0', prompt: txt });
+        const sr = (rr && rr.result && rr.result.service_response) ? rr.result.service_response : null;
+        const reqId = sr && sr.request_id ? String(sr.request_id) : '';
+        toast(reqId ? `Generation requested (${reqId.slice(0,8)})` : 'Generation requested');
+        setHint('Waiting for Agent 0 to generate the image…');
       } catch(e) {
-        toast('Prompt prepared. Image gen not wired yet.');
+        toast('Failed to request generation');
+        setHint('');
+      } finally {
+        try{ genBtn.disabled = false; }catch(e){}
       }
     };
   }
