@@ -1440,6 +1440,11 @@ window.__clawdbotPanelInitError = null;
     if (!btn || !outEl) return;
     try{ if (statusEl) statusEl.style.display = 'none'; }catch(e){}
 
+    let _lastSpeechText = '';
+    const getSpeechText = () => {
+      try{ return String(outEl.textContent || '').trim(); }catch(e){ return ''; }
+    };
+
     // Hide stop button (single-toggle UX)
     try{ if (btnStop) btnStop.style.display = 'none'; }catch(e){}
 
@@ -1459,6 +1464,7 @@ window.__clawdbotPanelInitError = null;
         if (t.length > maxChars) t = t.slice(0, maxChars) + '…';
 
         outEl.textContent = t;
+        _lastSpeechText = t;
         // Hide the line completely when empty (avoid “empty bar” look)
         outEl.style.display = t ? '' : 'none';
         outEl.style.color = '#25d366';
@@ -1535,6 +1541,7 @@ window.__clawdbotPanelInitError = null;
             setCaption('');
             btn.textContent = 'Listen';
             _speechActive = false;
+            try{ if (text && String(text).trim()) agentAddActivity('voice', String(text).trim()); }catch(e){}
           } catch(e){
             setCaption('whisper failed', 'bad');
             btn.textContent = 'Listen';
@@ -1570,6 +1577,10 @@ window.__clawdbotPanelInitError = null;
         _speechActive = false;
         btn.textContent = 'Listen';
         setCaption('');
+        try{
+          const t = _lastSpeechText || getSpeechText();
+          if (t) agentAddActivity('voice', t);
+        } catch(e){}
       };
     }
 
@@ -1582,7 +1593,9 @@ window.__clawdbotPanelInitError = null;
             try{ _speechRec.stop(); }catch(e){}
             btn.textContent = 'Listen';
             setCaption('');
-            agentAddActivity('voice', 'Listening stopped');
+            const t = _lastSpeechText || getSpeechText();
+            if (t) agentAddActivity('voice', t);
+            else agentAddActivity('voice', 'Listening stopped');
             return;
           }
 
