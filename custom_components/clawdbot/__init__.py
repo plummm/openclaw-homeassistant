@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.61"
+PANEL_BUILD_ID = "89337ab.62"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1847,6 +1847,18 @@ PANEL_HTML = """<!doctype html>
     .muted{color:var(--secondary-text-color);font-size:12.5px;}
     .ok{color:#0a7a2f;}
     .bad{color:#a00000;}
+
+    /* Agent typography upgrades (CSP-safe, uses HA font stack) */
+    .agent-title{font-size:28px;font-weight:950;letter-spacing:-0.6px;line-height:1.05;}
+    .agent-desc{font-size:14.5px;font-weight:700;letter-spacing:-0.1px;}
+
+    /* Mood / sentiment color accents */
+    .agent-hero{border-color: color-mix(in srgb, var(--cb-border-strong) 65%, var(--claw-accent-a) 20%);}
+    .agent-hero.mood-calm{box-shadow:0 0 0 1px color-mix(in srgb, var(--claw-accent-a) 22%, transparent), var(--cb-shadow-soft);}
+    .agent-hero.mood-alert{box-shadow:0 0 0 1px rgba(255,64,64,.35), 0 0 26px rgba(255,64,64,.18), var(--cb-shadow-soft);}
+    .agent-hero.mood-focused{box-shadow:0 0 0 1px color-mix(in srgb, var(--claw-accent-b) 22%, transparent), 0 0 26px color-mix(in srgb, var(--claw-accent-b) 18%, transparent), var(--cb-shadow-soft);}
+    .agent-hero.mood-degraded{box-shadow:0 0 0 1px rgba(255,166,0,.30), 0 0 24px rgba(255,166,0,.14), var(--cb-shadow-soft);}
+    .agent-hero.mood-lost{opacity:0.92; filter:saturate(.92);} 
     .btn{height:44px;padding:0 16px;border:1px solid var(--cb-border);border-radius:12px;
       background:linear-gradient(135deg,
         color-mix(in srgb, var(--secondary-background-color) 88%, var(--cb-card-bg)),
@@ -2220,14 +2232,14 @@ PANEL_HTML = """<!doctype html>
   </div>
 
   <div id=\"viewAgent\" class=\"hidden\">
-    <div class=\"card\" style=\"position:relative;overflow:hidden\">
+    <div class=\"card agent-hero\" id=\"agentHeroCard\" style=\"position:relative;overflow:hidden\">
       <div style=\"position:absolute;inset:-40px -60px auto -60px;height:180px;background:radial-gradient(circle at 20% 30%, rgba(0,245,255,.35), transparent 60%), radial-gradient(circle at 70% 40%, rgba(123,44,255,.35), transparent 65%);filter:blur(0px);pointer-events:none\"></div>
       <div class=\"row\" style=\"position:relative;z-index:1;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap\">
         <div class=\"row\" style=\"gap:14px;align-items:center\">
           <div style=\"width:64px;height:64px;border-radius:18px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg, rgba(0,245,255,.25), rgba(123,44,255,.25));border:1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));font-weight:800;letter-spacing:.5px\">A0</div>
           <div style=\"display:flex;flex-direction:column;gap:4px;min-width:260px\">
-            <div style=\"font-size:24px;font-weight:900;letter-spacing:-0.2px\">Agent 0 <span class=\"muted\" id=\"agentMood\" style=\"font-weight:800\">· mood: calm</span></div>
-            <div class=\"muted\" id=\"agentDesc\">Ship ops / energy monitoring assistant</div>
+            <div class=\"agent-title\">Agent 0 <span class=\"muted\" id=\"agentMood\" style=\"font-weight:800\">· mood: calm</span></div>
+            <div class=\"agent-desc\" id=\"agentDesc\">Ship ops / energy monitoring assistant</div>
             <div class=\"muted\" id=\"agentMeta\" style=\"font-size:11px\"></div>
             <div class=\"row\" style=\"gap:8px;flex-wrap:wrap\">
               <span class=\"pill\" id=\"agentConnPill\">…</span>

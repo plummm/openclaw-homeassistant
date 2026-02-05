@@ -1095,13 +1095,25 @@ window.__clawdbotPanelInitError = null;
       }
     }
 
-    // Mood (deterministic)
-    let mood = 'calm';
-    if (gatewayOk === false) mood = 'alert';
-    else if (derivedOn === false) mood = 'focused';
+    // Mood: use the agent-managed profile mood (do NOT override with local heuristics)
+    let mood = null;
+    try{
+      const prof = (window.__CLAWDBOT_CONFIG__ || {}).agent_profile || {};
+      if (prof && prof.mood) mood = String(prof.mood);
+    } catch(e){}
+    if (!mood) mood = 'calm';
 
     const moodEl = document.getElementById('agentMood');
     if (moodEl) moodEl.textContent = `· mood: ${mood}`;
+
+    // Apply mood styling to hero card
+    try{
+      const hero = document.getElementById('agentHeroCard');
+      if (hero) {
+        hero.classList.remove('mood-calm','mood-alert','mood-focused','mood-degraded','mood-lost','mood-playful','mood-tired');
+        hero.classList.add('mood-' + mood);
+      }
+    } catch(e){}
 
     // Auto theme on mood changes (if enabled)
     try{
