@@ -1602,10 +1602,12 @@ window.__clawdbotPanelInitError = null;
       modal.style.backdropFilter = 'none';
       modal.style.webkitBackdropFilter = 'none';
       modal.style.zIndex = '100000';
-      modal.style.display = 'flex';
+      modal.style.display = modal.classList.contains('hidden') ? 'none' : 'flex';
       modal.style.alignItems = 'center';
       modal.style.justifyContent = 'center';
-      modal.style.padding = '18px';
+      modal.style.padding = '0';
+      modal.style.overflow = 'hidden';
+      modal.style.boxSizing = 'border-box';
 
       let backdrop = modal.querySelector('[data-testid="avatar-modal-backdrop"]');
       if (!backdrop) {
@@ -1624,6 +1626,7 @@ window.__clawdbotPanelInitError = null;
       if (card) {
         card.style.position = 'relative';
         card.style.zIndex = '100001';
+        card.style.margin = '18px';
         card.style.maxHeight = 'min(86vh, 820px)';
         card.style.overflow = 'auto';
       }
@@ -1634,8 +1637,16 @@ window.__clawdbotPanelInitError = null;
 
     try{ if (dbg) dbg.textContent = `mounted: surprise=${!!surpriseBtn} generate=${!!genBtn}`; }catch(e){}
 
-    const open = () => { try{ modal.classList.remove('hidden'); }catch(e){} };
-    const close = () => { try{ modal.classList.add('hidden'); }catch(e){} };
+    const open = () => {
+      try{ modal.classList.remove('hidden'); }catch(e){}
+      try{ modal.style.display = 'flex'; }catch(e){}
+      try{ (modal.ownerDocument || document).documentElement.style.overflow = 'hidden'; }catch(e){}
+    };
+    const close = () => {
+      try{ modal.classList.add('hidden'); }catch(e){}
+      try{ modal.style.display = 'none'; }catch(e){}
+      try{ (modal.ownerDocument || document).documentElement.style.overflow = ''; }catch(e){}
+    };
 
     const rand = (arr) => arr[Math.floor(Math.random()*arr.length)];
 
