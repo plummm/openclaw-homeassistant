@@ -1321,13 +1321,38 @@ window.__clawdbotPanelInitError = null;
     const btnStop = document.getElementById('btnStopListen');
     const statusEl = document.getElementById('listenStatus');
     const outEl = document.getElementById('transcript');
-    if (!btn || !btnStop || !statusEl || !outEl) return;
+    if (!btn || !statusEl || !outEl) return;
+
+    // Hide stop button (single-toggle UX)
+    try{ if (btnStop) btnStop.style.display = 'none'; }catch(e){}
+
+    const setCaption = (txt, kind='ok') => {
+      try{
+        statusEl.textContent = String(txt || '');
+        statusEl.style.color = (kind==='bad') ? 'var(--error-color, #b00020)' : '#25d366';
+        statusEl.style.fontWeight = '900';
+        statusEl.style.letterSpacing = '0.06em';
+        statusEl.style.textTransform = 'uppercase';
+      } catch(e){}
+    };
+
+    const setLine = (txt) => {
+      try{
+        outEl.textContent = String(txt || '');
+        outEl.style.color = '#25d366';
+        outEl.style.fontWeight = '800';
+        outEl.style.whiteSpace = 'nowrap';
+        outEl.style.overflow = 'hidden';
+        outEl.style.textOverflow = 'ellipsis';
+      } catch(e){}
+    };
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      statusEl.textContent = 'SpeechRecognition not supported in this browser.';
       btn.disabled = true;
-      btnStop.disabled = true;
+      btn.textContent = 'Listen';
+      setCaption('SpeechRecognition unsupported', 'bad');
+      setLine('');
       return;
     }
 
@@ -1344,23 +1369,18 @@ window.__clawdbotPanelInitError = null;
             const r = ev.results[i];
             full += r[0] && r[0].transcript ? r[0].transcript : '';
           }
-          if (full) outEl.textContent = full.trim();
+          if (full) setLine(full.trim());
         } catch(e){}
       };
       _speechRec.onerror = (ev) => {
-        statusEl.textContent = 'mic error: ' + String(ev && (ev.error || ev.message) || ev);
+        setCaption('mic error', 'bad');
         _speechActive = false;
-        btn.disabled = false;
-        btnStop.disabled = true;
+        btn.textContent = 'Listen';
       };
       _speechRec.onend = () => {
-        if (_speechActive) {
-          // stopped unexpectedly
-          _speechActive = false;
-          btn.disabled = false;
-          btnStop.disabled = true;
-          statusEl.textContent = 'stopped';
-        }
+        _speechActive = false;
+        btn.textContent = 'Listen';
+        setCaption('');
       };
     }
 
@@ -1368,32 +1388,26 @@ window.__clawdbotPanelInitError = null;
       btn.__bound = true;
       btn.onclick = () => {
         try{
-          outEl.textContent = '';
-          statusEl.textContent = 'listening…';
+          if (_speechActive) {
+            _speechActive = false;
+            try{ _speechRec.stop(); }catch(e){}
+            btn.textContent = 'Listen';
+            setCaption('');
+            agentAddActivity('voice', 'Listening stopped');
+            return;
+          }
+
+          setLine('');
+          setCaption('listening…');
           _speechActive = true;
-          btn.disabled = true;
-          btnStop.disabled = false;
+          btn.textContent = 'Listening…';
           _speechRec.start();
           agentAddActivity('voice', 'Listening started');
         } catch(e){
-          statusEl.textContent = 'failed to start: ' + String(e);
+          setCaption('failed to start', 'bad');
           _speechActive = false;
-          btn.disabled = false;
-          btnStop.disabled = true;
+          btn.textContent = 'Listen';
         }
-      };
-    }
-    if (!btnStop.__bound) {
-      btnStop.__bound = true;
-      btnStop.onclick = () => {
-        try{
-          _speechActive = false;
-          _speechRec.stop();
-          statusEl.textContent = 'stopped';
-          btn.disabled = false;
-          btnStop.disabled = true;
-          agentAddActivity('voice', 'Listening stopped');
-        } catch(e){}
       };
     }
   }
@@ -2537,7 +2551,7 @@ async function fetchStatesRest(hass){
       const prof = cfg.agent_profile || {};
       const name = (prof && prof.name) ? String(prof.name) : 'Agent 0';
       const titleEl = document.getElementById('appTitle');
-      if (titleEl) titleEl.textContent = `Hello, this is ${name}, how can I help you today?`;
+      if (titleEl) titleEl.textContent = `Hello, this is ${name}`;
 
       const taglines = [
         'Calibrating thrusters… please stand by.',

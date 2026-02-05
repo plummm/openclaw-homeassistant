@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.75"
+PANEL_BUILD_ID = "89337ab.76"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -2072,7 +2072,7 @@ PANEL_HTML = """<!doctype html>
 </head>
 <body>
   <div class=\"surface\">
-  <h1 id=\"appTitle\">Hello, this is Agent 0, how can I help you today?</h1>
+  <h1 id=\"appTitle\">Hello, this is Agent 0</h1>
   <div class=\"muted\" id=\"debugStamp\" style=\"display:none;margin:6px 0 0 0\"></div>
   <div class=\"muted\" id=\"appTagline\" style=\"margin:0 0 10px 0;\"></div>
 
@@ -2328,14 +2328,13 @@ PANEL_HTML = """<!doctype html>
     <div id=\"agentSttFloat\" style=\"position:fixed;top:calc(env(safe-area-inset-top, 0px) + 72px);right:14px;z-index:50;max-width:min(420px,calc(100vw - 28px));\">
       <div class=\"card\" style=\"margin:0;padding:10px 12px;backdrop-filter:blur(10px);\">
         <div class=\"row\" style=\"justify-content:space-between;align-items:center;gap:10px;flex-wrap:nowrap\">
-          <div class=\"muted\" style=\"font-size:12px;white-space:nowrap\">STT</div>
           <div class=\"row\" style=\"gap:8px;align-items:center;flex-wrap:nowrap\">
             <button class=\"btn primary\" id=\"btnListen\" style=\"height:36px;border-radius:12px;padding:0 12px\">Listen</button>
-            <button class=\"btn\" id=\"btnStopListen\" disabled style=\"height:36px;border-radius:12px;padding:0 12px\">Stop</button>
+            <button class=\"btn\" id=\"btnStopListen\" disabled style=\"display:none;height:36px;border-radius:12px;padding:0 12px\">Stop</button>
           </div>
         </div>
-        <div class=\"muted\" id=\"listenStatus\" style=\"margin-top:6px;font-size:12px\"></div>
-        <div id=\"transcript\" style=\"margin-top:8px;max-height:160px;overflow:auto;border-radius:12px;border:1px solid var(--divider-color);padding:8px 10px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 88%, transparent);white-space:pre-wrap;font-size:12px\"></div>
+        <div class=\"muted\" id=\"listenStatus\" style=\"margin-top:6px;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#25d366\"></div>
+        <div id=\"transcript\" style=\"margin-top:6px;max-height:24px;overflow:hidden;border-radius:12px;border:1px solid color-mix(in srgb, var(--divider-color) 70%, transparent);padding:6px 10px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent);white-space:nowrap;text-overflow:ellipsis;font-size:12px;font-weight:800;color:#25d366\"></div>
       </div>
     </div>
 
