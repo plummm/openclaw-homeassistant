@@ -1622,6 +1622,7 @@ window.__clawdbotPanelInitError = null;
       // Light dim only (no blackout)
       backdrop.style.background = 'rgba(0,0,0,0.45)';
       backdrop.style.opacity = '1';
+      backdrop.style.zIndex = '100000';
       backdrop.style.pointerEvents = 'auto';
 
       // Ensure card is above backdrop
@@ -1771,21 +1772,25 @@ window.__clawdbotPanelInitError = null;
     };
 
     surpriseBtn.onclick = async () => {
+      // Always produce *something* immediately (fallback), then try Agent0 chat.
+      try{ ta.value = surpriseDraft(); }catch(e){}
+
       try{
         surpriseBtn.disabled = true;
         setHint('Starting…');
         setDbg('creating/reusing session');
+
         const sessionKey = await ensureSurpriseSession();
 
         // Send prompt
         setDbg('sending prompt');
-        try{ await callService('clawdbot','chat_send', { session_key: sessionKey, message: SURPRISE_PROMPT }); } catch(e){}
+        await callService('clawdbot','chat_send', { session_key: sessionKey, message: SURPRISE_PROMPT });
 
         const reply = await waitForAssistant(sessionKey, 15000);
         if (!reply) {
-          toast('Surprise me timed out');
-          setHint('Timed out waiting for reply. You can type manually.');
-          setDbg('');
+          toast('Surprise me: timed out (used local draft)');
+          setHint('Used a local draft (Agent reply timed out). Edit freely, then hit Generate.');
+          setDbg('timeout');
           return;
         }
 
@@ -1800,9 +1805,10 @@ window.__clawdbotPanelInitError = null;
         // Persist draft in HA
         try{ await callServiceResponse('clawdbot','avatar_prompt_set', { agent_id: 'agent0', text: txt }); } catch(e){}
       } catch(e){
-        toast('Surprise me failed');
-        setHint('');
-        setDbg('');
+        const msg = (e && e.message) ? String(e.message) : 'failed';
+        toast(`Surprise me failed (${msg}); used local draft`);
+        setHint('Used a local draft (Agent call failed). Edit freely, then hit Generate.');
+        setDbg('error');
       } finally {
         try{ surpriseBtn.disabled = false; }catch(e){}
       }
