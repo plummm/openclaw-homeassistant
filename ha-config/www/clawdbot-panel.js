@@ -1045,7 +1045,14 @@ window.__clawdbotPanelInitError = null;
         const descEl = document.getElementById('agentDesc');
         const metaEl = document.getElementById('agentMeta');
         const liveEl = document.getElementById('agentLiveMeta');
-        if (moodEl) moodEl.textContent = `· mood: ${prof.mood || 'calm'}`;
+        if (moodEl) {
+          const mood = prof.mood || 'calm';
+          moodEl.textContent = `· mood: ${mood}`;
+          try{
+            moodEl.classList.remove('mood-calm','mood-alert','mood-focused','mood-degraded','mood-lost','mood-playful','mood-tired');
+            moodEl.classList.add('mood-' + mood);
+          } catch(e){}
+        }
         if (descEl) descEl.textContent = prof.description || '—';
         if (metaEl) {
           const src = prof.source ? String(prof.source) : '—';

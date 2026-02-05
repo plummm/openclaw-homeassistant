@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.66"
+PANEL_BUILD_ID = "89337ab.67"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1849,8 +1849,22 @@ PANEL_HTML = """<!doctype html>
     .bad{color:#a00000;}
 
     /* Agent typography upgrades (CSP-safe, uses HA font stack) */
-    .agent-title{font-size:28px;font-weight:950;letter-spacing:-0.6px;line-height:1.05;}
-    .agent-desc{font-size:14.5px;font-weight:700;letter-spacing:-0.1px;}
+    .agent-title{font-size:30px;font-weight:950;letter-spacing:-0.7px;line-height:1.05;}
+    .agent-desc{font-size:15.5px;font-weight:750;letter-spacing:-0.12px;}
+
+    /* Mood label: bigger + modern accent + sentiment color */
+    .agent-mood{font-size:13px;font-weight:950;letter-spacing:0.08em;text-transform:uppercase;
+      color:color-mix(in srgb, var(--claw-accent-a) 70%, var(--secondary-text-color));
+      text-shadow:0 1px 0 rgba(0,0,0,.25), 0 0 16px color-mix(in srgb, var(--claw-accent-a) 28%, transparent);
+      margin-left:10px;
+    }
+    .agent-mood.mood-alert{color:#ff4040; text-shadow:0 1px 0 rgba(0,0,0,.25), 0 0 18px rgba(255,64,64,.35);} 
+    .agent-mood.mood-focused{color:#b57bff; text-shadow:0 1px 0 rgba(0,0,0,.25), 0 0 18px rgba(181,123,255,.35);} 
+    .agent-mood.mood-degraded{color:#ffa600; text-shadow:0 1px 0 rgba(0,0,0,.25), 0 0 18px rgba(255,166,0,.30);} 
+    .agent-mood.mood-calm{color:#00f5ff; text-shadow:0 1px 0 rgba(0,0,0,.25), 0 0 18px rgba(0,245,255,.28);} 
+    .agent-mood.mood-lost{color:#9aa4b2; text-shadow:none;} 
+    .agent-mood.mood-playful{color:#ff3e8e; text-shadow:0 1px 0 rgba(0,0,0,.25), 0 0 18px rgba(255,62,142,.28);} 
+    .agent-mood.mood-tired{color:#c7cbd1; text-shadow:0 1px 0 rgba(0,0,0,.25);} 
 
     /* Mood / sentiment color accents */
     .agent-hero{border-color: color-mix(in srgb, var(--cb-border-strong) 65%, var(--claw-accent-a) 20%);}
@@ -2238,7 +2252,7 @@ PANEL_HTML = """<!doctype html>
         <div class=\"row\" style=\"gap:14px;align-items:center\">
           <div style=\"width:64px;height:64px;border-radius:18px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg, rgba(0,245,255,.25), rgba(123,44,255,.25));border:1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));font-weight:800;letter-spacing:.5px\">A0</div>
           <div style=\"display:flex;flex-direction:column;gap:4px;min-width:260px\">
-            <div class=\"agent-title\">Agent 0 <span class=\"muted\" id=\"agentMood\" style=\"font-weight:800\">· mood: calm</span></div>
+            <div class=\"agent-title\">Agent 0 <span class=\"agent-mood\" id=\"agentMood\">· mood: calm</span></div>
             <div class=\"agent-desc\" id=\"agentDesc\">Ship ops / energy monitoring assistant</div>
             <div class=\"muted\" id=\"agentMeta\" style=\"font-size:11px\"></div>
             <div class=\"muted\" id=\"agentLiveMeta\" style=\"font-size:11px\"></div>
