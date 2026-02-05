@@ -990,6 +990,11 @@ window.__clawdbotPanelInitError = null;
   let _vizAnalyser = null;
   let _vizMicStream = null;
   let _vizLastAmp = 0;
+
+  // STT mic handles (Whisper path)
+  let _sttStream = null;
+  let _sttRecorder = null;
+
   let _vizLastCentroid = 0.3;
   let _vizLastFlatness = 0.2;
   let _vizPeakRate = 0; // peaks/sec-ish
@@ -998,6 +1003,39 @@ window.__clawdbotPanelInitError = null;
   function vizStop(){
     try{ if (_vizRaf) cancelAnimationFrame(_vizRaf); }catch(e){}
     _vizRaf = null;
+  }
+
+  function vizReleaseMic(){
+    try{ if (_vizMicStream) { _vizMicStream.getTracks().forEach(t=>{ try{ t.stop(); }catch(e){} }); } }catch(e){}
+    _vizMicStream = null;
+    try{ if (_vizAudioCtx) { _vizAudioCtx.close(); } }catch(e){}
+    _vizAudioCtx = null;
+    _vizAnalyser = null;
+  }
+
+  function sttReleaseMic(){
+    try{ if (_sttRecorder && _sttRecorder.state !== 'inactive') { _sttRecorder.stop(); } }catch(e){}
+    _sttRecorder = null;
+    try{ if (_sttStream) { _sttStream.getTracks().forEach(t=>{ try{ t.stop(); }catch(e){} }); } }catch(e){}
+    _sttStream = null;
+  }
+
+  function sttWatchdog(){
+    try{
+      const tracks = _sttStream ? _sttStream.getTracks() : [];
+      if (tracks && tracks.some(t=>t && t.readyState==='live')) {
+        // force stop
+        tracks.forEach(t=>{ try{ t.stop(); }catch(e){} });
+      }
+    } catch(e){}
+    try{
+      const tracks = _vizMicStream ? _vizMicStream.getTracks() : [];
+      if (tracks && tracks.some(t=>t && t.readyState==='live') && !_speechActive) {
+        // visualizer mic should not keep running if not listening
+        tracks.forEach(t=>{ try{ t.stop(); }catch(e){} });
+        _vizMicStream = null;
+      }
+    } catch(e){}
   }
 
   function vizSetEnabled(on){
@@ -1585,6 +1623,9 @@ window.__clawdbotPanelInitError = null;
               _speechActive = false;
               btn.textContent = 'Listen';
               setCaption('');
+              sttReleaseMic();
+              vizReleaseMic();
+              setTimeout(sttWatchdog, 350);
               return;
             }
             _speechActive = true;
@@ -1592,16 +1633,21 @@ window.__clawdbotPanelInitError = null;
             setCaption('');
 
             // Record a short chunk and send to HA
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const rec = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+            sttReleaseMic();
+            _sttStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            _sttRecorder = new MediaRecorder(_sttStream, { mimeType: 'audio/webm' });
             const chunks = [];
-            rec.ondataavailable = (ev) => { try{ if (ev.data && ev.data.size) chunks.push(ev.data); }catch(e){} };
-            rec.start();
-            // 5s chunk
-            await new Promise((res) => setTimeout(res, 5000));
-            rec.stop();
-            await new Promise((res) => { rec.onstop = () => res(null); });
-            try{ stream.getTracks().forEach(t => t.stop()); }catch(e){}
+            _sttRecorder.ondataavailable = (ev) => { try{ if (ev.data && ev.data.size) chunks.push(ev.data); }catch(e){} };
+            _sttRecorder.start();
+
+            // 5s chunk (or until user toggles off)
+            const started = Date.now();
+            while (_speechActive && (Date.now() - started) < 5000) {
+              await new Promise((res)=>setTimeout(res, 120));
+            }
+            try{ if (_sttRecorder && _sttRecorder.state !== 'inactive') _sttRecorder.stop(); }catch(e){}
+            await new Promise((res) => { try{ _sttRecorder.onstop = () => res(null); }catch(e){ res(null); } });
+            sttReleaseMic();
 
             const blob = new Blob(chunks, { type: 'audio/webm' });
             const r = await fetch('/api/clawdbot/stt_whisper', { method: 'POST', body: blob, credentials: 'include' });
@@ -1617,6 +1663,9 @@ window.__clawdbotPanelInitError = null;
               setCaption(msg, 'bad');
               btn.textContent = 'Listen';
               _speechActive = false;
+              sttReleaseMic();
+              vizReleaseMic();
+              setTimeout(sttWatchdog, 350);
               return;
             }
             const text = j.text || '';
@@ -1625,10 +1674,16 @@ window.__clawdbotPanelInitError = null;
             btn.textContent = 'Listen';
             _speechActive = false;
             try{ if (text && String(text).trim()) agentAddActivity('voice', String(text).trim()); }catch(e){}
+            sttReleaseMic();
+            vizReleaseMic();
+            setTimeout(sttWatchdog, 350);
           } catch(e){
             setCaption('whisper failed', 'bad');
             btn.textContent = 'Listen';
             _speechActive = false;
+            sttReleaseMic();
+            vizReleaseMic();
+            setTimeout(sttWatchdog, 350);
           }
         };
       }
@@ -1664,6 +1719,10 @@ window.__clawdbotPanelInitError = null;
           const t = _lastSpeechText || getSpeechText();
           if (t) agentAddActivity('voice', t);
         } catch(e){}
+        // ensure we don't leave mic active due to analyser/visualizer
+        try{ sttReleaseMic(); }catch(e){}
+        try{ vizReleaseMic(); }catch(e){}
+        setTimeout(sttWatchdog, 350);
       };
     }
 
@@ -1679,6 +1738,10 @@ window.__clawdbotPanelInitError = null;
             const t = _lastSpeechText || getSpeechText();
             if (t) agentAddActivity('voice', t);
             else agentAddActivity('voice', 'Listening stopped');
+            // Ensure mic is released (visualizer/analyser)
+            sttReleaseMic();
+            vizReleaseMic();
+            setTimeout(sttWatchdog, 350);
             return;
           }
 
@@ -1687,6 +1750,7 @@ window.__clawdbotPanelInitError = null;
           _speechActive = true;
           btn.textContent = 'Listening…';
           _speechRec.start();
+          // Only keep mic while actively listening
           try{ vizEnsureMic().then(()=>{ try{ if (_vizOn && !_vizRaf) vizDraw(); }catch(e){} }); }catch(e){}
           agentAddActivity('voice', 'Listening started');
         } catch(e){
@@ -1697,6 +1761,21 @@ window.__clawdbotPanelInitError = null;
       };
     }
   }
+
+  // Release mic if user leaves/locks page
+  try{
+    window.addEventListener('beforeunload', () => { try{ sttReleaseMic(); }catch(e){} try{ vizReleaseMic(); }catch(e){} });
+    document.addEventListener('visibilitychange', () => {
+      try{
+        if (document.hidden) {
+          sttReleaseMic();
+          vizReleaseMic();
+          _speechActive = false;
+          if (_speechRec) { try{ _speechRec.stop(); }catch(e){} }
+        }
+      } catch(e){}
+    });
+  } catch(e){}
 
   async function setMappingField(field, entityId){
     const mapping = mappingWithDefaults();
