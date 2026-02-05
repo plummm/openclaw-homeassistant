@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.70"
+PANEL_BUILD_ID = "89337ab.71"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1968,6 +1968,30 @@ PANEL_HTML = """<!doctype html>
     .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
     .setup-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start;}
     @media (max-width: 860px){ .setup-grid{grid-template-columns:1fr;} }
+
+    /* Mobile responsiveness */
+    @media (max-width: 600px){
+      body{padding:10px;}
+      .surface{padding:14px; max-width:100%;}
+      .card{padding:14px; margin:12px 0;}
+      h1{font-size:20px;}
+      h2{font-size:16px;}
+
+      /* Tabs: allow horizontal scroll instead of squish */
+      .tabs{display:flex; overflow-x:auto; -webkit-overflow-scrolling:touch; max-width:100%;}
+      .tab{min-width:84px; height:38px; padding:0 10px;}
+
+      /* Pills/chips tighter */
+      .pill{font-size:11px; padding:2px 7px;}
+
+      /* Agent hero: tighten typography */
+      .agent-title{font-size:24px;}
+      .agent-desc{font-size:14px;}
+      .agent-mood{font-size:12px;}
+
+      /* Chat bubbles more width */
+      .chat-bubble{max-width:88%;}
+    }
     .ent{display:flex;gap:10px;align-items:center;justify-content:space-between;border-bottom:1px solid color-mix(in srgb, var(--divider-color) 90%, transparent);padding:7px 0;}
     .ent:last-child{border-bottom:none;}
     .ent-id{font-weight:650;}
