@@ -1589,13 +1589,26 @@ window.__clawdbotPanelInitError = null;
     const wrap = document.getElementById('agentAvatarWrap');
     if (!wrap) return;
 
+    // Persistent hidden file input (reliable onchange across re-renders)
+    let fileInput = document.getElementById('agentAvatarFile');
+    if (!fileInput) {
+      fileInput = document.createElement('input');
+      fileInput.id = 'agentAvatarFile';
+      fileInput.type = 'file';
+      fileInput.accept = 'image/*';
+      fileInput.style.display = 'none';
+      document.body.appendChild(fileInput);
+    }
+
     let modal = null;
     const close = () => { try{ if (modal) modal.remove(); }catch(e){} modal=null; };
 
     const openCropper = (file) => {
+      try{ console.debug('[avatar] openCropper', { name: file && file.name, size: file && file.size, type: file && file.type }); }catch(e){}
       const url = URL.createObjectURL(file);
       const img = new Image();
       img.onload = () => {
+        try{ console.debug('[avatar] image loaded', { w: img.width, h: img.height }); }catch(e){}
         const SIZE = 512;
         let ox = 0, oy = 0;
         const minScale = Math.max(SIZE/img.width, SIZE/img.height);
@@ -1670,13 +1683,17 @@ window.__clawdbotPanelInitError = null;
         modal.querySelector('#avClose').onclick = () => { close(); try{ URL.revokeObjectURL(url); }catch(e){} };
         modal.querySelector('#avReset').onclick = () => { ox=0; oy=0; zoom.value='1'; clamp(); draw(); };
         modal.querySelector('#avSave').onclick = async () => {
+          const btn = modal.querySelector('#avSave');
           try{
+            if (btn) btn.disabled = true;
             clamp(); draw();
             const dataUrl = canvas.toDataURL('image/png');
             const b64 = (dataUrl.split(',',2)[1] || '');
             if (!b64) throw new Error('export failed');
+            try{ console.debug('[avatar] saving png', { b64_chars: b64.length }); }catch(e){}
 
             const rr = await callServiceResponse('clawdbot','agent_avatar_set',{ avatar_b64: b64 });
+            try{ console.debug('[avatar] agent_avatar_set response', rr); }catch(e){}
             if (rr && rr.success === false) {
               const msg = (rr.error && rr.error.message) ? rr.error.message : 'save failed';
               throw new Error(msg);
@@ -1695,7 +1712,10 @@ window.__clawdbotPanelInitError = null;
             try{ URL.revokeObjectURL(url); }catch(e){}
           } catch(e){
             const msg = (e && e.message) ? String(e.message) : 'save failed';
+            try{ console.debug('[avatar] save failed', e); }catch(_e){}
             toast(`Avatar save failed: ${msg}`);
+          } finally {
+            try{ if (btn) btn.disabled = false; }catch(e){}
           }
         };
 
@@ -1705,19 +1725,25 @@ window.__clawdbotPanelInitError = null;
       img.src = url;
     };
 
+    fileInput.onchange = () => {
+      try{
+        const f = fileInput.files && fileInput.files[0];
+        if (!f) { try{ console.debug('[avatar] no file selected'); }catch(e){} return; }
+        try{ console.debug('[avatar] file selected', { name: f.name, size: f.size, type: f.type }); }catch(e){}
+        if (f.size > 5*1024*1024) { toast('Image too large'); return; }
+        openCropper(f);
+      } catch(e){
+        try{ console.debug('[avatar] onchange error', e); }catch(_e){}
+        toast('Avatar picker failed');
+      } finally {
+        // allow selecting the same file again
+        try{ fileInput.value = ''; }catch(e){}
+      }
+    };
+
     wrap.onclick = () => {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      input.onchange = () => {
-        try{
-          const f = input.files && input.files[0];
-          if (!f) return;
-          if (f.size > 5*1024*1024) { toast('Image too large'); return; }
-          openCropper(f);
-        } catch(e){}
-      };
-      input.click();
+      try{ console.debug('[avatar] avatar clicked'); }catch(e){}
+      try{ fileInput.click(); }catch(e){ toast('File picker blocked'); }
     };
   }
 
