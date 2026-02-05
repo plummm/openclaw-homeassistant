@@ -154,6 +154,9 @@ CHAT_SESSIONS_STORE_VERSION = 1
 THEME_STORE_KEY = "clawdbot_theme"
 THEME_STORE_VERSION = 1
 
+SETUP_OPTIONS_STORE_KEY = "clawdbot_setup_options"
+SETUP_OPTIONS_STORE_VERSION = 1
+
 JOURNAL_STORE_KEY = "clawdbot_journal"
 JOURNAL_STORE_VERSION = 1
 
@@ -167,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.58"
+PANEL_BUILD_ID = "89337ab.59"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -3189,6 +3192,16 @@ async def async_setup(hass, config):
     if not isinstance(theme_custom, dict):
         theme_custom = {}
 
+    # Dynamic Setup options registry (Store-backed)
+    setup_options_store = Store(hass, SETUP_OPTIONS_STORE_VERSION, SETUP_OPTIONS_STORE_KEY)
+    setup_registry = await setup_options_store.async_load() or {}
+    if not isinstance(setup_registry, dict):
+        setup_registry = {}
+    setup_options = setup_registry.get("options")
+    if not isinstance(setup_options, dict):
+        setup_options = {}
+        setup_registry["options"] = setup_options
+
     # Journal store (append-only, capped)
     journal_store = Store(hass, JOURNAL_STORE_VERSION, JOURNAL_STORE_KEY)
     journal_items = await journal_store.async_load() or []
@@ -3218,6 +3231,9 @@ async def async_setup(hass, config):
             "theme_store": theme_store,
             "theme_cfg": theme_cfg,
             "theme": {"preset": theme_preset, "auto": theme_auto, "themes": theme_custom},
+            "setup_options_store": setup_options_store,
+            "setup_registry": setup_registry,
+            "setup_options": setup_options,
             "journal_store": journal_store,
             "journal": journal_items[-200:],
             "agent_profile_store": agent_profile_store,
@@ -5202,6 +5218,279 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, "theme_upsert", handle_theme_upsert, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "theme_delete", handle_theme_delete, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "theme_list", handle_theme_list, supports_response=SupportsResponse.ONLY)
+
+    # --- Dynamic Setup options registry (MVP) ---
+
+    def _setup_key_ok(key: str) -> bool:
+        key = (key or "").strip()
+        if not key or len(key) > 128:
+            return False
+        allowed = ("ha.", "clawdbot.", "agent0.", "discord.")
+        return key.startswith(allowed)
+
+    def _setup_mask_option(opt: dict) -> dict:
+        if not isinstance(opt, dict):
+            return {}
+        out = dict(opt)
+        typ = out.get("type")
+        if typ == "secret":
+            out["masked"] = True
+            # never return secret value
+            out.pop("value", None)
+        return out
+
+    async def _setup_save(cfg: dict):
+        store: Store = cfg.get("setup_options_store")
+        reg = cfg.get("setup_registry")
+        if store is None or not isinstance(reg, dict):
+            raise HomeAssistantError("setup options store not initialized")
+        await store.async_save(reg)
+
+    async def _setup_seed_defaults(cfg: dict):
+        # Seed minimal keys if missing (do not overwrite existing values)
+        import datetime as _dt
+
+        opts = cfg.get("setup_options")
+        reg = cfg.get("setup_registry")
+        if not isinstance(opts, dict) or not isinstance(reg, dict):
+            return
+
+        now = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+        def ensure(key, label, typ, default=None, env=None, allowed=None):
+            if key in opts:
+                return
+            opt = {
+                "key": key,
+                "label": label,
+                "type": typ,
+                "default": default,
+                "env": env,
+                "ui": {"group": "Dynamic", "order": 1000},
+                "meta": {"created_ts": now, "updated_ts": now, "source": "system"},
+            }
+            if allowed is not None:
+                opt["validation"] = {"allowed": allowed}
+            opts[key] = opt
+
+        ensure("ha.base_url.test", "HA base URL (test)", "url", env="test")
+        ensure("ha.base_url.prod", "HA base URL (prod)", "url", env="prod")
+        ensure("clawdbot.target_env", "Target environment", "select", default="test", allowed=["test", "prod"])
+        ensure("agent0.state_push_enabled", "Agent0 state push enabled", "bool", default=True)
+        ensure("discord.journal_channel_id", "Discord journal channel id", "string")
+
+        reg["options"] = opts
+        await _setup_save(cfg)
+
+    async def handle_setup_options_list(call):
+        cfg = hass.data.get(DOMAIN, {})
+        await _setup_seed_defaults(cfg)
+        opts = cfg.get("setup_options")
+        if not isinstance(opts, dict):
+            opts = {}
+        arr = []
+        for k, opt in opts.items():
+            if not isinstance(opt, dict):
+                continue
+            opt2 = dict(opt)
+            opt2.setdefault("key", k)
+            arr.append(_setup_mask_option(opt2))
+
+        def _sort_key(o):
+            ui = o.get("ui") if isinstance(o.get("ui"), dict) else {}
+            group = ui.get("group") or ""
+            order = ui.get("order")
+            try:
+                order = int(order)
+            except Exception:
+                order = 0
+            return (str(group), order, str(o.get("key") or ""))
+
+        arr.sort(key=_sort_key)
+        return {"ok": True, "options": arr}
+
+    async def handle_setup_option_define(call):
+        cfg = hass.data.get(DOMAIN, {})
+        await _setup_seed_defaults(cfg)
+        reg = cfg.get("setup_registry")
+        opts = cfg.get("setup_options")
+        if not isinstance(reg, dict) or not isinstance(opts, dict):
+            raise HomeAssistantError("setup registry not initialized")
+
+        opt = call.data.get("option")
+        if not isinstance(opt, dict):
+            raise HomeAssistantError("option must be an object")
+
+        key = opt.get("key")
+        if not isinstance(key, str) or not _setup_key_ok(key):
+            raise HomeAssistantError("invalid key")
+
+        # caps
+        if key not in opts and len(opts) >= 50:
+            raise HomeAssistantError("too many setup options")
+
+        typ = opt.get("type")
+        if typ not in {"string", "url", "secret", "bool", "number", "select", "json"}:
+            raise HomeAssistantError("invalid type")
+
+        import datetime as _dt
+
+        now = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+        current = opts.get(key) if isinstance(opts.get(key), dict) else {"key": key}
+        merged = dict(current)
+
+        # allowlist fields that can be updated via define
+        for fld in (
+            "label",
+            "type",
+            "default",
+            "description",
+            "placeholder",
+            "scope",
+            "env",
+            "masked",
+            "sensitive",
+            "validation",
+            "ui",
+            "readOnly",
+            "jsonSchema",
+        ):
+            if fld in opt:
+                merged[fld] = opt.get(fld)
+
+        meta = merged.get("meta") if isinstance(merged.get("meta"), dict) else {}
+        if "created_ts" not in meta:
+            meta["created_ts"] = now
+        meta["updated_ts"] = now
+        src = call.data.get("source")
+        meta["source"] = str(src)[:40] if isinstance(src, str) and src.strip() else "agent"
+        merged["meta"] = meta
+
+        # do not overwrite existing user value unless unset
+        if "value" in opt:
+            if key not in opts or merged.get("value") is None:
+                merged["value"] = opt.get("value")
+
+        opts[key] = merged
+        reg["options"] = opts
+        await _setup_save(cfg)
+        return {"ok": True}
+
+    def _validate_setup_value(opt: dict, value):
+        typ = opt.get("type")
+        val_rules = opt.get("validation") if isinstance(opt.get("validation"), dict) else {}
+        allowed = val_rules.get("allowed")
+        if typ == "bool":
+            if not isinstance(value, bool):
+                raise HomeAssistantError("value must be boolean")
+        elif typ == "number":
+            if not isinstance(value, (int, float)):
+                raise HomeAssistantError("value must be number")
+        elif typ in {"string", "url", "secret", "select", "json"}:
+            # keep as-is; enforce size for strings
+            if typ != "json" and not isinstance(value, str):
+                raise HomeAssistantError("value must be string")
+            if isinstance(value, str) and len(value) > 4096:
+                raise HomeAssistantError("value too large")
+        else:
+            raise HomeAssistantError("invalid type")
+        if isinstance(allowed, list) and typ == "select":
+            if value not in allowed:
+                raise HomeAssistantError("value not allowed")
+
+    async def handle_setup_option_set(call):
+        cfg = hass.data.get(DOMAIN, {})
+        await _setup_seed_defaults(cfg)
+        reg = cfg.get("setup_registry")
+        opts = cfg.get("setup_options")
+        if not isinstance(reg, dict) or not isinstance(opts, dict):
+            raise HomeAssistantError("setup registry not initialized")
+
+        key = call.data.get("key")
+        if not isinstance(key, str) or not _setup_key_ok(key):
+            raise HomeAssistantError("invalid key")
+        if key not in opts or not isinstance(opts.get(key), dict):
+            raise HomeAssistantError("unknown key")
+
+        opt = opts[key]
+        if bool(opt.get("readOnly")):
+            raise HomeAssistantError("option is readOnly")
+
+        value = call.data.get("value")
+        typ = opt.get("type")
+
+        # Secret blank => NOOP
+        if typ == "secret" and (value is None or (isinstance(value, str) and value.strip() == "")):
+            return {"ok": True, "noop": True}
+
+        _validate_setup_value(opt, value)
+
+        import datetime as _dt
+
+        now = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+        opt["value"] = value
+        meta = opt.get("meta") if isinstance(opt.get("meta"), dict) else {}
+        meta["updated_ts"] = now
+        src = call.data.get("source")
+        meta["source"] = str(src)[:40] if isinstance(src, str) and src.strip() else "captain"
+        opt["meta"] = meta
+        opts[key] = opt
+        reg["options"] = opts
+        await _setup_save(cfg)
+        cfg["setup_registry"] = reg
+        cfg["setup_options"] = opts
+
+        # Notify via HA event
+        try:
+            hass.bus.async_fire(
+                "clawdbot_setup_option_changed",
+                {
+                    "key": key,
+                    "updated_ts": now,
+                    "source": meta.get("source"),
+                    "masked": (typ == "secret"),
+                    "env": opt.get("env"),
+                },
+            )
+        except Exception:
+            pass
+
+        return {"ok": True}
+
+    async def handle_setup_option_reset(call):
+        cfg = hass.data.get(DOMAIN, {})
+        await _setup_seed_defaults(cfg)
+        reg = cfg.get("setup_registry")
+        opts = cfg.get("setup_options")
+        if not isinstance(reg, dict) or not isinstance(opts, dict):
+            raise HomeAssistantError("setup registry not initialized")
+
+        key = call.data.get("key")
+        if not isinstance(key, str) or not _setup_key_ok(key):
+            raise HomeAssistantError("invalid key")
+        if key not in opts or not isinstance(opts.get(key), dict):
+            raise HomeAssistantError("unknown key")
+
+        clear_value = bool(call.data.get("clear_value"))
+        opt = opts[key]
+        if clear_value:
+            opt.pop("value", None)
+        else:
+            if "default" in opt:
+                opt["value"] = opt.get("default")
+            else:
+                opt.pop("value", None)
+
+        opts[key] = opt
+        reg["options"] = opts
+        await _setup_save(cfg)
+        return {"ok": True}
+
+    hass.services.async_register(DOMAIN, "setup_options_list", handle_setup_options_list, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "setup_option_define", handle_setup_option_define, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "setup_option_set", handle_setup_option_set, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "setup_option_reset", handle_setup_option_reset, supports_response=SupportsResponse.ONLY)
 
     async def handle_journal_append(call):
         cfg = hass.data.get(DOMAIN, {})
