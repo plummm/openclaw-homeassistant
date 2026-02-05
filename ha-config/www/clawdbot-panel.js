@@ -1437,29 +1437,27 @@ window.__clawdbotPanelInitError = null;
     const btnStop = document.getElementById('btnStopListen');
     const statusEl = document.getElementById('listenStatus');
     const outEl = document.getElementById('transcript');
-    if (!btn || !statusEl || !outEl) return;
+    if (!btn || !outEl) return;
+    try{ if (statusEl) statusEl.style.display = 'none'; }catch(e){}
 
     // Hide stop button (single-toggle UX)
     try{ if (btnStop) btnStop.style.display = 'none'; }catch(e){}
 
-    const setCaption = (txt, kind='ok') => {
-      try{
-        const t = String(txt || '').trim();
-        statusEl.textContent = t;
-        statusEl.style.display = t ? '' : 'none';
-        statusEl.style.color = (kind==='bad') ? 'var(--error-color, #b00020)' : '#25d366';
-        statusEl.style.fontWeight = '900';
-        statusEl.style.letterSpacing = '0.06em';
-        statusEl.style.textTransform = 'uppercase';
-        statusEl.style.whiteSpace = 'nowrap';
-        statusEl.style.overflow = 'hidden';
-        statusEl.style.textOverflow = 'ellipsis';
-      } catch(e){}
+    const setCaption = (_txt, _kind='ok') => {
+      // intentionally no-op (Captain requested removing the green listening/status line)
+      try{ if (statusEl) { statusEl.textContent=''; statusEl.style.display='none'; } }catch(e){}
     };
 
     const setLine = (txt) => {
       try{
-        const t = String(txt || '').trim();
+        let t = String(txt || '').trim();
+        // Clamp to avoid wrecking layout (words + char cap)
+        const maxWords = 24;
+        const maxChars = 180;
+        const words = t.split(/\s+/).filter(Boolean);
+        if (words.length > maxWords) t = words.slice(0, maxWords).join(' ') + '…';
+        if (t.length > maxChars) t = t.slice(0, maxChars) + '…';
+
         outEl.textContent = t;
         // Hide the line completely when empty (avoid “empty bar” look)
         outEl.style.display = t ? '' : 'none';
@@ -1502,7 +1500,7 @@ window.__clawdbotPanelInitError = null;
             }
             _speechActive = true;
             btn.textContent = 'Listening…';
-            setCaption('listening…');
+            setCaption('');
 
             // Record a short chunk and send to HA
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1589,7 +1587,7 @@ window.__clawdbotPanelInitError = null;
           }
 
           setLine('');
-          setCaption('listening…');
+          setCaption('');
           _speechActive = true;
           btn.textContent = 'Listening…';
           _speechRec.start();

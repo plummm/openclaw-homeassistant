@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.82"
+PANEL_BUILD_ID = "89337ab.83"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -2330,15 +2330,13 @@ PANEL_HTML = """<!doctype html>
   <div id=\"viewAgent\" class=\"hidden\">
     <!-- Voice-to-text control (desktop floats top-right; mobile becomes in-flow via CSS) -->
     <div id=\"agentSttFloat\" style=\"position:fixed;top:calc(env(safe-area-inset-top, 0px) + 72px);right:14px;z-index:50;max-width:min(420px,calc(100vw - 28px));\">
-      <div class=\"card\" style=\"margin:0;padding:10px 12px;backdrop-filter:blur(10px);\">
-        <div class=\"row\" style=\"justify-content:space-between;align-items:center;gap:10px;flex-wrap:nowrap\">
-          <div class=\"row\" style=\"gap:8px;align-items:center;flex-wrap:nowrap\">
-            <button class=\"btn primary\" id=\"btnListen\" style=\"height:36px;border-radius:12px;padding:0 12px\">Listen</button>
-            <button class=\"btn\" id=\"btnStopListen\" disabled style=\"display:none;height:36px;border-radius:12px;padding:0 12px\">Stop</button>
-          </div>
+      <div style=\"margin:0;padding:0;background:transparent;border:none;\">
+        <div class=\"row\" style=\"justify-content:flex-end;align-items:center;gap:10px;flex-wrap:nowrap\">
+          <button class=\"btn primary\" id=\"btnListen\" style=\"height:36px;border-radius:12px;padding:0 12px;flex:0 0 auto\">Listen</button>
+          <button class=\"btn\" id=\"btnStopListen\" disabled style=\"display:none;height:36px;border-radius:12px;padding:0 12px\">Stop</button>
         </div>
-        <div class=\"muted\" id=\"listenStatus\" style=\"margin-top:4px;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#25d366\"></div>
-        <div id=\"transcript\" style=\"margin-top:4px;max-height:20px;overflow:hidden;padding:0;background:transparent;border:none;white-space:nowrap;text-overflow:ellipsis;font-size:12px;font-weight:850;color:#25d366\"></div>
+        <div class=\"muted\" id=\"listenStatus\" style=\"display:none\"></div>
+        <div id=\"transcript\" style=\"margin-top:6px;max-height:40px;overflow:hidden;padding:0;background:transparent;border:none;white-space:nowrap;text-overflow:ellipsis;font-size:12px;font-weight:800;color:#25d366\"></div>
       </div>
     </div>
 
