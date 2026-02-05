@@ -1324,6 +1324,26 @@ window.__clawdbotPanelInitError = null;
         const mood = it.mood ? String(it.mood) : '';
         const title = it.title ? String(it.title) : 'Journal';
         const body = it.body ? String(it.body) : '';
+
+        // Mood tint per entry (if mood missing, keep blank/no tint)
+        const moodHue = (m) => {
+          const mm = String(m||'').toLowerCase();
+          if (!mm) return null;
+          if (mm === 'alert') return 6;
+          if (mm === 'focused') return 272;
+          if (mm === 'degraded') return 38;
+          if (mm === 'playful') return 310;
+          if (mm === 'tired') return 206;
+          if (mm === 'lost') return 18;
+          return 186; // calm/default
+        };
+        const h = moodHue(mood);
+        if (h !== null) {
+          row.style.borderColor = `hsla(${h}, 92%, 56%, 0.55)`;
+          row.style.boxShadow = `0 0 0 1px hsla(${h}, 92%, 56%, 0.18) inset`;
+          row.style.background = `linear-gradient(120deg, color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent), hsla(${h}, 92%, 56%, 0.12))`;
+        }
+
         row.innerHTML = `<div style="display:flex;justify-content:space-between;gap:10px"><div style="font-weight:800">${escapeHtml(title)}${mood ? ` <span class=\"muted\">(${escapeHtml(mood)})</span>` : ''}</div><div class="muted" style="font-size:11px;white-space:nowrap">${escapeHtml(ts.slice(0,19).replace('T',' '))}</div></div><div style="margin-top:6px">${renderBody(body)}</div>`;
         el.appendChild(row);
       }
@@ -1496,7 +1516,7 @@ window.__clawdbotPanelInitError = null;
     // Journal
     try{ await refreshAgentJournal(); } catch(e){}
 
-    agentAddActivity('status', 'Agent view refreshed');
+    // Do not spam live activity with refresh status
 
     // Live refresh: subscribe to HA event; fallback poll while Agent tab is visible.
     const refreshNow = async () => {
@@ -1562,8 +1582,15 @@ window.__clawdbotPanelInitError = null;
     try{ if (statusEl) statusEl.style.display = 'none'; }catch(e){}
 
     let _lastSpeechText = '';
+    let _sttClearTimer = null;
     const getSpeechText = () => {
       try{ return String(outEl.textContent || '').trim(); }catch(e){ return ''; }
+    };
+    const scheduleClearTranscript = (ms=4500) => {
+      try{ if (_sttClearTimer) clearTimeout(_sttClearTimer); }catch(e){}
+      _sttClearTimer = setTimeout(() => {
+        try{ if (!_speechActive) setLine(''); }catch(e){}
+      }, ms);
     };
 
     // Hide stop button (single-toggle UX)
@@ -1586,6 +1613,7 @@ window.__clawdbotPanelInitError = null;
 
         outEl.textContent = t;
         _lastSpeechText = t;
+        try{ if (t) { if (_sttClearTimer) clearTimeout(_sttClearTimer); _sttClearTimer=null; } }catch(e){}
         // Hide the line completely when empty (avoid “empty bar” look)
         outEl.style.display = t ? '' : 'none';
         outEl.style.color = '#25d366';
@@ -1626,6 +1654,7 @@ window.__clawdbotPanelInitError = null;
               sttReleaseMic();
               vizReleaseMic();
               setTimeout(sttWatchdog, 350);
+              scheduleClearTranscript(3500);
               return;
             }
             _speechActive = true;
@@ -1674,9 +1703,11 @@ window.__clawdbotPanelInitError = null;
             btn.textContent = 'Listen';
             _speechActive = false;
             try{ if (text && String(text).trim()) agentAddActivity('voice', String(text).trim()); }catch(e){}
+            scheduleClearTranscript(4000);
             sttReleaseMic();
             vizReleaseMic();
             setTimeout(sttWatchdog, 350);
+            scheduleClearTranscript(3500);
           } catch(e){
             setCaption('whisper failed', 'bad');
             btn.textContent = 'Listen';
@@ -1684,6 +1715,7 @@ window.__clawdbotPanelInitError = null;
             sttReleaseMic();
             vizReleaseMic();
             setTimeout(sttWatchdog, 350);
+            scheduleClearTranscript(3500);
           }
         };
       }
@@ -1723,6 +1755,7 @@ window.__clawdbotPanelInitError = null;
         try{ sttReleaseMic(); }catch(e){}
         try{ vizReleaseMic(); }catch(e){}
         setTimeout(sttWatchdog, 350);
+        scheduleClearTranscript(3500);
       };
     }
 
@@ -1737,11 +1770,11 @@ window.__clawdbotPanelInitError = null;
             setCaption('');
             const t = _lastSpeechText || getSpeechText();
             if (t) agentAddActivity('voice', t);
-            else agentAddActivity('voice', 'Listening stopped');
             // Ensure mic is released (visualizer/analyser)
             sttReleaseMic();
             vizReleaseMic();
             setTimeout(sttWatchdog, 350);
+            scheduleClearTranscript(3500);
             return;
           }
 
@@ -1752,7 +1785,8 @@ window.__clawdbotPanelInitError = null;
           _speechRec.start();
           // Only keep mic while actively listening
           try{ vizEnsureMic().then(()=>{ try{ if (_vizOn && !_vizRaf) vizDraw(); }catch(e){} }); }catch(e){}
-          agentAddActivity('voice', 'Listening started');
+          // Do not log a generic “Listening started” (only log actual transcript text)
+          
         } catch(e){
           setCaption('failed to start', 'bad');
           _speechActive = false;
@@ -3198,15 +3232,15 @@ async function fetchStatesRest(hass){
       }
     });
 
-    // Default landing: Cockpit unless essentials/mapping are missing.
+    // Default landing: Setup if essentials/mapping are missing; otherwise Agent.
     const cfg = (window.__CLAWDBOT_CONFIG__ || {});
     const firstRun = !!(cfg.essentials_missing || cfg.mapping_missing);
     if (firstRun) {
       qs('#tabSetup').onclick();
       // Lightweight wizard hint banner
-      try{ setStatus(true, 'setup needed', 'Complete connection + entity configuration, then return to Cockpit.'); } catch(e){}
+      try{ setStatus(true, 'setup needed', 'Complete connection + entity configuration, then return to Agent/Cockpit.'); } catch(e){}
     } else {
-      qs('#tabCockpit').onclick();
+      qs('#tabAgent').onclick();
     }
 
     try{ const { hass } = await getHass(); dbgStep('connected');
