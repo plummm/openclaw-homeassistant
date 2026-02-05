@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.79"
+PANEL_BUILD_ID = "89337ab.80"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -5443,7 +5443,7 @@ async def async_setup(hass, config):
         key = (key or "").strip()
         if not key or len(key) > 128:
             return False
-        allowed = ("ha.", "clawdbot.", "agent0.", "discord.")
+        allowed = ("ha.", "clawdbot.", "agent0.", "discord.", "stt.")
         return key.startswith(allowed)
 
     def _setup_mask_option(opt: dict) -> dict:
@@ -5632,22 +5632,27 @@ async def async_setup(hass, config):
                 raise HomeAssistantError("value not allowed")
 
     async def handle_setup_option_set(call):
+        """Set a setup option value.
+
+        Important: do not raise HomeAssistantError for validation failures; return
+        `{ok:false,error}` so the panel can surface a friendly message.
+        """
         cfg = hass.data.get(DOMAIN, {})
         await _setup_seed_defaults(cfg)
         reg = cfg.get("setup_registry")
         opts = cfg.get("setup_options")
         if not isinstance(reg, dict) or not isinstance(opts, dict):
-            raise HomeAssistantError("setup registry not initialized")
+            return {"ok": False, "error": "setup registry not initialized"}
 
         key = call.data.get("key")
         if not isinstance(key, str) or not _setup_key_ok(key):
-            raise HomeAssistantError("invalid key")
+            return {"ok": False, "error": "invalid key"}
         if key not in opts or not isinstance(opts.get(key), dict):
-            raise HomeAssistantError("unknown key")
+            return {"ok": False, "error": "unknown key"}
 
         opt = opts[key]
         if bool(opt.get("readOnly")):
-            raise HomeAssistantError("option is readOnly")
+            return {"ok": False, "error": "option is readOnly"}
 
         value = call.data.get("value")
         typ = opt.get("type")
@@ -5656,7 +5661,12 @@ async def async_setup(hass, config):
         if typ == "secret" and (value is None or (isinstance(value, str) and value.strip() == "")):
             return {"ok": True, "noop": True}
 
-        _validate_setup_value(opt, value)
+        try:
+            _validate_setup_value(opt, value)
+        except HomeAssistantError as e:
+            return {"ok": False, "error": str(e)}
+        except Exception:
+            return {"ok": False, "error": "validation failed"}
 
         import datetime as _dt
 
@@ -5719,10 +5729,23 @@ async def async_setup(hass, config):
         await _setup_save(cfg)
         return {"ok": True}
 
+    async def handle_stt_whisper_health(call):
+        cfg = hass.data.get(DOMAIN, {})
+        opts = cfg.get("setup_options")
+        configured = False
+        if isinstance(opts, dict):
+            opt = opts.get("stt.whisper_openai_api_key")
+            if isinstance(opt, dict):
+                v = opt.get("value")
+                if isinstance(v, str) and v.strip():
+                    configured = True
+        return {"ok": True, "configured": configured}
+
     hass.services.async_register(DOMAIN, "setup_options_list", handle_setup_options_list, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "setup_option_define", handle_setup_option_define, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "setup_option_set", handle_setup_option_set, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "setup_option_reset", handle_setup_option_reset, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "stt_whisper_health", handle_stt_whisper_health, supports_response=SupportsResponse.ONLY)
 
     async def handle_journal_append(call):
         cfg = hass.data.get(DOMAIN, {})

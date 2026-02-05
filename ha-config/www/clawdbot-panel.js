@@ -925,6 +925,12 @@ window.__clawdbotPanelInitError = null;
           const rr = await callServiceResponse('clawdbot','setup_option_set', payload);
           const dd = (rr && rr.response) ? rr.response : rr;
           const rrr = dd && dd.result ? dd.result : dd;
+          if (rrr && rrr.ok === false) {
+            const err = rrr.error ? String(rrr.error) : 'error';
+            res.textContent = `Error: ${err}`;
+            toast(`${label}: ${err}`);
+            return;
+          }
           if (rrr && rrr.noop) {
             res.textContent = 'No change.';
             toast(`${label}: unchanged`);
