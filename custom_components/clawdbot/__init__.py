@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.67"
+PANEL_BUILD_ID = "89337ab.68"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1867,12 +1867,35 @@ PANEL_HTML = """<!doctype html>
     .agent-mood.mood-tired{color:#c7cbd1; text-shadow:0 1px 0 rgba(0,0,0,.25);} 
 
     /* Mood / sentiment color accents */
-    .agent-hero{border-color: color-mix(in srgb, var(--cb-border-strong) 65%, var(--claw-accent-a) 20%);}
+    .agent-hero{border-color: color-mix(in srgb, var(--cb-border-strong) 65%, var(--claw-accent-a) 20%);
+      position:relative; overflow:hidden;}
+
+    /* Mood tint overlay: must cover the full rounded rectangle */
+    .agent-hero::before{content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none; z-index:0;
+      background: radial-gradient(900px 260px at 20% 10%, rgba(0,245,255,.16), transparent 60%),
+                  radial-gradient(900px 260px at 80% 0%, rgba(123,44,255,.12), transparent 62%);
+      opacity:1;
+    }
+
     .agent-hero.mood-calm{box-shadow:0 0 0 1px color-mix(in srgb, var(--claw-accent-a) 22%, transparent), var(--cb-shadow-soft);}
+    .agent-hero.mood-calm::before{background: radial-gradient(900px 260px at 20% 10%, rgba(0,245,255,.22), transparent 60%),
+                                  radial-gradient(900px 260px at 80% 0%, rgba(123,44,255,.10), transparent 62%);} 
+
     .agent-hero.mood-alert{box-shadow:0 0 0 1px rgba(255,64,64,.55), 0 0 38px rgba(255,64,64,.26), var(--cb-shadow-soft);}
+    .agent-hero.mood-alert::before{background: radial-gradient(900px 260px at 18% 10%, rgba(255,64,64,.22), transparent 60%),
+                                   radial-gradient(900px 260px at 78% 0%, rgba(255,62,142,.10), transparent 62%);} 
+
     .agent-hero.mood-focused{box-shadow:0 0 0 1px color-mix(in srgb, var(--claw-accent-b) 35%, transparent), 0 0 34px color-mix(in srgb, var(--claw-accent-b) 24%, transparent), var(--cb-shadow-soft);}
+    .agent-hero.mood-focused::before{background: radial-gradient(900px 260px at 22% 10%, rgba(181,123,255,.22), transparent 60%),
+                                     radial-gradient(900px 260px at 82% 0%, rgba(0,245,255,.08), transparent 62%);} 
+
     .agent-hero.mood-degraded{box-shadow:0 0 0 1px rgba(255,166,0,.48), 0 0 34px rgba(255,166,0,.20), var(--cb-shadow-soft);}
+    .agent-hero.mood-degraded::before{background: radial-gradient(900px 260px at 20% 10%, rgba(255,166,0,.20), transparent 60%),
+                                      radial-gradient(900px 260px at 80% 0%, rgba(255,64,64,.08), transparent 62%);} 
+
     .agent-hero.mood-lost{opacity:0.92; filter:saturate(.92);} 
+    .agent-hero.mood-lost::before{background: radial-gradient(900px 260px at 20% 10%, rgba(140,150,160,.10), transparent 60%),
+                                  radial-gradient(900px 260px at 80% 0%, rgba(0,0,0,.06), transparent 62%);} 
     .btn{height:44px;padding:0 16px;border:1px solid var(--cb-border);border-radius:12px;
       background:linear-gradient(135deg,
         color-mix(in srgb, var(--secondary-background-color) 88%, var(--cb-card-bg)),
@@ -2247,7 +2270,7 @@ PANEL_HTML = """<!doctype html>
 
   <div id=\"viewAgent\" class=\"hidden\">
     <div class=\"card agent-hero\" id=\"agentHeroCard\" style=\"position:relative;overflow:hidden\">
-      <div style=\"position:absolute;inset:-40px -60px auto -60px;height:180px;background:radial-gradient(circle at 20% 30%, rgba(0,245,255,.35), transparent 60%), radial-gradient(circle at 70% 40%, rgba(123,44,255,.35), transparent 65%);filter:blur(0px);pointer-events:none\"></div>
+      <div style=\"position:absolute;inset:-40px -60px auto -60px;height:180px;background:radial-gradient(circle at 20% 30%, rgba(0,245,255,.35), transparent 60%), radial-gradient(circle at 70% 40%, rgba(123,44,255,.35), transparent 65%);filter:blur(0px);pointer-events:none;z-index:1\"></div>
       <div class=\"row\" style=\"position:relative;z-index:1;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap\">
         <div class=\"row\" style=\"gap:14px;align-items:center\">
           <div style=\"width:64px;height:64px;border-radius:18px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg, rgba(0,245,255,.25), rgba(123,44,255,.25));border:1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));font-weight:800;letter-spacing:.5px\">A0</div>
