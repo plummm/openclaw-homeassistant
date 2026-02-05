@@ -989,6 +989,11 @@ window.__clawdbotPanelInitError = null;
   let _vizAudioCtx = null;
   let _vizAnalyser = null;
   let _vizMicStream = null;
+  let _vizLastAmp = 0;
+  let _vizLastCentroid = 0.3;
+  let _vizLastFlatness = 0.2;
+  let _vizPeakRate = 0; // peaks/sec-ish
+  let _vizLastPeakTs = 0;
 
   function vizStop(){
     try{ if (_vizRaf) cancelAnimationFrame(_vizRaf); }catch(e){}
@@ -1029,10 +1034,14 @@ window.__clawdbotPanelInitError = null;
     const w = _vizCanvas.width, h = _vizCanvas.height;
     const t = Date.now()/1000;
 
-    // amplitude (0..1)
-    let amp = 0.12;
+    // --- Audio features (cheap proxies) ---
+    let amp = 0.0;        // RMS proxy 0..1
+    let centroid = 0.25;  // spectral centroid proxy 0..1
+    let flatness = 0.15;  // texture/noise proxy 0..1
+
     if (_vizAnalyser) {
       try{
+        // RMS from time domain
         const arr = new Uint8Array(_vizAnalyser.frequencyBinCount);
         _vizAnalyser.getByteTimeDomainData(arr);
         let sum = 0;
@@ -1040,11 +1049,56 @@ window.__clawdbotPanelInitError = null;
           const v = (arr[i]-128)/128;
           sum += v*v;
         }
-        amp = Math.min(1, Math.sqrt(sum/arr.length)*2.5);
+        amp = Math.min(1, Math.sqrt(sum/arr.length)*2.8);
+
+        // Spectrum for centroid/flatness
+        const f = new Uint8Array(_vizAnalyser.frequencyBinCount);
+        _vizAnalyser.getByteFrequencyData(f);
+        let wsum = 0, vsum = 0;
+        let logSum = 0;
+        const eps = 1e-6;
+        for (let i=0;i<f.length;i++) {
+          const v = (f[i]/255);
+          vsum += v;
+          wsum += v * (i/(f.length-1));
+          logSum += Math.log(v + eps);
+        }
+        centroid = (vsum > 0) ? (wsum / (vsum + eps)) : 0.25;
+        const am = vsum / Math.max(1, f.length);
+        const gm = Math.exp(logSum / Math.max(1, f.length));
+        flatness = Math.max(0, Math.min(1, (am > 0) ? (gm/(am+eps)) : 0));
       } catch(e){}
-    } else {
-      // idle breathing
-      amp = 0.10 + 0.05*Math.sin(t*1.2);
+    }
+
+    // Smoothing + noise gate (idle stability)
+    const gate = 0.035;
+    const alpha = 0.18;
+    if (amp < gate) amp = 0;
+    _vizLastAmp = _vizLastAmp*(1-alpha) + amp*alpha;
+    _vizLastCentroid = _vizLastCentroid*(1-alpha) + centroid*alpha;
+    _vizLastFlatness = _vizLastFlatness*(1-alpha) + flatness*alpha;
+
+    amp = _vizLastAmp;
+    centroid = _vizLastCentroid;
+    flatness = _vizLastFlatness;
+
+    // Rhythm proxy: count peaks via threshold crossings
+    try{
+      const thr = 0.10;
+      const nowMs = Date.now();
+      const wasBelow = (_vizLastAmp < thr);
+      const isAbove = (amp >= thr);
+      if (wasBelow && isAbove && (nowMs - _vizLastPeakTs) > 120) {
+        _vizLastPeakTs = nowMs;
+        _vizPeakRate = Math.min(8, _vizPeakRate + 1.0);
+      }
+      _vizPeakRate *= 0.96; // decay
+    } catch(e){}
+
+    const speaking = amp > 0.02;
+    if (!speaking && !_vizAnalyser) {
+      // idle breathing when mic unavailable
+      amp = 0.04 + 0.01*Math.sin(t*0.6);
     }
 
     // clear
@@ -1053,20 +1107,33 @@ window.__clawdbotPanelInitError = null;
     // ring params
     const cx=w/2, cy=h/2;
     const baseR = Math.min(w,h)*0.24;
-    const jitter = 1.5 + amp*6;
 
+    // Timbre/texture proxy -> jitter/noise granularity
+    const idleJitter = 0.35;
+    const jitter = (speaking ? (0.9 + amp*7.5 + flatness*3.0) : idleJitter);
+
+    // Mood base hue + pitch proxy (centroid) -> hue shift + rotation speed
     const mood = (window.__CLAWDBOT_CONFIG__ && window.__CLAWDBOT_CONFIG__.agent_profile && window.__CLAWDBOT_CONFIG__.agent_profile.mood) ? String(window.__CLAWDBOT_CONFIG__.agent_profile.mood) : 'calm';
-    const col = (mood==='alert') ? 'rgba(255,64,64,' : (mood==='focused') ? 'rgba(181,123,255,' : (mood==='degraded') ? 'rgba(255,166,0,' : 'rgba(0,245,255,';
+    const baseHue = (mood==='alert') ? 6 : (mood==='focused') ? 272 : (mood==='degraded') ? 38 : 186;
+    const hue = baseHue + (centroid-0.35)*70;
+    const sat = 92;
+    const light = 56;
+
+    const colA = (a) => `hsla(${hue.toFixed(1)}, ${sat}%, ${light}%, ${a})`;
 
     // sketch ring
     ctx.lineWidth = 2;
-    ctx.strokeStyle = col + (0.55 + amp*0.25) + ')';
-    ctx.shadowBlur = 14 + amp*30;
-    ctx.shadowColor = col + (0.35 + amp*0.15) + ')';
+    ctx.strokeStyle = colA(0.52 + amp*0.28);
+    // Volume → glow intensity
+    ctx.shadowBlur = 8 + amp*34;
+    ctx.shadowColor = colA(0.28 + amp*0.18);
+
+    // Pitch proxy → rotation speed
+    const rot = (0.9 + centroid*2.4);
 
     ctx.beginPath();
     for (let a=0;a<=Math.PI*2+0.001;a+=Math.PI/64){
-      const rr = baseR + (Math.sin(a*6 + t*3)*0.8 + Math.sin(a*13 - t*2)*0.5)*jitter;
+      const rr = baseR + (Math.sin(a*6 + t*3*rot)*0.8 + Math.sin(a*13 - t*2.1*rot)*0.5)*jitter;
       const x = cx + Math.cos(a)*rr;
       const y = cy + Math.sin(a)*rr;
       if (a===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
@@ -1074,18 +1141,34 @@ window.__clawdbotPanelInitError = null;
     ctx.closePath();
     ctx.stroke();
 
-    // ripples
+    // Duration (speech vs silence) → ripple cadence + tail fade
+    // Rhythm (peak rate) → pulse accent
     ctx.shadowBlur = 0;
-    for (let i=0;i<3;i++){
-      const phase = (t*0.55 + i*0.25) % 1;
-      const rr = baseR + 10 + phase*(20 + amp*30);
-      const alpha = (1-phase) * (0.18 + amp*0.12);
-      ctx.strokeStyle = col + alpha + ')';
-      ctx.lineWidth = 1;
+    const rippleSpeed = speaking ? (0.85 + Math.min(1.2, _vizPeakRate*0.12)) : 0.18;
+    const rippleCount = speaking ? 4 : 2;
+    for (let i=0;i<rippleCount;i++){
+      const phase = (t*rippleSpeed + i*0.22) % 1;
+      const rr = baseR + 10 + phase*(18 + amp*42);
+      const alpha = (1-phase) * (speaking ? (0.12 + amp*0.18) : 0.06);
+      ctx.strokeStyle = colA(alpha);
+      ctx.lineWidth = (i===0 && _vizPeakRate>1.2) ? 1.6 : 1;
       ctx.beginPath();
       ctx.arc(cx,cy,rr,0,Math.PI*2);
       ctx.stroke();
     }
+
+    // Texture → subtle grain dots
+    try{
+      const dots = speaking ? Math.floor(6 + flatness*18) : 2;
+      ctx.fillStyle = colA(0.12 + amp*0.10);
+      for (let i=0;i<dots;i++){
+        const a = (i/dots)*Math.PI*2 + t*0.4*rot;
+        const rr = baseR + 6 + (i%3)*4 + amp*16;
+        const x = cx + Math.cos(a)*rr;
+        const y = cy + Math.sin(a*1.1)*rr;
+        ctx.fillRect(x, y, 1, 1);
+      }
+    } catch(e){}
 
     _vizRaf = requestAnimationFrame(vizDraw);
   }

@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.85"
+PANEL_BUILD_ID = "89337ab.86"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1996,8 +1996,8 @@ PANEL_HTML = """<!doctype html>
       .agent-desc{font-size:14px;}
       .agent-mood{font-size:12px;}
 
-      /* Visualizer: move to top-right corner of hero on mobile */
-      #agentVizWrap{width:72px !important; height:72px !important;}
+      /* Visualizer: move to top-left corner of hero on mobile */
+      #agentVizWrap{width:72px !important; height:72px !important; position:absolute !important; top:12px !important; left:12px !important; right:auto !important; z-index:6 !important;}
       #agentViz{width:72px !important; height:72px !important;}
 
       /* STT widget legacy float is hidden */
