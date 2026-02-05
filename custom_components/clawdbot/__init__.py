@@ -160,11 +160,14 @@ JOURNAL_STORE_VERSION = 1
 AGENT_PROFILE_STORE_KEY = "clawdbot_agent_profile"
 AGENT_PROFILE_STORE_VERSION = 1
 
+AGENT_STATE_WEBHOOK_STORE_KEY = "clawdbot_agent_state_webhook"
+AGENT_STATE_WEBHOOK_STORE_VERSION = 1
+
 OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.57"
+PANEL_BUILD_ID = "89337ab.58"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -3189,6 +3192,14 @@ async def async_setup(hass, config):
     # Journal store (append-only, capped)
     journal_store = Store(hass, JOURNAL_STORE_VERSION, JOURNAL_STORE_KEY)
     journal_items = await journal_store.async_load() or []
+
+    # Agent state webhook id (for Agent 0 cross-host push, no token required)
+    agent_state_webhook_store = Store(
+        hass, AGENT_STATE_WEBHOOK_STORE_VERSION, AGENT_STATE_WEBHOOK_STORE_KEY
+    )
+    agent_state_webhook = await agent_state_webhook_store.async_load() or {}
+    if not isinstance(agent_state_webhook, dict):
+        agent_state_webhook = {}
     if not isinstance(journal_items, list):
         journal_items = []
 
@@ -3211,6 +3222,8 @@ async def async_setup(hass, config):
             "journal": journal_items[-200:],
             "agent_profile_store": agent_profile_store,
             "agent_profile": agent_profile,
+            "agent_state_webhook_store": agent_state_webhook_store,
+            "agent_state_webhook": agent_state_webhook,
         }
     )
 
@@ -3231,6 +3244,61 @@ async def async_setup(hass, config):
         _LOGGER.info("Registered Clawdbot mapping API → %s", ClawdbotMappingApiView.url)
     except Exception:
         _LOGGER.exception("Failed to register Clawdbot HTTP views")
+
+    # Register agent state webhook handler (cross-host push without token)
+    try:
+        from homeassistant.components import webhook
+        from aiohttp.web import Response
+
+        store: Store = hass.data[DOMAIN].get("agent_state_webhook_store")
+        data = hass.data[DOMAIN].get("agent_state_webhook")
+        if store is not None and isinstance(data, dict):
+            webhook_id = data.get("webhook_id")
+            if not isinstance(webhook_id, str) or not webhook_id:
+                webhook_id = webhook.async_generate_id()
+                data = {"webhook_id": webhook_id}
+                await store.async_save(data)
+                hass.data[DOMAIN]["agent_state_webhook"] = data
+
+            async def _handle_agent_state_webhook(hass, webhook_id, request):
+                try:
+                    payload = await request.json()
+                except Exception:
+                    return Response(status=200)
+                if not isinstance(payload, dict):
+                    return Response(status=200)
+
+                call_data = {
+                    "mood": payload.get("mood"),
+                    "description": payload.get("description"),
+                    "journal": payload.get("journal"),
+                    "source": payload.get("source") or "agent0",
+                }
+
+                try:
+                    class _Call:
+                        __slots__ = ("data",)
+
+                        def __init__(self, data):
+                            self.data = data
+
+                    await handle_agent_state_set(_Call(call_data))
+                except Exception:
+                    return Response(status=200)
+                return Response(status=200)
+
+            webhook.async_register(
+                hass,
+                DOMAIN,
+                "agent_state_push",
+                webhook_id,
+                _handle_agent_state_webhook,
+                local_only=False,
+                allowed_methods=("POST",),
+            )
+            _LOGGER.info("Registered agent state webhook → /api/webhook/%s", webhook_id)
+    except Exception:
+        _LOGGER.exception("Failed to register agent state webhook")
 
     # Panel (iframe)
     try:
@@ -5326,11 +5394,38 @@ async def async_setup(hass, config):
         """Pulse is now read-only: refresh the latest agent-managed state."""
         return await handle_agent_state_get(call)
 
+    async def handle_agent_state_webhook_get(call):
+        """Return the webhook id/path for Agent 0 to push state updates cross-host."""
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("agent_state_webhook_store")
+        data = cfg.get("agent_state_webhook", {})
+        if store is None or not isinstance(data, dict):
+            raise HomeAssistantError("agent state webhook store not initialized")
+
+        webhook_id = data.get("webhook_id")
+        if not isinstance(webhook_id, str) or not webhook_id:
+            try:
+                from homeassistant.components import webhook
+
+                webhook_id = webhook.async_generate_id()
+            except Exception:
+                # fallback; HA should have webhook component
+                import secrets
+
+                webhook_id = secrets.token_hex(32)
+            data = {"webhook_id": webhook_id}
+            await store.async_save(data)
+            cfg["agent_state_webhook"] = data
+
+        # Only return the id + path; full URL depends on HA external_url/internal_url.
+        return {"ok": True, "webhook_id": webhook_id, "path": f"/api/webhook/{webhook_id}"}
+
     hass.services.async_register(DOMAIN, "agent_profile_get", handle_agent_profile_get, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "agent_profile_set", handle_agent_profile_set, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "agent_state_get", handle_agent_state_get, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "agent_state_set", handle_agent_state_set, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "agent_state_reset", handle_agent_state_reset, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "agent_state_webhook_get", handle_agent_state_webhook_get, supports_response=SupportsResponse.ONLY)
     # Back-compat: pulse now just refreshes state (read-only)
     hass.services.async_register(DOMAIN, "agent_pulse", handle_agent_pulse, supports_response=SupportsResponse.ONLY)
 
