@@ -1571,6 +1571,80 @@ window.__clawdbotPanelInitError = null;
     try{ vizInit(); if (_vizOn) vizDraw(); } catch(e){}
 
     bindSpeechUi();
+    bindAvatarGenUi();
+  }
+
+  function bindAvatarGenUi(){
+    const btn = document.getElementById('agentAvatarBtn');
+    const modal = document.getElementById('avatarGenModal');
+    const ta = document.getElementById('avatarGenText');
+    const closeBtn = document.getElementById('avatarGenClose');
+    const surpriseBtn = document.getElementById('avatarGenSurprise');
+    const genBtn = document.getElementById('avatarGenGenerate');
+    const hint = document.getElementById('avatarGenHint');
+    if (!btn || !modal || !ta || !closeBtn || !surpriseBtn || !genBtn) return;
+
+    const open = () => { try{ modal.classList.remove('hidden'); }catch(e){} };
+    const close = () => { try{ modal.classList.add('hidden'); }catch(e){} };
+
+    const rand = (arr) => arr[Math.floor(Math.random()*arr.length)];
+
+    const surpriseDraft = () => {
+      const ages = ['early 20s','mid 20s','late 20s','early 30s','mid 30s','late 30s'];
+      const gender = ['woman','man','androgynous'];
+      const hair = ['short black hair','long wavy hair','buzz cut','curly hair tied back','silver-streaked hair'];
+      const eyes = ['dark brown eyes','bright hazel eyes','icy blue eyes','warm amber eyes'];
+      const outfit = ['a sleek pilot jacket with neon piping','a minimalist black hoodie under a tactical vest','a soft cardigan over a futuristic jumpsuit','a crisp white shirt with a holographic badge','a vintage bomber jacket with stitched mission patches'];
+      const vibe = ['calm and precise','playful but sharp','quietly confident','curious and kind','intense and focused'];
+      const interests = ['stargazing','systems engineering','music production','martial arts','old sci‑fi films','mechanical keyboards','street photography'];
+      const childhood = ['grew up fixing broken radios in a small coastal town','spent childhood nights watching meteor showers from a rooftop','was raised around a busy spaceport market','built their first robot from scrap at age 10','learned patience from long train rides with a sketchbook'];
+
+      const a = rand(ages);
+      const g = rand(gender);
+      const s1 = `A ${g} in their ${a}, with ${rand(hair)} and ${rand(eyes)}.`;
+      const s2 = `They wear ${rand(outfit)} and give off a ${rand(vibe)} vibe.`;
+      const s3 = `They’re into ${rand(interests)} and ${rand(interests)}.`;
+      const s4 = `As a kid, they ${rand(childhood)}.`;
+      return [s1,s2,s3,s4].join(' ');
+    };
+
+    const STYLE_LINE = 'Image style: profile pic, head shot style, character face to the camera';
+
+    btn.onclick = () => {
+      try{ if (hint) hint.textContent = ''; }catch(e){}
+      open();
+    };
+    closeBtn.onclick = close;
+    modal.addEventListener('click', (ev) => {
+      try{ if (ev.target === modal) close(); }catch(e){}
+    });
+
+    surpriseBtn.onclick = () => {
+      const txt = surpriseDraft();
+      ta.value = txt;
+      try{ if (hint) hint.textContent = 'Draft generated. Edit freely, then hit Generate.'; }catch(e){}
+    };
+
+    genBtn.onclick = async () => {
+      let txt = String(ta.value || '').trim();
+      if (!txt) {
+        toast('Please describe your agent first');
+        return;
+      }
+      if (!txt.toLowerCase().includes('image style:')) {
+        txt = txt + '\n\n' + STYLE_LINE;
+        ta.value = txt;
+      }
+
+      // MVP: we only assemble the final prompt for image generation.
+      // Next step is wiring an image-gen backend (Agent0/host or HA-stored key).
+      try{
+        await navigator.clipboard.writeText(txt);
+        toast('Prompt copied. Image gen not wired yet.');
+      } catch(e) {
+        toast('Prompt prepared. Image gen not wired yet.');
+      }
+    };
   }
 
   function bindSpeechUi(){

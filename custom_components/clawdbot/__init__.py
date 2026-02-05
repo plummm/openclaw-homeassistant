@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.95"
+PANEL_BUILD_ID = "89337ab.96"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -2358,7 +2358,7 @@ PANEL_HTML = """<!doctype html>
       <div style=\"position:absolute;inset:0;background:radial-gradient(circle at 20% 30%, rgba(0,245,255,.22), transparent 60%), radial-gradient(circle at 70% 40%, rgba(123,44,255,.20), transparent 65%);filter:blur(0px);pointer-events:none;z-index:1\"></div>
       <div class=\"row\" style=\"position:relative;z-index:1;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap\">
         <div class=\"row\" style=\"gap:14px;align-items:center\">
-          <div style=\"width:128px;height:128px;border-radius:28px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg, rgba(0,245,255,.25), rgba(123,44,255,.25));border:1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));font-weight:800;letter-spacing:.5px;font-size:28px\">A0</div>
+          <button type=\"button\" id=\"agentAvatarBtn\" class=\"btn\" style=\"width:128px;height:128px;border-radius:28px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg, rgba(0,245,255,.25), rgba(123,44,255,.25));border:1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));font-weight:800;letter-spacing:.5px;font-size:28px;cursor:pointer\">A0</button>\n          <div id=\"avatarGenModal\" class=\"modal hidden\">\n            <div class=\"modal-card\" style=\"max-width:680px\">\n              <div style=\"display:flex;justify-content:space-between;align-items:center;gap:10px\">\n                <div style=\"font-weight:900\">Describe your agent</div>\n                <button class=\"btn\" id=\"avatarGenClose\">Close</button>\n              </div>\n              <div class=\"muted\" style=\"margin-top:8px\">Describe what your agent looks like. Or hit <b>Surprise me</b> to auto-draft a backstory + appearance.</div>\n              <textarea id=\"avatarGenText\" style=\"margin-top:12px;width:100%;min-height:140px;resize:vertical;border-radius:14px;border:1px solid var(--cb-border-strong);padding:12px;background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color);font-family:inherit\" placeholder=\"e.g., Warm smile, short black hair, futuristic pilot jacket...\"></textarea>\n              <div class=\"row\" style=\"justify-content:flex-end;gap:10px;margin-top:12px\">\n                <button class=\"btn\" id=\"avatarGenSurprise\">Surprise me</button>\n                <button class=\"btn primary\" id=\"avatarGenGenerate\">Generate</button>\n              </div>\n              <div class=\"muted\" id=\"avatarGenHint\" style=\"margin-top:10px;font-size:12px\"></div>\n            </div>\n          </div>
           <div style=\"display:flex;flex-direction:column;gap:4px;min-width:260px\">
             <div class=\"agent-title\">Agent 0 <span class=\"agent-mood\" id=\"agentMood\">· mood: calm</span></div>
             <div class=\"agent-desc\" id=\"agentDesc\">Ship ops / energy monitoring assistant</div>
