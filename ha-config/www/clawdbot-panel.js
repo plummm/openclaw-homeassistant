@@ -1030,6 +1030,8 @@ window.__clawdbotPanelInitError = null;
   let _agentStateSubUnsub = null;
   let _agentRefreshInFlight = false;
   let _agentLastRefreshMs = 0;
+  let _agentLastEventMs = 0;
+  let _agentEventCount = 0;
 
   async function refreshAgentState(){
     try{
@@ -1042,12 +1044,18 @@ window.__clawdbotPanelInitError = null;
         const moodEl = document.getElementById('agentMood');
         const descEl = document.getElementById('agentDesc');
         const metaEl = document.getElementById('agentMeta');
+        const liveEl = document.getElementById('agentLiveMeta');
         if (moodEl) moodEl.textContent = `· mood: ${prof.mood || 'calm'}`;
         if (descEl) descEl.textContent = prof.description || '—';
         if (metaEl) {
           const src = prof.source ? String(prof.source) : '—';
           const ts = prof.updated_ts ? String(prof.updated_ts) : '—';
           metaEl.textContent = `source: ${src} · updated: ${ts}`;
+        }
+        if (liveEl) {
+          const lr = _agentLastRefreshMs ? new Date(_agentLastRefreshMs).toISOString().slice(11,19) : '—';
+          const le = _agentLastEventMs ? new Date(_agentLastEventMs).toISOString().slice(11,19) : '—';
+          liveEl.textContent = `live: event=${_agentEventCount} (last ${le}) · refresh ${lr} · poll 15s`;
         }
         try{
           const hero = document.getElementById('agentHeroCard');
@@ -1172,6 +1180,15 @@ window.__clawdbotPanelInitError = null;
         await refreshAgentState();
         await refreshAgentJournal();
         _agentLastRefreshMs = Date.now();
+        try{
+          const liveEl = document.getElementById('agentLiveMeta');
+          if (liveEl) {
+            const lr = new Date(_agentLastRefreshMs).toISOString().slice(11,19);
+            const le = _agentLastEventMs ? new Date(_agentLastEventMs).toISOString().slice(11,19) : '—';
+            liveEl.textContent = `live: event=${_agentEventCount} (last ${le}) · refresh ${lr} · poll 15s`;
+          }
+        } catch(e){}
+
       } catch(e){} finally {
         _agentRefreshInFlight = false;
       }
@@ -1187,6 +1204,10 @@ window.__clawdbotPanelInitError = null;
         const { conn } = await getHass();
         if (conn && conn.subscribeEvents) {
           _agentStateSubUnsub = await conn.subscribeEvents(async (_ev) => {
+            try{
+              _agentEventCount += 1;
+              _agentLastEventMs = Date.now();
+            } catch(e){}
             try{ await refreshNow(); }catch(e){}
           }, 'clawdbot_agent_state_changed');
         }

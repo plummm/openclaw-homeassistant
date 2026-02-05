@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.65"
+PANEL_BUILD_ID = "89337ab.66"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1855,9 +1855,9 @@ PANEL_HTML = """<!doctype html>
     /* Mood / sentiment color accents */
     .agent-hero{border-color: color-mix(in srgb, var(--cb-border-strong) 65%, var(--claw-accent-a) 20%);}
     .agent-hero.mood-calm{box-shadow:0 0 0 1px color-mix(in srgb, var(--claw-accent-a) 22%, transparent), var(--cb-shadow-soft);}
-    .agent-hero.mood-alert{box-shadow:0 0 0 1px rgba(255,64,64,.35), 0 0 26px rgba(255,64,64,.18), var(--cb-shadow-soft);}
-    .agent-hero.mood-focused{box-shadow:0 0 0 1px color-mix(in srgb, var(--claw-accent-b) 22%, transparent), 0 0 26px color-mix(in srgb, var(--claw-accent-b) 18%, transparent), var(--cb-shadow-soft);}
-    .agent-hero.mood-degraded{box-shadow:0 0 0 1px rgba(255,166,0,.30), 0 0 24px rgba(255,166,0,.14), var(--cb-shadow-soft);}
+    .agent-hero.mood-alert{box-shadow:0 0 0 1px rgba(255,64,64,.55), 0 0 38px rgba(255,64,64,.26), var(--cb-shadow-soft);}
+    .agent-hero.mood-focused{box-shadow:0 0 0 1px color-mix(in srgb, var(--claw-accent-b) 35%, transparent), 0 0 34px color-mix(in srgb, var(--claw-accent-b) 24%, transparent), var(--cb-shadow-soft);}
+    .agent-hero.mood-degraded{box-shadow:0 0 0 1px rgba(255,166,0,.48), 0 0 34px rgba(255,166,0,.20), var(--cb-shadow-soft);}
     .agent-hero.mood-lost{opacity:0.92; filter:saturate(.92);} 
     .btn{height:44px;padding:0 16px;border:1px solid var(--cb-border);border-radius:12px;
       background:linear-gradient(135deg,
@@ -2241,6 +2241,7 @@ PANEL_HTML = """<!doctype html>
             <div class=\"agent-title\">Agent 0 <span class=\"muted\" id=\"agentMood\" style=\"font-weight:800\">· mood: calm</span></div>
             <div class=\"agent-desc\" id=\"agentDesc\">Ship ops / energy monitoring assistant</div>
             <div class=\"muted\" id=\"agentMeta\" style=\"font-size:11px\"></div>
+            <div class=\"muted\" id=\"agentLiveMeta\" style=\"font-size:11px\"></div>
             <div class=\"row\" style=\"gap:8px;flex-wrap:wrap\">
               <span class=\"pill\" id=\"agentConnPill\">…</span>
               <span class=\"pill\" id=\"agentDerivedPill\">…</span>
