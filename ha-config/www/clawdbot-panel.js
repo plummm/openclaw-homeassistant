@@ -1700,6 +1700,13 @@ window.__clawdbotPanelInitError = null;
       try{ if (ev.target === modal) close(); }catch(e){}
     });
 
+    // Focus/contrast polish
+    try{
+      ta.addEventListener('focus', () => { try{ ta.style.borderColor = 'rgba(0,245,255,0.45)'; ta.style.boxShadow = '0 0 0 3px rgba(0,245,255,0.12)'; }catch(e){} });
+      ta.addEventListener('blur', () => { try{ ta.style.borderColor = 'rgba(0,245,255,0.16)'; ta.style.boxShadow = 'none'; }catch(e){} });
+    } catch(e){}
+
+
     const SURPRISE_LABEL = 'avatar-surprise-agent0';
     const SURPRISE_PROMPT = [
       "You are the agent. The user is setting your profile avatar.",
