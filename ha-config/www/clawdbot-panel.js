@@ -1674,28 +1674,16 @@ window.__clawdbotPanelInitError = null;
             clamp(); draw();
             const dataUrl = canvas.toDataURL('image/png');
             const b64 = (dataUrl.split(',',2)[1] || '');
-            if (!b64) throw new Error('export failed');
-
             const rr = await callServiceResponse('clawdbot','agent_avatar_set',{ avatar_b64: b64 });
-            if (rr && rr.success === false) {
-              const msg = (rr.error && rr.error.message) ? rr.error.message : 'save failed';
-              throw new Error(msg);
-            }
-            const sr = (rr && rr.result && rr.result.service_response) ? rr.result.service_response : null;
-            if (sr && sr.ok === false) throw new Error(sr.error || 'save failed');
-
-            // Update UI immediately + verify by fetching the served avatar
-            const im = document.getElementById('agentAvatarImg');
-            if (im) {
-              im.src = `/api/clawdbot/agent_avatar.png?ts=${Date.now()}`;
-              try{ await fetch(im.src, { cache:'no-store', credentials:'include' }); }catch(e){}
-            }
+            const data = (rr && rr.response) ? rr.response : rr;
+            const r = data && data.result ? data.result : data;
+            if (r && r.ok === false) throw new Error(r.error || 'save failed');
             toast('Avatar saved');
+            try{ const im = document.getElementById('agentAvatarImg'); if (im) im.src = `/api/clawdbot/agent_avatar.png?ts=${Date.now()}`; }catch(e){}
             close();
             try{ URL.revokeObjectURL(url); }catch(e){}
           } catch(e){
-            const msg = (e && e.message) ? String(e.message) : 'save failed';
-            toast(`Avatar save failed: ${msg}`);
+            toast('Avatar save failed');
           }
         };
 
