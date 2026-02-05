@@ -924,7 +924,7 @@ window.__clawdbotPanelInitError = null;
         btnPulse.disabled = true;
         agentAddActivity('pulse', 'Pulse sent');
         try{
-          const resp = await callServiceResponse('clawdbot','agent_pulse', { session_key: cfg.session_key || 'main' });
+          const resp = await callServiceResponse('clawdbot','agent_state_get', {});
           const data = (resp && resp.response) ? resp.response : resp;
           const r = data && data.result ? data.result : data;
           const prof = r && r.profile ? r.profile : null;
@@ -933,32 +933,10 @@ window.__clawdbotPanelInitError = null;
             const moodEl = document.getElementById('agentMood');
             const descEl = document.getElementById('agentDesc');
             if (moodEl) moodEl.textContent = `· mood: ${prof.mood || 'calm'}`;
-            if (descEl) descEl.textContent = prof.description || 'Ship ops / energy monitoring assistant (default)';
+            if (descEl) descEl.textContent = prof.description || '—';
           }
-
-          // Optional theme suggestion (debounced, only when Auto(mood) enabled)
-          try{
-            const auto = !!(window.__CLAWDBOT_CONFIG__ && window.__CLAWDBOT_CONFIG__.theme && window.__CLAWDBOT_CONFIG__.theme.auto);
-            const sug = r && r.theme_suggestion ? String(r.theme_suggestion) : null;
-            if (auto && sug) {
-              const now = Date.now();
-              const lastTs = window.__CLAWDBOT_LAST_THEME_TS || 0;
-              const lastKey = window.__CLAWDBOT_LAST_THEME_KEY || null;
-              const mood = prof && prof.mood ? String(prof.mood) : '';
-              const escalate = (mood === 'alert');
-              const okTime = (now - lastTs) >= 5*60*1000;
-              if ((okTime || escalate) && lastKey !== sug) {
-                window.__CLAWDBOT_LAST_THEME_TS = now;
-                window.__CLAWDBOT_LAST_THEME_KEY = sug;
-                applyThemePreset(sug, {silent:false, mood});
-                try{ await callServiceResponse('clawdbot','theme_set',{preset: sug, auto:true}); } catch(e){}
-                toast(`Theme: ${sug} (mood: ${mood||'—'})`);
-              }
-            }
-          } catch(e){}
-
           await refreshAgentJournal();
-          toast(r && r.toast ? r.toast : 'Pulse complete');
+          toast('Pulse synced');
         } catch(e){
           toast('Pulse failed: ' + String(e));
         } finally {

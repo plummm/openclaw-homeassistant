@@ -164,7 +164,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.55"
+PANEL_BUILD_ID = "89337ab.56"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -5221,258 +5221,90 @@ async def async_setup(hass, config):
         cfg["agent_profile"] = prof
         return {"ok": True, "profile": prof}
 
-    async def handle_agent_pulse(call):
-        """Trigger agent reflection: update mood/description and append a journal entry."""
+    async def handle_agent_state_get(call):
+        cfg = hass.data.get(DOMAIN, {})
+        prof = cfg.get("agent_profile", {})
+        if not isinstance(prof, dict):
+            prof = {}
+        items = cfg.get("journal", []) or []
+        if not isinstance(items, list):
+            items = []
+        latest = items[-1] if items else None
+        return {"ok": True, "profile": prof, "latest_journal": latest}
+
+    async def handle_agent_state_set(call):
+        """Write agent-managed mood/description and optionally append a journal entry.
+
+        This is intended to be called by Agent 0 (push hook).
+        """
         cfg = hass.data.get(DOMAIN, {})
         prof_store: Store = cfg.get("agent_profile_store")
         journal_store: Store = cfg.get("journal_store")
         if prof_store is None or journal_store is None:
             raise HomeAssistantError("stores not initialized")
 
-        # Determine current mood from runtime signals
-        rt = _runtime(hass)
-        # default mood
-        mood = "calm"
-        # gateway connectivity via runtime essentials
-        if not rt.get("gateway_origin") or not rt.get("token"):
-            mood = "lost"
-        else:
-            # if derived sensors disabled, focus
-            if not bool(rt.get("derived_enabled")):
-                mood = "focused"
+        mood = call.data.get("mood")
+        desc = call.data.get("description")
+        journal = call.data.get("journal")
+        source = call.data.get("source")
 
-        # Ask gateway to generate a short description + journal (best-effort)
-        session, gateway_origin, token, _default_session_key = _runtime_gateway_parts(hass)
-        prompt = (
-            "[PULSE_INTERNAL] You are Agent 0. Reply with *only* a JSON object wrapped in sentinels exactly like: "
-            "BEGIN_JSON\n{...}\nEND_JSON\n"
-            "No other text. No markdown. "
-            "Keys: mood (one of calm|focused|alert|playful|tired), description (<=80 chars), "
-            "journal_title (<=60), journal_body (<=500), theme_suggestion (optional theme key). "
-            "Base it on being a ship ops / energy monitoring assistant in Home Assistant. "
-            "Keep the description punchy and distinct (not generic). "
-            f"Current detected mood hint: {mood}."
-        )
-
-        # Use the configured runtime session directly (reliable agent turn).
-        # Subagent sessions_spawn does not reliably surface assistant messages via sessions_history.
-        sk = rt.get("session_key") or DEFAULT_SESSION_KEY
-        if not isinstance(sk, str) or not sk:
-            sk = DEFAULT_SESSION_KEY
-
-        spawn_debug = {"mode": "sessions_send", "sessionKey": sk}
-
-        payload_send = {"tool": "sessions_send", "args": {"sessionKey": sk, "message": prompt}}
-        await _gw_post(session, gateway_origin + "/tools/invoke", token, payload_send)
-
-        # Poll for response (short)
-        import asyncio, json as _json
-        resp_txt = None
-        resp_raw = None
-        debug_quick = bool(call.data.get("debug"))
-        max_attempts = 6 if debug_quick else 40
-        sleep_s = 0.2 if debug_quick else 0.75
-
-        poll_debug = {
-            "attempts": 0,
-            "tool": "sessions_history",
-            "debug_quick": debug_quick,
-            "hist_top_keys": [],
-            "raw_top_keys": [],
-            "details_keys": [],
-            "details_status": None,
-            "details_runId": None,
-            "content_len": 0,
-            "msgs_len": None,
-            "last_role": None,
-            "last_content_type": None,
-            "last_text_len": 0,
-        }
-        for _ in range(max_attempts):
-            poll_debug["attempts"] += 1
-            payload_hist = {"tool": "sessions_history", "args": {"sessionKey": sk, "limit": 10}}
-            hist = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload_hist)
-            try:
-                if isinstance(hist, dict):
-                    poll_debug["hist_top_keys"] = sorted(list(hist.keys()))[:30]
-            except Exception:
-                pass
-            # extract text
-            try:
-                raw = hist
-                for __ in range(3):
-                    if isinstance(raw, dict) and "result" in raw:
-                        raw = raw.get("result")
-                    else:
-                        break
-
-                # Match chat_poll parsing: some gateways return {details:{messages:[...]}} wrapper
-                if isinstance(raw, dict) and isinstance(raw.get("details"), dict):
-                    details = raw.get("details")
-                    if isinstance(details.get("messages"), list):
-                        raw = details
-
-                if isinstance(raw, dict):
-                    poll_debug["raw_top_keys"] = sorted(list(raw.keys()))[:30]
-                    # capture details + content len
-                    try:
-                        d = raw.get("details")
-                        if isinstance(d, dict):
-                            poll_debug["details_keys"] = sorted(list(d.keys()))[:30]
-                            st = d.get("status")
-                            if st is not None:
-                                poll_debug["details_status"] = str(st)[:80]
-                            rid = d.get("runId")
-                            if rid is not None:
-                                poll_debug["details_runId"] = str(rid)[:120]
-                    except Exception:
-                        pass
-                    try:
-                        c = raw.get("content")
-                        if isinstance(c, str):
-                            poll_debug["content_len"] = len(c)
-                    except Exception:
-                        pass
-
-                msgs = None
-                if isinstance(raw, dict) and isinstance(raw.get("messages"), list):
-                    msgs = raw.get("messages")
-                elif isinstance(raw, list):
-                    msgs = raw
-
-                # Some gateway builds return sessions_history as {content, details} (markdown/text), not messages[].
-                if msgs is None and isinstance(raw, dict) and isinstance(raw.get("content"), str):
-                    text = raw.get("content").strip()
-                    if text:
-                        resp_raw = text
-                        poll_debug["last_text_len"] = len(text)
-                        poll_debug["last_content_type"] = "content:str"
-                        if "BEGIN_JSON" in text and "END_JSON" in text:
-                            b = text.find("BEGIN_JSON")
-                            e = text.rfind("END_JSON")
-                            inner = text[b + len("BEGIN_JSON") : e].strip()
-                            if inner.startswith("{"):
-                                resp_txt = inner
-                        elif text.startswith("{"):
-                            resp_txt = text
-
-                poll_debug["msgs_len"] = len(msgs) if isinstance(msgs, list) else None
-                if msgs and not resp_txt:
-                    # Record last message shape for debug
-                    for m in reversed(msgs):
-                        if isinstance(m, dict):
-                            poll_debug["last_role"] = m.get("role")
-                            c = m.get("content")
-                            poll_debug["last_content_type"] = type(c).__name__
-                            break
-                    for m in reversed(msgs):
-                        if not isinstance(m, dict):
-                            continue
-                        role_raw = m.get("role")
-                        if role_raw not in {"assistant", "agent"}:
-                            continue
-                        content = m.get("content")
-                        parts = []
-                        if isinstance(content, list):
-                            for p in content:
-                                if isinstance(p, dict) and p.get("type") == "text":
-                                    parts.append(str(p.get("text") or ""))
-                        elif isinstance(content, str):
-                            parts.append(content)
-                        text = "".join(parts).strip()
-                        if text:
-                            resp_raw = text
-                            poll_debug["last_text_len"] = len(text)
-                        if "BEGIN_JSON" in text and "END_JSON" in text:
-                            b = text.find("BEGIN_JSON")
-                            e = text.rfind("END_JSON")
-                            inner = text[b + len("BEGIN_JSON") : e].strip()
-                            if inner.startswith("{"):
-                                resp_txt = inner
-                                break
-                        if text.startswith("{"):
-                            resp_txt = text
-                            break
-
-                if resp_txt:
-                    break
-            except Exception:
-                pass
-            await asyncio.sleep(sleep_s)
-
-        # Apply response or fallback
-        default_desc = "Ship ops / energy monitoring assistant"
-        desc = default_desc
-        title = "Pulse"
-        body = "Pulse acknowledged."
-        out_mood = mood if mood in {"calm", "focused", "alert", "playful", "tired"} else "calm"
-        theme_suggestion = None
-        used_default = True
-        parse_ok = False
-        parse_debug = {"raw_len": 0, "raw_prefix": ""}
-        if isinstance(resp_raw, str):
-            parse_debug["raw_len"] = len(resp_raw)
-            parse_debug["raw_prefix"] = resp_raw[:120]
-        if resp_txt:
-            try:
-                obj = _json.loads(resp_txt)
-                parse_ok = True
-                out_mood = str(obj.get("mood") or out_mood)[:24]
-                desc = str(obj.get("description") or desc)[:200]
-                title = str(obj.get("journal_title") or title)[:120]
-                body = str(obj.get("journal_body") or body)[:6000]
-                tsug = obj.get("theme_suggestion")
-                if isinstance(tsug, str) and tsug.strip():
-                    theme_suggestion = tsug.strip()[:64]
-                if desc and desc != default_desc:
-                    used_default = False
-            except Exception:
-                parse_ok = False
-
-        if used_default:
-            desc = default_desc + " (default)"
-
-        if theme_suggestion is None:
-            theme_suggestion = "crimson_night" if out_mood == "alert" else ("deep_ocean" if out_mood == "focused" else "aurora")
+        if mood is not None and not isinstance(mood, str):
+            raise HomeAssistantError("mood must be a string")
+        if desc is not None and not isinstance(desc, str):
+            raise HomeAssistantError("description must be a string")
 
         import datetime as _dt
         now = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
         prof = cfg.get("agent_profile", {})
         if not isinstance(prof, dict):
             prof = {}
-        prof.update({"mood": out_mood, "description": desc, "updated_ts": now})
+        if isinstance(mood, str) and mood.strip():
+            prof["mood"] = mood.strip()[:24]
+        if isinstance(desc, str) and desc.strip():
+            prof["description"] = desc.strip()[:200]
+        prof["updated_ts"] = now
+        if isinstance(source, str) and source.strip():
+            prof["source"] = source.strip()[:40]
+
         await prof_store.async_save(prof)
         cfg["agent_profile"] = prof
 
-        # Append journal
-        items = cfg.get("journal", []) or []
-        if not isinstance(items, list):
-            items = []
-        items.append({"ts": now, "mood": out_mood, "title": title, "body": body, "source": "pulse"})
-        if len(items) > 200:
-            items = items[-200:]
-        await journal_store.async_save(items)
-        cfg["journal"] = items
+        appended = False
+        if isinstance(journal, dict):
+            title = journal.get("title")
+            body = journal.get("body")
+            jmood = journal.get("mood")
+            if isinstance(body, str) and body.strip():
+                items = cfg.get("journal", []) or []
+                if not isinstance(items, list):
+                    items = []
+                items.append(
+                    {
+                        "ts": now,
+                        "mood": (str(jmood)[:40] if isinstance(jmood, str) else (prof.get("mood") or None)),
+                        "title": (str(title)[:120] if isinstance(title, str) else None),
+                        "body": str(body)[:6000],
+                        "source": (str(source)[:40] if isinstance(source, str) else "agent"),
+                    }
+                )
+                if len(items) > 200:
+                    items = items[-200:]
+                await journal_store.async_save(items)
+                cfg["journal"] = items
+                appended = True
 
-        out = {
-            "ok": True,
-            "profile": prof,
-            "theme_suggestion": theme_suggestion,
-            "used_default_description": used_default,
-            "toast": f"Pulse complete: mood={out_mood}",
-        }
-        if used_default and not parse_ok:
-            # token-safe debug to help diagnose agent formatting / spawn issues
-            out["parse_ok"] = False
-            out["parse_debug"] = parse_debug
-            out["spawn_debug"] = spawn_debug
-            out["poll_debug"] = poll_debug
-        else:
-            out["parse_ok"] = True
-        return out
+        return {"ok": True, "profile": prof, "journal_appended": appended}
+
+    async def handle_agent_pulse(call):
+        """Pulse is now read-only: refresh the latest agent-managed state."""
+        return await handle_agent_state_get(call)
 
     hass.services.async_register(DOMAIN, "agent_profile_get", handle_agent_profile_get, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "agent_profile_set", handle_agent_profile_set, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "agent_state_get", handle_agent_state_get, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "agent_state_set", handle_agent_state_set, supports_response=SupportsResponse.ONLY)
+    # Back-compat: pulse now just refreshes state (read-only)
     hass.services.async_register(DOMAIN, "agent_pulse", handle_agent_pulse, supports_response=SupportsResponse.ONLY)
 
     async def handle_chat_store_sanitize(call):
