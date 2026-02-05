@@ -1582,9 +1582,11 @@ window.__clawdbotPanelInitError = null;
     const surpriseBtn = document.getElementById('avatarGenSurprise');
     const genBtn = document.getElementById('avatarGenGenerate');
     const hint = document.getElementById('avatarGenHint');
+    const dbg = document.getElementById('avatarGenDebug');
     const img = document.getElementById('agentAvatarImg');
     const fb = document.getElementById('agentAvatarFallback');
     if (!btn || !modal || !ta || !closeBtn || !surpriseBtn || !genBtn) return;
+    try{ if (dbg) dbg.textContent = `mounted: surprise=${!!surpriseBtn} generate=${!!genBtn}`; }catch(e){}
 
     const open = () => { try{ modal.classList.remove('hidden'); }catch(e){} };
     const close = () => { try{ modal.classList.add('hidden'); }catch(e){} };
