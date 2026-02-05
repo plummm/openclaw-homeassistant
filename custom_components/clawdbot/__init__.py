@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.84"
+PANEL_BUILD_ID = "89337ab.85"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -2000,10 +2000,12 @@ PANEL_HTML = """<!doctype html>
       #agentVizWrap{width:72px !important; height:72px !important;}
       #agentViz{width:72px !important; height:72px !important;}
 
-      /* STT widget legacy float is hidden; transcript overlays subtitle on mobile */
+      /* STT widget legacy float is hidden */
       #agentSttFloat{display:none !important;}
-      #agentSubtitleRow{position:relative;}
-      #transcript{position:absolute;right:0;left:0;top:0;text-align:left;opacity:.98;}
+      /* Header transcript row becomes stacked on mobile */
+      #appSubtitleRow{flex-wrap:wrap !important;}
+      #appTagline{flex:1 1 100% !important;}
+      #transcript{flex:1 1 100% !important;text-align:left !important;}
 
       /* Chat bubbles more width */
       .chat-bubble{max-width:88%;}
@@ -2078,9 +2080,19 @@ PANEL_HTML = """<!doctype html>
 </head>
 <body>
   <div class=\"surface\">
-  <h1 id=\"appTitle\">Hello, this is Agent 0</h1>
+  <div class=\"row\" id=\"appHeaderRow\" style=\"justify-content:space-between;align-items:center;gap:12px;flex-wrap:nowrap\">
+    <h1 id=\"appTitle\" style=\"margin:0;flex:1 1 auto;min-width:0\">Hello, this is Agent 0</h1>
+    <div style=\"flex:0 0 auto;display:flex;gap:8px;align-items:center\">
+      <button class=\"btn primary\" id=\"btnListen\" style=\"height:34px;border-radius:12px;padding:0 12px\">Listen</button>
+      <button class=\"btn\" id=\"btnStopListen\" disabled style=\"display:none;height:34px;border-radius:12px;padding:0 12px\">Stop</button>
+    </div>
+  </div>
   <div class=\"muted\" id=\"debugStamp\" style=\"display:none;margin:6px 0 0 0\"></div>
-  <div class=\"muted\" id=\"appTagline\" style=\"margin:0 0 10px 0;\"></div>
+  <div class=\"row\" id=\"appSubtitleRow\" style=\"justify-content:space-between;align-items:center;gap:10px;flex-wrap:nowrap;margin:0 0 10px 0;\">
+    <div class=\"muted\" id=\"appTagline\" style=\"margin:0;flex:1 1 auto;min-width:0\"></div>
+    <div class=\"muted\" id=\"listenStatus\" style=\"display:none\"></div>
+    <div id=\"transcript\" style=\"flex:0 1 46%;min-width:0;text-align:right;max-height:20px;overflow:hidden;padding:0;background:transparent;border:none;white-space:nowrap;text-overflow:ellipsis;font-size:12px;font-weight:800;color:#25d366\"></div>
+  </div>
 
   <script type=\"application/json\" id=\"clawdbot-config\">__CONFIG_JSON__</script>
   <script src=\"/local/clawdbot-panel.js?v=__PANEL_BUILD_ID__\"></script>
@@ -2343,19 +2355,13 @@ PANEL_HTML = """<!doctype html>
     </div>
 
     <div class=\"card agent-hero\" id=\"agentHeroCard\" style=\"position:relative;overflow:hidden\">
-      <!-- STT: Listen button top-right -->
-      <div id=\"agentSttCorner\" style=\"position:absolute;top:12px;right:12px;z-index:6;display:flex;gap:8px;align-items:center;\">
-        <button class=\"btn primary\" id=\"btnListen\" style=\"height:34px;border-radius:12px;padding:0 12px\">Listen</button>
-        <button class=\"btn\" id=\"btnStopListen\" disabled style=\"display:none;height:34px;border-radius:12px;padding:0 12px\">Stop</button>
-      </div>
-      <div class=\"muted\" id=\"listenStatus\" style=\"display:none\"></div>
       <div style=\"position:absolute;inset:0;background:radial-gradient(circle at 20% 30%, rgba(0,245,255,.22), transparent 60%), radial-gradient(circle at 70% 40%, rgba(123,44,255,.20), transparent 65%);filter:blur(0px);pointer-events:none;z-index:1\"></div>
       <div class=\"row\" style=\"position:relative;z-index:1;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap\">
         <div class=\"row\" style=\"gap:14px;align-items:center\">
           <div style=\"width:64px;height:64px;border-radius:18px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg, rgba(0,245,255,.25), rgba(123,44,255,.25));border:1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));font-weight:800;letter-spacing:.5px\">A0</div>
           <div style=\"display:flex;flex-direction:column;gap:4px;min-width:260px\">
             <div class=\"agent-title\">Agent 0 <span class=\"agent-mood\" id=\"agentMood\">· mood: calm</span></div>
-            <div id=\"agentSubtitleRow\" class=\"row\" style=\"gap:10px;align-items:center;justify-content:space-between;flex-wrap:nowrap\">\n              <div class=\"agent-desc\" id=\"agentDesc\" style=\"flex:1 1 auto;min-width:0\">Ship ops / energy monitoring assistant</div>\n              <div id=\"transcript\" style=\"flex:0 1 46%;min-width:0;text-align:right;max-height:20px;overflow:hidden;padding:0;background:transparent;border:none;white-space:nowrap;text-overflow:ellipsis;font-size:12px;font-weight:800;color:#25d366\"></div>\n            </div>
+            <div class=\"agent-desc\" id=\"agentDesc\">Ship ops / energy monitoring assistant</div>
             <div class=\"muted\" id=\"agentMeta\" style=\"font-size:11px\"></div>
             <div class=\"muted\" id=\"agentLiveMeta\" style=\"font-size:11px\"></div>
             <div class=\"row\" style=\"gap:8px;flex-wrap:wrap\">
