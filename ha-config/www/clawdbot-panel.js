@@ -1586,8 +1586,9 @@ window.__clawdbotPanelInitError = null;
   }
 
   function bindAvatarUi(){
+    const btn = document.getElementById('agentAvatarBtn');
     const wrap = document.getElementById('agentAvatarWrap');
-    if (!wrap) return;
+    if (!btn || !wrap) return;
 
     // Persistent hidden file input (reliable onchange across re-renders)
     let fileInput = document.getElementById('agentAvatarFile');
@@ -1741,7 +1742,7 @@ window.__clawdbotPanelInitError = null;
       }
     };
 
-    wrap.onclick = () => {
+    btn.onclick = () => {
       try{ console.debug('[avatar] avatar clicked'); }catch(e){}
       try{ fileInput.click(); }catch(e){ toast('File picker blocked'); }
     };

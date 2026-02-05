@@ -173,7 +173,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.92"
+PANEL_BUILD_ID = "89337ab.93"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -2361,7 +2361,7 @@ PANEL_HTML = """<!doctype html>
       <div style=\"position:absolute;inset:0;background:radial-gradient(circle at 20% 30%, rgba(0,245,255,.22), transparent 60%), radial-gradient(circle at 70% 40%, rgba(123,44,255,.20), transparent 65%);filter:blur(0px);pointer-events:none;z-index:1\"></div>
       <div class=\"row\" style=\"position:relative;z-index:1;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap\">
         <div class=\"row\" style=\"gap:14px;align-items:center\">
-          <div id=\"agentAvatarWrap\" style=\"width:128px;height:128px;border-radius:28px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg, rgba(0,245,255,.25), rgba(123,44,255,.25));border:1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));font-weight:800;letter-spacing:.5px;font-size:28px;position:relative;cursor:pointer\">\n  <img id=\"agentAvatarImg\" alt=\"agent avatar\" style=\"display:none;width:100%;height:100%;object-fit:cover\"/>\n  <div id=\"agentAvatarFallback\" style=\"display:flex;align-items:center;justify-content:center;width:100%;height:100%\">A0</div>\n</div>
+          <button type=\"button\" id=\"agentAvatarBtn\" data-testid=\"agent-avatar-btn\" style=\"background:transparent;border:none;padding:0;margin:0;cursor:pointer;position:relative;z-index:7;pointer-events:auto\">\n  <div id=\"agentAvatarWrap\" style=\"width:128px;height:128px;border-radius:28px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg, rgba(0,245,255,.25), rgba(123,44,255,.25));border:1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));font-weight:800;letter-spacing:.5px;font-size:28px;\">\n    <img id=\"agentAvatarImg\" alt=\"agent avatar\" style=\"display:none;width:100%;height:100%;object-fit:cover\"/>\n    <div id=\"agentAvatarFallback\" style=\"display:flex;align-items:center;justify-content:center;width:100%;height:100%\">A0</div>\n  </div>\n</button>
           <div style=\"display:flex;flex-direction:column;gap:4px;min-width:260px\">
             <div class=\"agent-title\">Agent 0 <span class=\"agent-mood\" id=\"agentMood\">· mood: calm</span></div>
             <div class=\"agent-desc\" id=\"agentDesc\">Ship ops / energy monitoring assistant</div>
