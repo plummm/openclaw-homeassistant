@@ -1586,6 +1586,32 @@ window.__clawdbotPanelInitError = null;
     const img = document.getElementById('agentAvatarImg');
     const fb = document.getElementById('agentAvatarFallback');
     if (!btn || !modal || !ta || !closeBtn || !surpriseBtn || !genBtn) return;
+
+    // Critical: move modal to document.body so it can't be clipped by card overflow/height.
+    try{
+      const d = btn.ownerDocument || document;
+      if (modal.parentElement !== d.body) {
+        (d.body || d.documentElement).appendChild(modal);
+      }
+      // Force solid, full-screen overlay
+      modal.style.position = 'fixed';
+      modal.style.inset = '0';
+      modal.style.background = '#000';
+      modal.style.backdropFilter = 'none';
+      modal.style.webkitBackdropFilter = 'none';
+      modal.style.zIndex = '100000';
+      modal.style.display = 'flex';
+      modal.style.alignItems = 'center';
+      modal.style.justifyContent = 'center';
+      modal.style.padding = '18px';
+
+      const card = modal.querySelector('.modal-card');
+      if (card) {
+        card.style.maxHeight = 'min(86vh, 820px)';
+        card.style.overflow = 'auto';
+      }
+    } catch(e){}
+
     try{ if (dbg) dbg.textContent = `mounted: surprise=${!!surpriseBtn} generate=${!!genBtn}`; }catch(e){}
 
     const open = () => { try{ modal.classList.remove('hidden'); }catch(e){} };
