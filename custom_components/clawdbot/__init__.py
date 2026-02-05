@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.76"
+PANEL_BUILD_ID = "89337ab.77"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -2333,8 +2333,8 @@ PANEL_HTML = """<!doctype html>
             <button class=\"btn\" id=\"btnStopListen\" disabled style=\"display:none;height:36px;border-radius:12px;padding:0 12px\">Stop</button>
           </div>
         </div>
-        <div class=\"muted\" id=\"listenStatus\" style=\"margin-top:6px;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#25d366\"></div>
-        <div id=\"transcript\" style=\"margin-top:6px;max-height:24px;overflow:hidden;border-radius:12px;border:1px solid color-mix(in srgb, var(--divider-color) 70%, transparent);padding:6px 10px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent);white-space:nowrap;text-overflow:ellipsis;font-size:12px;font-weight:800;color:#25d366\"></div>
+        <div class=\"muted\" id=\"listenStatus\" style=\"margin-top:4px;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#25d366\"></div>
+        <div id=\"transcript\" style=\"margin-top:4px;max-height:20px;overflow:hidden;padding:0;background:transparent;border:none;white-space:nowrap;text-overflow:ellipsis;font-size:12px;font-weight:850;color:#25d366\"></div>
       </div>
     </div>
 

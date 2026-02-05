@@ -1338,7 +1338,10 @@ window.__clawdbotPanelInitError = null;
 
     const setLine = (txt) => {
       try{
-        outEl.textContent = String(txt || '');
+        const t = String(txt || '').trim();
+        outEl.textContent = t;
+        // Hide the line completely when empty (avoid “empty bar” look)
+        outEl.style.display = t ? '' : 'none';
         outEl.style.color = '#25d366';
         outEl.style.fontWeight = '800';
         outEl.style.whiteSpace = 'nowrap';
