@@ -1615,6 +1615,7 @@ window.__clawdbotPanelInitError = null;
     const STYLE_LINE = 'Image style: profile pic, head shot style, character face to the camera';
 
     const setHint = (t) => { try{ if (hint) hint.textContent = String(t||''); }catch(e){} };
+    const setDbg = (t) => { try{ if (dbg) dbg.textContent = String(t||''); }catch(e){} };
     const setAvatarPreview = () => {
       try{
         if (!img) return;
@@ -1626,6 +1627,7 @@ window.__clawdbotPanelInitError = null;
 
     btn.onclick = () => {
       setHint('');
+      setDbg('');
       // refresh avatar display state (if already generated)
       setAvatarPreview();
       open();
@@ -1668,7 +1670,11 @@ window.__clawdbotPanelInitError = null;
     const waitForAssistant = async (sessionKey, timeoutMs=15000) => {
       const start = Date.now();
       let after = null;
+      let tick = 0;
       while ((Date.now()-start) < timeoutMs) {
+        tick += 1;
+        try{ setHint(`Waiting for reply… (${Math.round((Date.now()-start)/1000)}s)`); }catch(e){}
+        try{ setDbg(`poll tick ${tick} · session=${String(sessionKey).slice(0,8)}…`); }catch(e){}
         try{
           // Pull latest gateway history into HA store
           await callService('clawdbot','chat_poll', { session_key: sessionKey, limit: 50 });
@@ -1697,16 +1703,19 @@ window.__clawdbotPanelInitError = null;
     surpriseBtn.onclick = async () => {
       try{
         surpriseBtn.disabled = true;
-        setHint('Agent thinking…');
+        setHint('Starting…');
+        setDbg('creating/reusing session');
         const sessionKey = await ensureSurpriseSession();
 
         // Send prompt
+        setDbg('sending prompt');
         try{ await callService('clawdbot','chat_send', { session_key: sessionKey, message: SURPRISE_PROMPT }); } catch(e){}
 
         const reply = await waitForAssistant(sessionKey, 15000);
         if (!reply) {
           toast('Surprise me timed out');
-          setHint('');
+          setHint('Timed out waiting for reply. You can type manually.');
+          setDbg('');
           return;
         }
 
@@ -1716,12 +1725,14 @@ window.__clawdbotPanelInitError = null;
         }
         ta.value = txt;
         setHint('Draft generated. Edit freely, then hit Generate.');
+        setDbg('got reply');
 
         // Persist draft in HA
         try{ await callServiceResponse('clawdbot','avatar_prompt_set', { agent_id: 'agent0', text: txt }); } catch(e){}
       } catch(e){
         toast('Surprise me failed');
         setHint('');
+        setDbg('');
       } finally {
         try{ surpriseBtn.disabled = false; }catch(e){}
       }
