@@ -1461,11 +1461,71 @@ window.__clawdbotPanelInitError = null;
     };
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    const sttMode = (() => {
+      try{
+        const cfg = (window.__CLAWDBOT_CONFIG__ || {});
+        const reg = cfg.setup_options || null;
+        // We don't currently ship setup options into config JSON; fall back to native unless user configured server-side.
+        return null;
+      } catch(e){ return null; }
+    })();
+
     if (!SpeechRecognition) {
-      btn.disabled = true;
+      // If native unsupported, fall back to Whisper endpoint (if configured).
+      btn.disabled = false;
       btn.textContent = 'Listen';
-      setCaption('SpeechRecognition unsupported', 'bad');
+      setCaption('SpeechRecognition unsupported (Whisper mode)', 'bad');
       setLine('');
+
+      // Whisper mode toggle uses the same Listen button.
+      if (!btn.__bound) {
+        btn.__bound = true;
+        btn.onclick = async () => {
+          try{
+            if (_speechActive) {
+              _speechActive = false;
+              btn.textContent = 'Listen';
+              setCaption('');
+              return;
+            }
+            _speechActive = true;
+            btn.textContent = 'Listening…';
+            setCaption('listening…');
+
+            // Record a short chunk and send to HA
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const rec = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+            const chunks = [];
+            rec.ondataavailable = (ev) => { try{ if (ev.data && ev.data.size) chunks.push(ev.data); }catch(e){} };
+            rec.start();
+            // 5s chunk
+            await new Promise((res) => setTimeout(res, 5000));
+            rec.stop();
+            await new Promise((res) => { rec.onstop = () => res(null); });
+            try{ stream.getTracks().forEach(t => t.stop()); }catch(e){}
+
+            const blob = new Blob(chunks, { type: 'audio/webm' });
+            const r = await fetch('/api/clawdbot/stt_whisper', { method: 'POST', body: blob });
+            const j = await r.json().catch(()=>null);
+            if (!r.ok || !j || !j.ok) {
+              setCaption('whisper error', 'bad');
+              btn.textContent = 'Listen';
+              _speechActive = false;
+              return;
+            }
+            const text = j.text || '';
+            setLine(text);
+            setCaption('');
+            btn.textContent = 'Listen';
+            _speechActive = false;
+          } catch(e){
+            setCaption('whisper failed', 'bad');
+            btn.textContent = 'Listen';
+            _speechActive = false;
+          }
+        };
+      }
       return;
     }
 

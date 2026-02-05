@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.78"
+PANEL_BUILD_ID = "89337ab.79"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -2641,6 +2641,101 @@ class ClawdbotPanelSelfTestApiView(HomeAssistantView):
             },
         }
         return web.json_response(out)
+
+
+class ClawdbotSttWhisperApiView(HomeAssistantView):
+    """Same-origin authenticated STT: browser mic → OpenAI Whisper."""
+
+    url = "/api/clawdbot/stt_whisper"
+    name = "api:clawdbot:stt_whisper"
+    requires_auth = True
+
+    async def post(self, request):
+        from aiohttp import web
+        from aiohttp import FormData
+        import time
+
+        hass = request.app["hass"]
+        cfg = hass.data.get(DOMAIN, {})
+
+        # Rate limit (very basic)
+        now = time.time()
+        last = float(cfg.get("_stt_last_ts") or 0)
+        if now - last < 1.0:
+            return web.json_response({"ok": False, "error": "rate_limited"}, status=429)
+        cfg["_stt_last_ts"] = now
+
+        # Size cap (bytes)
+        max_bytes = 5 * 1024 * 1024
+        try:
+            raw = await request.read()
+        except Exception:
+            return web.json_response({"ok": False, "error": "read_failed"}, status=400)
+        if not raw:
+            return web.json_response({"ok": False, "error": "empty"}, status=400)
+        if len(raw) > max_bytes:
+            return web.json_response({"ok": False, "error": "too_large"}, status=413)
+
+        # Load OpenAI key from dynamic setup options
+        opts = cfg.get("setup_options")
+        api_key = None
+        if isinstance(opts, dict):
+            opt = opts.get("stt.whisper_openai_api_key")
+            if isinstance(opt, dict):
+                v = opt.get("value")
+                if isinstance(v, str) and v.strip():
+                    api_key = v.strip()
+        if not api_key:
+            return web.json_response({"ok": False, "error": "not_configured"}, status=501)
+
+        # Determine filename/content-type
+        ct = request.content_type or "application/octet-stream"
+        filename = "audio.webm" if "webm" in ct else "audio.wav"
+
+        form = FormData()
+        form.add_field("file", raw, filename=filename, content_type=ct)
+        form.add_field("model", "whisper-1")
+
+        # Optional language hint
+        try:
+            q = request.query
+            lang = q.get("language") if q else None
+            if isinstance(lang, str) and lang.strip():
+                form.add_field("language", lang.strip()[:16])
+        except Exception:
+            pass
+
+        from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+        session = async_get_clientsession(hass)
+        try:
+            resp = await session.post(
+                "https://api.openai.com/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                data=form,
+                timeout=30,
+            )
+        except Exception:
+            return web.json_response({"ok": False, "error": "whisper_request_failed"}, status=502)
+
+        try:
+            data = await resp.json()
+        except Exception:
+            txt = await resp.text()
+            return web.json_response(
+                {"ok": False, "error": "bad_response", "status": resp.status, "body": txt[:500]},
+                status=502,
+            )
+
+        if resp.status >= 300:
+            return web.json_response({"ok": False, "error": "whisper_error", "status": resp.status, "details": data}, status=502)
+
+        text = data.get("text") if isinstance(data, dict) else None
+        if not isinstance(text, str):
+            text = ""
+        return web.json_response({"ok": True, "text": text.strip()})
+
+
 class ClawdbotHouseMemoryApiView(HomeAssistantView):
     """Authenticated API for reading the derived 'house memory' summary."""
 
@@ -3371,6 +3466,7 @@ async def async_setup(hass, config):
         hass.http.register_view(ClawdbotPanelJsView)
         hass.http.register_view(ClawdbotMappingApiView)
         hass.http.register_view(ClawdbotPanelSelfTestApiView)
+        hass.http.register_view(ClawdbotSttWhisperApiView)
         hass.http.register_view(ClawdbotHouseMemoryApiView)
         hass.http.register_view(ClawdbotChatHistoryApiView)
         hass.http.register_view(ClawdbotSessionsApiView)
@@ -5401,6 +5497,11 @@ async def async_setup(hass, config):
         ensure("agent0.state_push_enabled", "Agent0 state push enabled", "bool", default=True)
         ensure("discord.journal_channel_id", "Discord journal channel id", "string")
 
+        # STT / Whisper options (MVP)
+        ensure("stt.mode", "Speech to text mode", "select", default="native", allowed=["native", "whisper_openai"])
+        ensure("stt.chunk_seconds", "STT chunk seconds", "number", default=5)
+        ensure("stt.whisper_openai_api_key", "OpenAI API key (Whisper)", "secret")
+
         reg["options"] = opts
         await _setup_save(cfg)
 
@@ -5509,6 +5610,14 @@ async def async_setup(hass, config):
         elif typ == "number":
             if not isinstance(value, (int, float)):
                 raise HomeAssistantError("value must be number")
+            if isinstance(value, bool):
+                raise HomeAssistantError("value must be number")
+            # basic caps
+            try:
+                if float(value) < 0 or float(value) > 3600:
+                    raise HomeAssistantError("value out of range")
+            except Exception:
+                raise HomeAssistantError("value must be number")
         elif typ in {"string", "url", "secret", "select", "json"}:
             # keep as-is; enforce size for strings
             if typ != "json" and not isinstance(value, str):
@@ -5517,6 +5626,7 @@ async def async_setup(hass, config):
                 raise HomeAssistantError("value too large")
         else:
             raise HomeAssistantError("invalid type")
+
         if isinstance(allowed, list) and typ == "select":
             if value not in allowed:
                 raise HomeAssistantError("value not allowed")
