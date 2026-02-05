@@ -757,6 +757,201 @@ window.__clawdbotPanelInitError = null;
     } catch(e){}
   }
 
+  // ---------------- Setup: dynamic options registry ----------------
+
+  function _optStr(v){
+    if (v == null) return '';
+    return String(v);
+  }
+
+  async function refreshSetupOptions(){
+    const root = document.getElementById('setupOptions');
+    if (!root) return;
+    root.textContent = 'Loading…';
+
+    let options = [];
+    try{
+      const resp = await callServiceResponse('clawdbot','setup_options_list',{});
+      const data = (resp && resp.response) ? resp.response : resp;
+      const r = data && data.result ? data.result : data;
+      options = (r && Array.isArray(r.options)) ? r.options : [];
+    } catch(e){
+      root.textContent = 'Failed to load setup options.';
+      return;
+    }
+
+    if (!options.length) {
+      root.textContent = 'No setup options defined.';
+      return;
+    }
+
+    // Find active env (best-effort)
+    let activeEnv = null;
+    try{
+      const te = options.find(o => o && o.key === 'clawdbot.target_env');
+      if (te && te.value != null) activeEnv = String(te.value);
+      else if (te && te.default != null) activeEnv = String(te.default);
+    } catch(e){}
+
+    root.innerHTML = '';
+
+    const wrap = document.createElement('div');
+    wrap.style.display = 'flex';
+    wrap.style.flexDirection = 'column';
+    wrap.style.gap = '10px';
+
+    for (const opt of options){
+      if (!opt || !opt.key) continue;
+      const key = String(opt.key);
+      const typ = opt.type ? String(opt.type) : 'string';
+      const label = opt.label ? String(opt.label) : key;
+      const desc = opt.description ? String(opt.description) : '';
+      const env = opt.env ? String(opt.env) : null;
+      const masked = !!opt.masked || typ === 'secret';
+      const readOnly = !!opt.readOnly;
+      const validation = (opt.validation && typeof opt.validation === 'object') ? opt.validation : {};
+      const allowed = Array.isArray(validation.allowed) ? validation.allowed.map(String) : null;
+
+      const row = document.createElement('div');
+      row.style.border = '1px solid var(--divider-color)';
+      row.style.borderRadius = '14px';
+      row.style.padding = '10px 12px';
+      row.style.background = 'color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 92%, transparent)';
+
+      if (env && activeEnv && env !== activeEnv){
+        row.style.opacity = '0.65';
+      }
+
+      const head = document.createElement('div');
+      head.style.display = 'flex';
+      head.style.justifyContent = 'space-between';
+      head.style.gap = '10px';
+
+      const left = document.createElement('div');
+      left.style.minWidth = '0';
+
+      const t = document.createElement('div');
+      t.style.fontWeight = '800';
+      t.style.overflow = 'hidden';
+      t.style.textOverflow = 'ellipsis';
+      t.style.whiteSpace = 'nowrap';
+      t.textContent = label;
+
+      const meta = document.createElement('div');
+      meta.className = 'muted';
+      meta.style.fontSize = '11px';
+      meta.textContent = `${key}${env ? ` · env:${env}` : ''}${readOnly ? ' · read-only' : ''}`;
+
+      left.appendChild(t);
+      left.appendChild(meta);
+
+      const right = document.createElement('div');
+      right.className = 'muted';
+      right.style.fontSize = '11px';
+      right.style.whiteSpace = 'nowrap';
+      right.textContent = typ;
+
+      head.appendChild(left);
+      head.appendChild(right);
+
+      const body = document.createElement('div');
+      body.style.marginTop = '8px';
+
+      if (desc){
+        const d = document.createElement('div');
+        d.className = 'muted';
+        d.style.marginBottom = '8px';
+        d.textContent = desc;
+        body.appendChild(d);
+      }
+
+      const controls = document.createElement('div');
+      controls.style.display = 'flex';
+      controls.style.flexWrap = 'wrap';
+      controls.style.alignItems = 'center';
+      controls.style.gap = '8px';
+
+      let input = null;
+      if (typ === 'bool') {
+        input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = !!opt.value || (opt.value == null && !!opt.default);
+      } else if (typ === 'select' && allowed) {
+        input = document.createElement('select');
+        input.className = 'select';
+        for (const a of allowed) {
+          const o = document.createElement('option');
+          o.value = a;
+          o.textContent = a;
+          input.appendChild(o);
+        }
+        const cur = (opt.value != null) ? String(opt.value) : (opt.default != null ? String(opt.default) : '');
+        if (cur) input.value = cur;
+      } else {
+        input = document.createElement('input');
+        input.style.flex = '1';
+        input.style.minWidth = '260px';
+        input.placeholder = opt.placeholder ? String(opt.placeholder) : (masked ? '********' : '');
+        input.value = masked ? '' : _optStr(opt.value != null ? opt.value : (opt.default != null ? opt.default : ''));
+        if (masked) input.type = 'password';
+      }
+      if (readOnly) input.disabled = true;
+
+      const btn = document.createElement('button');
+      btn.className = 'btn primary';
+      btn.textContent = 'Save';
+      btn.disabled = readOnly;
+
+      const res = document.createElement('span');
+      res.className = 'muted';
+      res.style.fontSize = '12px';
+
+      btn.onclick = async () => {
+        try{
+          btn.disabled = true;
+          res.textContent = 'Saving…';
+          let val = null;
+          if (typ === 'bool') val = !!input.checked;
+          else if (typ === 'select') val = String(input.value || '');
+          else val = String(input.value || '');
+
+          // secret blank => NOOP (backend also enforces)
+          const payload = { key, value: val, source: 'ui' };
+          const rr = await callServiceResponse('clawdbot','setup_option_set', payload);
+          const dd = (rr && rr.response) ? rr.response : rr;
+          const rrr = dd && dd.result ? dd.result : dd;
+          if (rrr && rrr.noop) {
+            res.textContent = 'No change.';
+            toast(`${label}: unchanged`);
+          } else {
+            res.textContent = 'Saved.';
+            toast(`${label}: saved`);
+          }
+          // refresh list so meta/target_env highlight updates
+          await refreshSetupOptions();
+        } catch(e){
+          const msg = String(e && (e.message || e) || e);
+          res.textContent = 'Error.';
+          toast(`${label}: save failed (${msg})`);
+        } finally {
+          btn.disabled = readOnly;
+        }
+      };
+
+      controls.appendChild(input);
+      controls.appendChild(btn);
+      controls.appendChild(res);
+
+      body.appendChild(controls);
+
+      row.appendChild(head);
+      row.appendChild(body);
+      wrap.appendChild(row);
+    }
+
+    root.appendChild(wrap);
+  }
+
   // ---------------- Agent view (high-tech profile + STT) ----------------
 
   function fmtDur(ms){
@@ -2216,6 +2411,7 @@ async function fetchStatesRest(hass){
       }
       if (which === 'setup') {
         try{ const { hass } = await getHass(); await refreshEntities(); renderEntityConfig(hass); } catch(e){}
+        try{ await refreshSetupOptions(); } catch(e){}
       }
       if (which === 'chat') {
         loadChatFromConfig();

@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.59"
+PANEL_BUILD_ID = "89337ab.60"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -2025,6 +2025,12 @@ PANEL_HTML = """<!doctype html>
       <div class=\"row\" style=\"margin-top:10px\">
         <button class=\"btn primary\" id=\"btnGatewayTest\">Test gateway</button>
         <span class=\"muted\" id=\"gwTestResult\"></span>
+      </div>
+
+      <div style=\"margin-top:14px\">
+        <h2 style=\"margin:0 0 8px 0;font-size:15px\">Dynamic setup options</h2>
+        <div class=\"muted\" style=\"margin-bottom:8px\">Data-driven options registry (agent-definable). Values persist to <code>.storage</code>. Secrets are masked.</div>
+        <div id=\"setupOptions\" class=\"muted\">Loading…</div>
       </div>
 
       <div style=\"margin-top:14px\">
