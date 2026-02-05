@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.77"
+PANEL_BUILD_ID = "89337ab.78"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1996,6 +1996,10 @@ PANEL_HTML = """<!doctype html>
       .agent-desc{font-size:14px;}
       .agent-mood{font-size:12px;}
 
+      /* Visualizer: move to top-right corner of hero on mobile */
+      #agentVizWrap{width:72px !important; height:72px !important;}
+      #agentViz{width:72px !important; height:72px !important;}
+
       /* STT widget: do NOT overlay content on mobile */
       #agentSttFloat{position:static !important; top:auto !important; right:auto !important; max-width:100% !important;}
 
@@ -2356,8 +2360,10 @@ PANEL_HTML = """<!doctype html>
             </div>
           </div>
         </div>
-        <div class=\"row\" style=\"gap:8px;align-items:center\">
-          <!-- Pulse removed: Agent tab auto-refreshes via event + poll -->
+        <div class=\"row\" style=\"gap:10px;align-items:center\">
+          <div id=\"agentVizWrap\" style=\"width:96px;height:96px;position:relative;flex:0 0 auto\">
+            <canvas id=\"agentViz\" width=\"96\" height=\"96\" style=\"width:96px;height:96px;display:block\"></canvas>
+          </div>
         </div>
       </div>
     </div>

@@ -976,6 +976,113 @@ window.__clawdbotPanelInitError = null;
   let _agentActivity = [];
   let _speechRec = null;
   let _speechActive = false;
+  let _vizOn = true;
+  let _vizRaf = null;
+  let _vizCtx = null;
+  let _vizCanvas = null;
+  let _vizAudioCtx = null;
+  let _vizAnalyser = null;
+  let _vizMicStream = null;
+
+  function vizStop(){
+    try{ if (_vizRaf) cancelAnimationFrame(_vizRaf); }catch(e){}
+    _vizRaf = null;
+  }
+
+  function vizSetEnabled(on){
+    _vizOn = !!on;
+    try{ localStorage.setItem('clawdbot_viz_on', _vizOn ? '1' : '0'); }catch(e){}
+    if (!_vizOn) vizStop();
+  }
+
+  async function vizEnsureMic(){
+    if (_vizMicStream) return;
+    try{
+      _vizMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      _vizAudioCtx = _vizAudioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      _vizAnalyser = _vizAudioCtx.createAnalyser();
+      _vizAnalyser.fftSize = 512;
+      const src = _vizAudioCtx.createMediaStreamSource(_vizMicStream);
+      src.connect(_vizAnalyser);
+    } catch(e){
+      // ignore; will fall back to idle animation
+    }
+  }
+
+  function vizInit(){
+    try{ _vizOn = (localStorage.getItem('clawdbot_viz_on') !== '0'); }catch(e){}
+    _vizCanvas = document.getElementById('agentViz');
+    if (!_vizCanvas) return;
+    _vizCtx = _vizCanvas.getContext('2d');
+  }
+
+  function vizDraw(){
+    if (!_vizOn || !_vizCanvas || !_vizCtx) return;
+
+    const ctx = _vizCtx;
+    const w = _vizCanvas.width, h = _vizCanvas.height;
+    const t = Date.now()/1000;
+
+    // amplitude (0..1)
+    let amp = 0.12;
+    if (_vizAnalyser) {
+      try{
+        const arr = new Uint8Array(_vizAnalyser.frequencyBinCount);
+        _vizAnalyser.getByteTimeDomainData(arr);
+        let sum = 0;
+        for (let i=0;i<arr.length;i++) {
+          const v = (arr[i]-128)/128;
+          sum += v*v;
+        }
+        amp = Math.min(1, Math.sqrt(sum/arr.length)*2.5);
+      } catch(e){}
+    } else {
+      // idle breathing
+      amp = 0.10 + 0.05*Math.sin(t*1.2);
+    }
+
+    // clear
+    ctx.clearRect(0,0,w,h);
+
+    // ring params
+    const cx=w/2, cy=h/2;
+    const baseR = Math.min(w,h)*0.24;
+    const jitter = 1.5 + amp*6;
+
+    const mood = (window.__CLAWDBOT_CONFIG__ && window.__CLAWDBOT_CONFIG__.agent_profile && window.__CLAWDBOT_CONFIG__.agent_profile.mood) ? String(window.__CLAWDBOT_CONFIG__.agent_profile.mood) : 'calm';
+    const col = (mood==='alert') ? 'rgba(255,64,64,' : (mood==='focused') ? 'rgba(181,123,255,' : (mood==='degraded') ? 'rgba(255,166,0,' : 'rgba(0,245,255,';
+
+    // sketch ring
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = col + (0.55 + amp*0.25) + ')';
+    ctx.shadowBlur = 14 + amp*30;
+    ctx.shadowColor = col + (0.35 + amp*0.15) + ')';
+
+    ctx.beginPath();
+    for (let a=0;a<=Math.PI*2+0.001;a+=Math.PI/64){
+      const rr = baseR + (Math.sin(a*6 + t*3)*0.8 + Math.sin(a*13 - t*2)*0.5)*jitter;
+      const x = cx + Math.cos(a)*rr;
+      const y = cy + Math.sin(a)*rr;
+      if (a===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+
+    // ripples
+    ctx.shadowBlur = 0;
+    for (let i=0;i<3;i++){
+      const phase = (t*0.55 + i*0.25) % 1;
+      const rr = baseR + 10 + phase*(20 + amp*30);
+      const alpha = (1-phase) * (0.18 + amp*0.12);
+      ctx.strokeStyle = col + alpha + ')';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(cx,cy,rr,0,Math.PI*2);
+      ctx.stroke();
+    }
+
+    _vizRaf = requestAnimationFrame(vizDraw);
+  }
 
   async function refreshAgentJournal(){
     const el = document.getElementById('agentJournal');
@@ -1313,6 +1420,9 @@ window.__clawdbotPanelInitError = null;
       }
     } catch(e){}
 
+    // Visualizer
+    try{ vizInit(); if (_vizOn) vizDraw(); } catch(e){}
+
     bindSpeechUi();
   }
 
@@ -1405,6 +1515,7 @@ window.__clawdbotPanelInitError = null;
           _speechActive = true;
           btn.textContent = 'Listening…';
           _speechRec.start();
+          try{ vizEnsureMic().then(()=>{ try{ if (_vizOn && !_vizRaf) vizDraw(); }catch(e){} }); }catch(e){}
           agentAddActivity('voice', 'Listening started');
         } catch(e){
           setCaption('failed to start', 'bad');
