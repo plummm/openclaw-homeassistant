@@ -1155,25 +1155,6 @@ window.__clawdbotPanelInitError = null;
 
     agentAddActivity('status', 'Agent view refreshed');
 
-    // Wire buttons once
-    const btnPulse = document.getElementById('btnAgentPulse');
-    if (btnPulse && !btnPulse.__bound) {
-      btnPulse.__bound = true;
-      btnPulse.onclick = async () => {
-        btnPulse.disabled = true;
-        agentAddActivity('pulse', 'Pulse sent');
-        try{
-          await refreshAgentState();
-          await refreshAgentJournal();
-          toast('Pulse synced');
-        } catch(e){
-          toast('Pulse failed: ' + String(e));
-        } finally {
-          btnPulse.disabled = false;
-        }
-      };
-    }
-
     // Live refresh: subscribe to HA event; fallback poll while Agent tab is visible.
     try{
       if (_agentAutoRefreshTimer) { clearInterval(_agentAutoRefreshTimer); _agentAutoRefreshTimer=null; }

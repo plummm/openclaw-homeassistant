@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.63"
+PANEL_BUILD_ID = "89337ab.64"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -2250,7 +2250,7 @@ PANEL_HTML = """<!doctype html>
           </div>
         </div>
         <div class=\"row\" style=\"gap:8px;align-items:center\">
-          <button class=\"btn primary\" id=\"btnAgentPulse\">Pulse</button>
+          <!-- Pulse removed: Agent tab auto-refreshes via event + poll -->
         </div>
       </div>
     </div>
