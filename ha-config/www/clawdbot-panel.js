@@ -1593,10 +1593,12 @@ window.__clawdbotPanelInitError = null;
       if (modal.parentElement !== d.body) {
         (d.body || d.documentElement).appendChild(modal);
       }
-      // Force solid, full-screen overlay
+      // Force solid, full-screen overlay (use dedicated backdrop element)
       modal.style.position = 'fixed';
       modal.style.inset = '0';
-      modal.style.background = '#000';
+      modal.style.width = '100vw';
+      modal.style.height = '100vh';
+      modal.style.background = 'transparent';
       modal.style.backdropFilter = 'none';
       modal.style.webkitBackdropFilter = 'none';
       modal.style.zIndex = '100000';
@@ -1605,11 +1607,29 @@ window.__clawdbotPanelInitError = null;
       modal.style.justifyContent = 'center';
       modal.style.padding = '18px';
 
+      let backdrop = modal.querySelector('[data-testid="avatar-modal-backdrop"]');
+      if (!backdrop) {
+        backdrop = d.createElement('div');
+        backdrop.setAttribute('data-testid','avatar-modal-backdrop');
+        modal.prepend(backdrop);
+      }
+      backdrop.style.position = 'fixed';
+      backdrop.style.inset = '0';
+      backdrop.style.background = '#000';
+      backdrop.style.opacity = '1';
+      backdrop.style.pointerEvents = 'auto';
+
+      // Ensure card is above backdrop
       const card = modal.querySelector('.modal-card');
       if (card) {
+        card.style.position = 'relative';
+        card.style.zIndex = '100001';
         card.style.maxHeight = 'min(86vh, 820px)';
         card.style.overflow = 'auto';
       }
+
+      // Clicking backdrop closes
+      backdrop.onclick = () => { try{ close(); }catch(e){} };
     } catch(e){}
 
     try{ if (dbg) dbg.textContent = `mounted: surprise=${!!surpriseBtn} generate=${!!genBtn}`; }catch(e){}
