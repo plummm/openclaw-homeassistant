@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.71"
+PANEL_BUILD_ID = "89337ab.72"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1872,7 +1872,10 @@ PANEL_HTML = """<!doctype html>
       background: color-mix(in srgb, var(--cb-card-bg) 96%, transparent) !important;
       border-color: color-mix(in srgb, var(--cb-border-strong) 55%, var(--claw-accent-a) 25%);
       position:relative; overflow:hidden;
+      min-height: 140px;
     }
+    /* Ensure inner wrappers never paint a background strip */
+    .agent-hero *{background-color: transparent !important;}
 
     /* Mood fill: set background on the outermost rounded container so it fills all the way to the bottom. */
     .agent-hero.mood-calm{
@@ -1894,9 +1897,11 @@ PANEL_HTML = """<!doctype html>
 
     .agent-hero.mood-focused{
       background:
-        radial-gradient(1200px 360px at 20% 0%, rgba(181,123,255,.22), transparent 62%),
-        radial-gradient(1200px 360px at 84% 12%, rgba(0,245,255,.08), transparent 64%),
-        linear-gradient(180deg, color-mix(in srgb, var(--cb-card-bg) 96%, transparent), color-mix(in srgb, var(--cb-card-bg) 90%, rgba(181,123,255,.08)));
+        radial-gradient(1200px 360px at 20% 0%, rgba(181,123,255,.24), transparent 62%),
+        radial-gradient(1200px 360px at 84% 12%, rgba(0,245,255,.10), transparent 64%),
+        linear-gradient(180deg, color-mix(in srgb, var(--cb-card-bg) 96%, transparent), color-mix(in srgb, var(--cb-card-bg) 90%, rgba(181,123,255,.10)));
+      background-repeat:no-repeat;
+      background-attachment:scroll;
       border-color: rgba(181,123,255,.55);
       box-shadow:0 0 0 1px color-mix(in srgb, var(--claw-accent-b) 35%, transparent), 0 0 34px color-mix(in srgb, var(--claw-accent-b) 24%, transparent), var(--cb-shadow-soft);
     }
@@ -2349,15 +2354,19 @@ PANEL_HTML = """<!doctype html>
       <div id=\"agentJournal\" class=\"muted\" style=\"margin-top:10px\">No journal entries yet.</div>
     </div>
 
-    <div class=\"card\">
-      <h2>Voice to text (preview)</h2>
-      <div class=\"muted\">Uses browser speech recognition if available. Requires a click + microphone permission. Off by default.</div>
-      <div class=\"row\" style=\"margin-top:10px;gap:8px\">
-        <button class=\"btn primary\" id=\"btnListen\">Start listening</button>
-        <button class=\"btn\" id=\"btnStopListen\" disabled>Stop</button>
-        <span class=\"muted\" id=\"listenStatus\"></span>
+    <!-- Voice-to-text moved into floating control (top-right) -->
+    <div id=\"agentSttFloat\" style=\"position:fixed;top:14px;right:14px;z-index:50;max-width:min(420px,calc(100vw - 28px));\">
+      <div class=\"card\" style=\"margin:0;padding:10px 12px;backdrop-filter:blur(10px);\">
+        <div class=\"row\" style=\"justify-content:space-between;align-items:center;gap:10px;flex-wrap:nowrap\">
+          <div class=\"muted\" style=\"font-size:12px;white-space:nowrap\">STT</div>
+          <div class=\"row\" style=\"gap:8px;align-items:center;flex-wrap:nowrap\">
+            <button class=\"btn primary\" id=\"btnListen\" style=\"height:36px;border-radius:12px;padding:0 12px\">Listen</button>
+            <button class=\"btn\" id=\"btnStopListen\" disabled style=\"height:36px;border-radius:12px;padding:0 12px\">Stop</button>
+          </div>
+        </div>
+        <div class=\"muted\" id=\"listenStatus\" style=\"margin-top:6px;font-size:12px\"></div>
+        <div id=\"transcript\" style=\"margin-top:8px;max-height:160px;overflow:auto;border-radius:12px;border:1px solid var(--divider-color);padding:8px 10px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 88%, transparent);white-space:pre-wrap;font-size:12px\"></div>
       </div>
-      <div id=\"transcript\" style=\"margin-top:10px;min-height:120px;border-radius:14px;border:1px solid var(--divider-color);padding:10px 12px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 85%, transparent);white-space:pre-wrap\"></div>
     </div>
   </div>
 

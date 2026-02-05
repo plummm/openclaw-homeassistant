@@ -981,15 +981,105 @@ window.__clawdbotPanelInitError = null;
     const el = document.getElementById('agentJournal');
     if (!el) return;
     try{
-      const resp = await callServiceResponse('clawdbot','journal_list', { limit: 10 });
+      const resp = await callServiceResponse('clawdbot','journal_list', { limit: 50 });
       const data = (resp && resp.response) ? resp.response : resp;
       const r = data && data.result ? data.result : data;
       const items = (r && Array.isArray(r.items)) ? r.items : [];
       if (!items.length) { el.textContent = 'No journal entries yet.'; return; }
+
+      // Pagination (10 per page)
+      const pageSize = 10;
+      const total = items.length;
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      let page = window.__CLAWDBOT_JOURNAL_PAGE || 1;
+      if (page < 1) page = 1;
+      if (page > totalPages) page = totalPages;
+      window.__CLAWDBOT_JOURNAL_PAGE = page;
+
       el.innerHTML = '';
+
+      const topBar = document.createElement('div');
+      topBar.style.display = 'flex';
+      topBar.style.justifyContent = 'space-between';
+      topBar.style.alignItems = 'center';
+      topBar.style.gap = '10px';
+      topBar.style.margin = '6px 0 10px 0';
+
+      const left = document.createElement('div');
+      left.className = 'muted';
+      left.textContent = `Showing ${Math.min(pageSize, total - (page-1)*pageSize)} / ${total}`;
+
+      const right = document.createElement('div');
+      right.className = 'muted';
+      right.style.display = 'flex';
+      right.style.alignItems = 'center';
+      right.style.gap = '6px';
+
+      const btnPrev = document.createElement('button');
+      btnPrev.className = 'btn';
+      btnPrev.style.height = '34px';
+      btnPrev.style.padding = '0 10px';
+      btnPrev.textContent = '‹';
+      btnPrev.disabled = page <= 1;
+      btnPrev.onclick = async () => { window.__CLAWDBOT_JOURNAL_PAGE = Math.max(1, page-1); await refreshAgentJournal(); };
+
+      const pageText = document.createElement('span');
+      pageText.textContent = `Page ${page}/${totalPages}`;
+
+      const btnNext = document.createElement('button');
+      btnNext.className = 'btn';
+      btnNext.style.height = '34px';
+      btnNext.style.padding = '0 10px';
+      btnNext.textContent = '›';
+      btnNext.disabled = page >= totalPages;
+      btnNext.onclick = async () => { window.__CLAWDBOT_JOURNAL_PAGE = Math.min(totalPages, page+1); await refreshAgentJournal(); };
+
+      right.appendChild(btnPrev);
+      right.appendChild(pageText);
+      right.appendChild(btnNext);
+
+      topBar.appendChild(left);
+      topBar.appendChild(right);
+      el.appendChild(topBar);
+
       // Newest-first so "latest journal" is visually the top entry
       const ordered = items.slice().reverse();
-      for (const it of ordered){
+      const start = (page - 1) * pageSize;
+      const pageItems = ordered.slice(start, start + pageSize);
+
+      const renderInline = (txt) => {
+        // Safe: escape everything, then format inline `code`
+        const s = String(txt || '');
+        const parts = s.split('`');
+        let out = '';
+        for (let i=0;i<parts.length;i++){
+          const p = escapeHtml(parts[i]);
+          if (i % 2 === 1) out += `<code>${p}</code>`; else out += p;
+        }
+        return out;
+      };
+
+      const renderBody = (txt) => {
+        const s = String(txt || '');
+        // handle fenced code blocks ```...```
+        if (s.includes('```')) {
+          const chunks = s.split('```');
+          let html = '';
+          for (let i=0;i<chunks.length;i++){
+            const c = chunks[i];
+            if (i % 2 === 1) {
+              html += `<pre style="margin:10px 0 0 0;padding:10px 12px;border-radius:12px;border:1px solid var(--cb-border);background:color-mix(in srgb, var(--primary-background-color) 70%, var(--cb-card-bg));overflow:auto"><code>${escapeHtml(c.trim())}</code></pre>`;
+            } else {
+              html += `<div class="muted" style="white-space:pre-wrap">${renderInline(c)}</div>`;
+            }
+          }
+          return html;
+        }
+        return `<div class="muted" style="white-space:pre-wrap">${renderInline(s)}</div>`;
+      };
+
+      for (const it of pageItems){
+
         const row = document.createElement('div');
         row.style.border = '1px solid var(--divider-color)';
         row.style.borderRadius = '14px';
@@ -1000,7 +1090,7 @@ window.__clawdbotPanelInitError = null;
         const mood = it.mood ? String(it.mood) : '';
         const title = it.title ? String(it.title) : 'Journal';
         const body = it.body ? String(it.body) : '';
-        row.innerHTML = `<div style="display:flex;justify-content:space-between;gap:10px"><div style="font-weight:800">${escapeHtml(title)}${mood ? ` <span class=\"muted\">(${escapeHtml(mood)})</span>` : ''}</div><div class="muted" style="font-size:11px;white-space:nowrap">${escapeHtml(ts.slice(0,19).replace('T',' '))}</div></div><div class="muted" style="margin-top:6px;white-space:pre-wrap">${escapeHtml(body)}</div>`;
+        row.innerHTML = `<div style="display:flex;justify-content:space-between;gap:10px"><div style="font-weight:800">${escapeHtml(title)}${mood ? ` <span class=\"muted\">(${escapeHtml(mood)})</span>` : ''}</div><div class="muted" style="font-size:11px;white-space:nowrap">${escapeHtml(ts.slice(0,19).replace('T',' '))}</div></div><div style="margin-top:6px">${renderBody(body)}</div>`;
         el.appendChild(row);
       }
     } catch(e){
