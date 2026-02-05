@@ -1591,14 +1591,15 @@ window.__clawdbotPanelInitError = null;
     if (!btn || !wrap) return;
 
     // Persistent hidden file input (reliable onchange across re-renders)
-    let fileInput = document.getElementById('agentAvatarFile');
+    const doc = (btn && btn.ownerDocument) ? btn.ownerDocument : document;
+    let fileInput = doc.getElementById('agentAvatarFile');
     if (!fileInput) {
-      fileInput = document.createElement('input');
+      fileInput = doc.createElement('input');
       fileInput.id = 'agentAvatarFile';
       fileInput.type = 'file';
       fileInput.accept = 'image/*';
       fileInput.style.display = 'none';
-      document.body.appendChild(fileInput);
+      (doc.body || doc.documentElement).appendChild(fileInput);
     }
 
     let modal = null;
@@ -1729,9 +1730,17 @@ window.__clawdbotPanelInitError = null;
     fileInput.onchange = () => {
       try{
         const f = fileInput.files && fileInput.files[0];
-        if (!f) { try{ console.debug('[avatar] no file selected'); }catch(e){} return; }
+        if (!f) { try{ console.debug('[avatar] no file selected'); }catch(e){} toast('No file selected'); return; }
         try{ console.debug('[avatar] file selected', { name: f.name, size: f.size, type: f.type }); }catch(e){}
         if (f.size > 5*1024*1024) { toast('Image too large'); return; }
+
+        // Quick preview sanity
+        try{
+          const u = URL.createObjectURL(f);
+          console.debug('[avatar] preview url created');
+          setTimeout(()=>{ try{ URL.revokeObjectURL(u); }catch(e){} }, 10_000);
+        } catch(e){}
+
         openCropper(f);
       } catch(e){
         try{ console.debug('[avatar] onchange error', e); }catch(_e){}
