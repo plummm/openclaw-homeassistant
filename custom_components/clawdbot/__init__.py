@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.72"
+PANEL_BUILD_ID = "89337ab.73"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1897,13 +1897,15 @@ PANEL_HTML = """<!doctype html>
 
     .agent-hero.mood-focused{
       background:
-        radial-gradient(1200px 360px at 20% 0%, rgba(181,123,255,.24), transparent 62%),
-        radial-gradient(1200px 360px at 84% 12%, rgba(0,245,255,.10), transparent 64%),
-        linear-gradient(180deg, color-mix(in srgb, var(--cb-card-bg) 96%, transparent), color-mix(in srgb, var(--cb-card-bg) 90%, rgba(181,123,255,.10)));
+        radial-gradient(1200px 520px at 20% 0%, rgba(181,123,255,.26), transparent 68%),
+        radial-gradient(1200px 520px at 84% 12%, rgba(0,245,255,.12), transparent 70%),
+        linear-gradient(180deg,
+          color-mix(in srgb, var(--cb-card-bg) 94%, rgba(181,123,255,.10)),
+          color-mix(in srgb, var(--cb-card-bg) 88%, rgba(181,123,255,.14)));
       background-repeat:no-repeat;
       background-attachment:scroll;
-      border-color: rgba(181,123,255,.55);
-      box-shadow:0 0 0 1px color-mix(in srgb, var(--claw-accent-b) 35%, transparent), 0 0 34px color-mix(in srgb, var(--claw-accent-b) 24%, transparent), var(--cb-shadow-soft);
+      border-color: rgba(181,123,255,.60);
+      box-shadow:0 0 0 1px color-mix(in srgb, var(--claw-accent-b) 38%, transparent), 0 0 34px color-mix(in srgb, var(--claw-accent-b) 26%, transparent), var(--cb-shadow-soft);
     }
 
     .agent-hero.mood-degraded{
@@ -1993,6 +1995,9 @@ PANEL_HTML = """<!doctype html>
       .agent-title{font-size:24px;}
       .agent-desc{font-size:14px;}
       .agent-mood{font-size:12px;}
+
+      /* Floating STT: keep below tabs/menu area */
+      #agentSttFloat{top:calc(env(safe-area-inset-top, 0px) + 112px) !important; right:10px !important;}
 
       /* Chat bubbles more width */
       .chat-bubble{max-width:88%;}
@@ -2320,7 +2325,7 @@ PANEL_HTML = """<!doctype html>
 
   <div id=\"viewAgent\" class=\"hidden\">
     <div class=\"card agent-hero\" id=\"agentHeroCard\" style=\"position:relative;overflow:hidden\">
-      <div style=\"position:absolute;inset:-40px -60px auto -60px;height:180px;background:radial-gradient(circle at 20% 30%, rgba(0,245,255,.35), transparent 60%), radial-gradient(circle at 70% 40%, rgba(123,44,255,.35), transparent 65%);filter:blur(0px);pointer-events:none;z-index:1\"></div>
+      <div style=\"position:absolute;inset:0;background:radial-gradient(circle at 20% 30%, rgba(0,245,255,.22), transparent 60%), radial-gradient(circle at 70% 40%, rgba(123,44,255,.20), transparent 65%);filter:blur(0px);pointer-events:none;z-index:1\"></div>
       <div class=\"row\" style=\"position:relative;z-index:1;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap\">
         <div class=\"row\" style=\"gap:14px;align-items:center\">
           <div style=\"width:64px;height:64px;border-radius:18px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg, rgba(0,245,255,.25), rgba(123,44,255,.25));border:1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));font-weight:800;letter-spacing:.5px\">A0</div>
@@ -2355,7 +2360,7 @@ PANEL_HTML = """<!doctype html>
     </div>
 
     <!-- Voice-to-text moved into floating control (top-right) -->
-    <div id=\"agentSttFloat\" style=\"position:fixed;top:14px;right:14px;z-index:50;max-width:min(420px,calc(100vw - 28px));\">
+    <div id=\"agentSttFloat\" style=\"position:fixed;top:calc(env(safe-area-inset-top, 0px) + 72px);right:14px;z-index:50;max-width:min(420px,calc(100vw - 28px));\">
       <div class=\"card\" style=\"margin:0;padding:10px 12px;backdrop-filter:blur(10px);\">
         <div class=\"row\" style=\"justify-content:space-between;align-items:center;gap:10px;flex-wrap:nowrap\">
           <div class=\"muted\" style=\"font-size:12px;white-space:nowrap\">STT</div>
