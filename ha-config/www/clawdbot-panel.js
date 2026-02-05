@@ -1444,11 +1444,16 @@ window.__clawdbotPanelInitError = null;
 
     const setCaption = (txt, kind='ok') => {
       try{
-        statusEl.textContent = String(txt || '');
+        const t = String(txt || '').trim();
+        statusEl.textContent = t;
+        statusEl.style.display = t ? '' : 'none';
         statusEl.style.color = (kind==='bad') ? 'var(--error-color, #b00020)' : '#25d366';
         statusEl.style.fontWeight = '900';
         statusEl.style.letterSpacing = '0.06em';
         statusEl.style.textTransform = 'uppercase';
+        statusEl.style.whiteSpace = 'nowrap';
+        statusEl.style.overflow = 'hidden';
+        statusEl.style.textOverflow = 'ellipsis';
       } catch(e){}
     };
 
@@ -1513,16 +1518,16 @@ window.__clawdbotPanelInitError = null;
 
             const blob = new Blob(chunks, { type: 'audio/webm' });
             const r = await fetch('/api/clawdbot/stt_whisper', { method: 'POST', body: blob, credentials: 'include' });
-            const j = await r.json().catch(()=>null);
-            if (r.status === 401) {
-              setCaption('login required', 'bad');
-              btn.textContent = 'Listen';
-              _speechActive = false;
-              return;
+            let j = await r.json().catch(()=>null);
+            if (!j) {
+              // fallback to text
+              const txt = await r.text().catch(()=> '');
+              j = { ok: false, error: txt ? txt.slice(0,120) : null };
             }
             if (!r.ok || !j || !j.ok) {
-              const err = (j && j.error) ? String(j.error) : ('http ' + String(r.status));
-              setCaption(err, 'bad');
+              const err = (j && j.error) ? String(j.error) : '';
+              const msg = `Whisper failed (HTTP ${r.status})` + (err ? `: ${err}` : '');
+              setCaption(msg, 'bad');
               btn.textContent = 'Listen';
               _speechActive = false;
               return;
