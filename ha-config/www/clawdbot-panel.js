@@ -844,8 +844,14 @@ window.__clawdbotPanelInitError = null;
       const prof = cfg.agent_profile || {};
       const moodEl = document.getElementById('agentMood');
       const descEl = document.getElementById('agentDesc');
+      const metaEl = document.getElementById('agentMeta');
       if (moodEl) moodEl.textContent = `· mood: ${prof.mood || 'calm'}`;
       if (descEl) descEl.textContent = prof.description || 'Ship ops / energy monitoring assistant';
+      if (metaEl) {
+        const src = prof.source ? String(prof.source) : '—';
+        const ts = prof.updated_ts ? String(prof.updated_ts) : '—';
+        metaEl.textContent = `source: ${src} · updated: ${ts}`;
+      }
     } catch(e){}
 
     // Derived sensors status
@@ -932,8 +938,14 @@ window.__clawdbotPanelInitError = null;
             window.__CLAWDBOT_CONFIG__.agent_profile = prof;
             const moodEl = document.getElementById('agentMood');
             const descEl = document.getElementById('agentDesc');
+            const metaEl = document.getElementById('agentMeta');
             if (moodEl) moodEl.textContent = `· mood: ${prof.mood || 'calm'}`;
             if (descEl) descEl.textContent = prof.description || '—';
+            if (metaEl) {
+              const src = prof.source ? String(prof.source) : '—';
+              const ts = prof.updated_ts ? String(prof.updated_ts) : '—';
+              metaEl.textContent = `source: ${src} · updated: ${ts}`;
+            }
           }
           await refreshAgentJournal();
           toast('Pulse synced');

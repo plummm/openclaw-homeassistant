@@ -164,7 +164,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.56"
+PANEL_BUILD_ID = "89337ab.57"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -2216,6 +2216,7 @@ PANEL_HTML = """<!doctype html>
           <div style=\"display:flex;flex-direction:column;gap:4px;min-width:260px\">
             <div style=\"font-size:24px;font-weight:900;letter-spacing:-0.2px\">Agent 0 <span class=\"muted\" id=\"agentMood\" style=\"font-weight:800\">· mood: calm</span></div>
             <div class=\"muted\" id=\"agentDesc\">Ship ops / energy monitoring assistant</div>
+            <div class=\"muted\" id=\"agentMeta\" style=\"font-size:11px\"></div>
             <div class=\"row\" style=\"gap:8px;flex-wrap:wrap\">
               <span class=\"pill\" id=\"agentConnPill\">…</span>
               <span class=\"pill\" id=\"agentDerivedPill\">…</span>
@@ -5296,6 +5297,31 @@ async def async_setup(hass, config):
 
         return {"ok": True, "profile": prof, "journal_appended": appended}
 
+    async def handle_agent_state_reset(call):
+        """Reset agent profile and (optionally) clear journal entries.
+
+        Intended to clear test values like TEST_PUSH.
+        """
+        cfg = hass.data.get(DOMAIN, {})
+        prof_store: Store = cfg.get("agent_profile_store")
+        journal_store: Store = cfg.get("journal_store")
+        if prof_store is None or journal_store is None:
+            raise HomeAssistantError("stores not initialized")
+
+        clear_journal = bool(call.data.get("clear_journal"))
+
+        prof = {}
+        await prof_store.async_save(prof)
+        cfg["agent_profile"] = prof
+
+        cleared = {"profile": True, "journal": False}
+        if clear_journal:
+            await journal_store.async_save([])
+            cfg["journal"] = []
+            cleared["journal"] = True
+
+        return {"ok": True, "cleared": cleared}
+
     async def handle_agent_pulse(call):
         """Pulse is now read-only: refresh the latest agent-managed state."""
         return await handle_agent_state_get(call)
@@ -5304,6 +5330,7 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, "agent_profile_set", handle_agent_profile_set, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "agent_state_get", handle_agent_state_get, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "agent_state_set", handle_agent_state_set, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "agent_state_reset", handle_agent_state_reset, supports_response=SupportsResponse.ONLY)
     # Back-compat: pulse now just refreshes state (read-only)
     hass.services.async_register(DOMAIN, "agent_pulse", handle_agent_pulse, supports_response=SupportsResponse.ONLY)
 
