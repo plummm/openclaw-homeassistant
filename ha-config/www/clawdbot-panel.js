@@ -895,12 +895,17 @@ window.__clawdbotPanelInitError = null;
         input.value = masked ? '' : _optStr(opt.value != null ? opt.value : (opt.default != null ? opt.default : ''));
         if (masked) input.type = 'password';
       }
+      // stable selectors for automation
+      try{ input.setAttribute('data-testid', `setup-opt-input:${key}`); }catch(e){}
+      try{ input.setAttribute('data-opt-key', key); }catch(e){}
       if (readOnly) input.disabled = true;
 
       const btn = document.createElement('button');
       btn.className = 'btn primary';
       btn.textContent = 'Save';
       btn.disabled = readOnly;
+      try{ btn.setAttribute('data-testid', `setup-opt-save:${key}`); }catch(e){}
+      try{ btn.setAttribute('data-opt-key', key); }catch(e){}
 
       const res = document.createElement('span');
       res.className = 'muted';
