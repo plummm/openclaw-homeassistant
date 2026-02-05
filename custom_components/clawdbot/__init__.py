@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.73"
+PANEL_BUILD_ID = "89337ab.74"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1996,8 +1996,8 @@ PANEL_HTML = """<!doctype html>
       .agent-desc{font-size:14px;}
       .agent-mood{font-size:12px;}
 
-      /* Floating STT: keep below tabs/menu area */
-      #agentSttFloat{top:calc(env(safe-area-inset-top, 0px) + 112px) !important; right:10px !important;}
+      /* STT widget: do NOT overlay content on mobile */
+      #agentSttFloat{position:static !important; top:auto !important; right:auto !important; max-width:100% !important;}
 
       /* Chat bubbles more width */
       .chat-bubble{max-width:88%;}
@@ -2324,6 +2324,21 @@ PANEL_HTML = """<!doctype html>
   </div>
 
   <div id=\"viewAgent\" class=\"hidden\">
+    <!-- Voice-to-text control (desktop floats top-right; mobile becomes in-flow via CSS) -->
+    <div id=\"agentSttFloat\" style=\"position:fixed;top:calc(env(safe-area-inset-top, 0px) + 72px);right:14px;z-index:50;max-width:min(420px,calc(100vw - 28px));\">
+      <div class=\"card\" style=\"margin:0;padding:10px 12px;backdrop-filter:blur(10px);\">
+        <div class=\"row\" style=\"justify-content:space-between;align-items:center;gap:10px;flex-wrap:nowrap\">
+          <div class=\"muted\" style=\"font-size:12px;white-space:nowrap\">STT</div>
+          <div class=\"row\" style=\"gap:8px;align-items:center;flex-wrap:nowrap\">
+            <button class=\"btn primary\" id=\"btnListen\" style=\"height:36px;border-radius:12px;padding:0 12px\">Listen</button>
+            <button class=\"btn\" id=\"btnStopListen\" disabled style=\"height:36px;border-radius:12px;padding:0 12px\">Stop</button>
+          </div>
+        </div>
+        <div class=\"muted\" id=\"listenStatus\" style=\"margin-top:6px;font-size:12px\"></div>
+        <div id=\"transcript\" style=\"margin-top:8px;max-height:160px;overflow:auto;border-radius:12px;border:1px solid var(--divider-color);padding:8px 10px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 88%, transparent);white-space:pre-wrap;font-size:12px\"></div>
+      </div>
+    </div>
+
     <div class=\"card agent-hero\" id=\"agentHeroCard\" style=\"position:relative;overflow:hidden\">
       <div style=\"position:absolute;inset:0;background:radial-gradient(circle at 20% 30%, rgba(0,245,255,.22), transparent 60%), radial-gradient(circle at 70% 40%, rgba(123,44,255,.20), transparent 65%);filter:blur(0px);pointer-events:none;z-index:1\"></div>
       <div class=\"row\" style=\"position:relative;z-index:1;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap\">
@@ -2359,20 +2374,7 @@ PANEL_HTML = """<!doctype html>
       <div id=\"agentJournal\" class=\"muted\" style=\"margin-top:10px\">No journal entries yet.</div>
     </div>
 
-    <!-- Voice-to-text moved into floating control (top-right) -->
-    <div id=\"agentSttFloat\" style=\"position:fixed;top:calc(env(safe-area-inset-top, 0px) + 72px);right:14px;z-index:50;max-width:min(420px,calc(100vw - 28px));\">
-      <div class=\"card\" style=\"margin:0;padding:10px 12px;backdrop-filter:blur(10px);\">
-        <div class=\"row\" style=\"justify-content:space-between;align-items:center;gap:10px;flex-wrap:nowrap\">
-          <div class=\"muted\" style=\"font-size:12px;white-space:nowrap\">STT</div>
-          <div class=\"row\" style=\"gap:8px;align-items:center;flex-wrap:nowrap\">
-            <button class=\"btn primary\" id=\"btnListen\" style=\"height:36px;border-radius:12px;padding:0 12px\">Listen</button>
-            <button class=\"btn\" id=\"btnStopListen\" disabled style=\"height:36px;border-radius:12px;padding:0 12px\">Stop</button>
-          </div>
-        </div>
-        <div class=\"muted\" id=\"listenStatus\" style=\"margin-top:6px;font-size:12px\"></div>
-        <div id=\"transcript\" style=\"margin-top:8px;max-height:160px;overflow:auto;border-radius:12px;border:1px solid var(--divider-color);padding:8px 10px;background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 88%, transparent);white-space:pre-wrap;font-size:12px\"></div>
-      </div>
-    </div>
+    <!-- STT widget moved to top of Agent view (see above) -->
   </div>
 
   <div id=\"viewChat\" class=\"hidden\">
