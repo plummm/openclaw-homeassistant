@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.69"
+PANEL_BUILD_ID = "89337ab.70"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -1868,38 +1868,55 @@ PANEL_HTML = """<!doctype html>
 
     /* Mood / sentiment color accents */
     .agent-hero{
-      /* override .card background so mood tint fully controls hero fill */
-      background: transparent !important;
+      /* Ensure the hero fill is painted by this element (no underlying .card gradient). */
+      background: color-mix(in srgb, var(--cb-card-bg) 96%, transparent) !important;
       border-color: color-mix(in srgb, var(--cb-border-strong) 55%, var(--claw-accent-a) 25%);
       position:relative; overflow:hidden;
     }
 
-    /* Mood tint overlay: must cover the full rounded rectangle */
-    .agent-hero::before{content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none; z-index:0;
-      background: radial-gradient(900px 260px at 20% 10%, rgba(0,245,255,.16), transparent 60%),
-                  radial-gradient(900px 260px at 80% 0%, rgba(123,44,255,.12), transparent 62%);
-      opacity:1;
+    /* Mood fill: set background on the outermost rounded container so it fills all the way to the bottom. */
+    .agent-hero.mood-calm{
+      background:
+        radial-gradient(1200px 360px at 18% 0%, rgba(0,245,255,.20), transparent 62%),
+        radial-gradient(1200px 360px at 84% 12%, rgba(123,44,255,.16), transparent 64%),
+        linear-gradient(180deg, color-mix(in srgb, var(--cb-card-bg) 96%, transparent), color-mix(in srgb, var(--cb-card-bg) 92%, rgba(0,245,255,.06)));
+      box-shadow:0 0 0 1px color-mix(in srgb, var(--claw-accent-a) 22%, transparent), var(--cb-shadow-soft);
     }
 
-    .agent-hero.mood-calm{box-shadow:0 0 0 1px color-mix(in srgb, var(--claw-accent-a) 22%, transparent), var(--cb-shadow-soft);}
-    .agent-hero.mood-calm::before{background: radial-gradient(900px 260px at 20% 10%, rgba(0,245,255,.22), transparent 60%),
-                                  radial-gradient(900px 260px at 80% 0%, rgba(123,44,255,.10), transparent 62%);} 
+    .agent-hero.mood-alert{
+      background:
+        radial-gradient(1200px 360px at 16% 0%, rgba(255,64,64,.22), transparent 62%),
+        radial-gradient(1200px 360px at 82% 12%, rgba(255,62,142,.12), transparent 64%),
+        linear-gradient(180deg, color-mix(in srgb, var(--cb-card-bg) 96%, transparent), color-mix(in srgb, var(--cb-card-bg) 90%, rgba(255,64,64,.08)));
+      border-color: rgba(255,64,64,.55);
+      box-shadow:0 0 0 1px rgba(255,64,64,.55), 0 0 38px rgba(255,64,64,.26), var(--cb-shadow-soft);
+    }
 
-    .agent-hero.mood-alert{border-color: rgba(255,64,64,.55); box-shadow:0 0 0 1px rgba(255,64,64,.55), 0 0 38px rgba(255,64,64,.26), var(--cb-shadow-soft);}
-    .agent-hero.mood-alert::before{background: radial-gradient(900px 260px at 18% 10%, rgba(255,64,64,.22), transparent 60%),
-                                   radial-gradient(900px 260px at 78% 0%, rgba(255,62,142,.10), transparent 62%);} 
+    .agent-hero.mood-focused{
+      background:
+        radial-gradient(1200px 360px at 20% 0%, rgba(181,123,255,.22), transparent 62%),
+        radial-gradient(1200px 360px at 84% 12%, rgba(0,245,255,.08), transparent 64%),
+        linear-gradient(180deg, color-mix(in srgb, var(--cb-card-bg) 96%, transparent), color-mix(in srgb, var(--cb-card-bg) 90%, rgba(181,123,255,.08)));
+      border-color: rgba(181,123,255,.55);
+      box-shadow:0 0 0 1px color-mix(in srgb, var(--claw-accent-b) 35%, transparent), 0 0 34px color-mix(in srgb, var(--claw-accent-b) 24%, transparent), var(--cb-shadow-soft);
+    }
 
-    .agent-hero.mood-focused{border-color: rgba(181,123,255,.55); box-shadow:0 0 0 1px color-mix(in srgb, var(--claw-accent-b) 35%, transparent), 0 0 34px color-mix(in srgb, var(--claw-accent-b) 24%, transparent), var(--cb-shadow-soft);}
-    .agent-hero.mood-focused::before{background: radial-gradient(900px 260px at 22% 10%, rgba(181,123,255,.22), transparent 60%),
-                                     radial-gradient(900px 260px at 82% 0%, rgba(0,245,255,.08), transparent 62%);} 
+    .agent-hero.mood-degraded{
+      background:
+        radial-gradient(1200px 360px at 18% 0%, rgba(255,166,0,.20), transparent 62%),
+        radial-gradient(1200px 360px at 84% 12%, rgba(255,64,64,.08), transparent 64%),
+        linear-gradient(180deg, color-mix(in srgb, var(--cb-card-bg) 96%, transparent), color-mix(in srgb, var(--cb-card-bg) 90%, rgba(255,166,0,.08)));
+      border-color: rgba(255,166,0,.52);
+      box-shadow:0 0 0 1px rgba(255,166,0,.48), 0 0 34px rgba(255,166,0,.20), var(--cb-shadow-soft);
+    }
 
-    .agent-hero.mood-degraded{border-color: rgba(255,166,0,.52); box-shadow:0 0 0 1px rgba(255,166,0,.48), 0 0 34px rgba(255,166,0,.20), var(--cb-shadow-soft);}
-    .agent-hero.mood-degraded::before{background: radial-gradient(900px 260px at 20% 10%, rgba(255,166,0,.20), transparent 60%),
-                                      radial-gradient(900px 260px at 80% 0%, rgba(255,64,64,.08), transparent 62%);} 
-
-    .agent-hero.mood-lost{opacity:0.92; filter:saturate(.92);} 
-    .agent-hero.mood-lost::before{background: radial-gradient(900px 260px at 20% 10%, rgba(140,150,160,.10), transparent 60%),
-                                  radial-gradient(900px 260px at 80% 0%, rgba(0,0,0,.06), transparent 62%);} 
+    .agent-hero.mood-lost{
+      background:
+        radial-gradient(1200px 360px at 18% 0%, rgba(140,150,160,.12), transparent 62%),
+        radial-gradient(1200px 360px at 84% 12%, rgba(0,0,0,.06), transparent 64%),
+        linear-gradient(180deg, color-mix(in srgb, var(--cb-card-bg) 96%, transparent), color-mix(in srgb, var(--cb-card-bg) 92%, rgba(0,0,0,.04)));
+      opacity:0.92; filter:saturate(.92);
+    }
     .btn{height:44px;padding:0 16px;border:1px solid var(--cb-border);border-radius:12px;
       background:linear-gradient(135deg,
         color-mix(in srgb, var(--secondary-background-color) 88%, var(--cb-card-bg)),

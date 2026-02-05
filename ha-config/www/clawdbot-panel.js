@@ -987,7 +987,9 @@ window.__clawdbotPanelInitError = null;
       const items = (r && Array.isArray(r.items)) ? r.items : [];
       if (!items.length) { el.textContent = 'No journal entries yet.'; return; }
       el.innerHTML = '';
-      for (const it of items){
+      // Newest-first so "latest journal" is visually the top entry
+      const ordered = items.slice().reverse();
+      for (const it of ordered){
         const row = document.createElement('div');
         row.style.border = '1px solid var(--divider-color)';
         row.style.borderRadius = '14px';
