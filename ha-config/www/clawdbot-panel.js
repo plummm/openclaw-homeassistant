@@ -1596,9 +1596,11 @@ window.__clawdbotPanelInitError = null;
       // Force solid, full-screen overlay (use dedicated backdrop element)
       modal.style.position = 'fixed';
       modal.style.inset = '0';
-      modal.style.width = '100vw';
-      modal.style.height = '100vh';
+      // Avoid 100vw (can cause horizontal overflow due to scrollbar); rely on inset:0
+      modal.style.width = '';
+      modal.style.height = '';
       modal.style.background = 'transparent';
+      modal.style.overflowX = 'hidden';
       modal.style.backdropFilter = 'none';
       modal.style.webkitBackdropFilter = 'none';
       modal.style.zIndex = '100000';
@@ -1617,7 +1619,8 @@ window.__clawdbotPanelInitError = null;
       }
       backdrop.style.position = 'fixed';
       backdrop.style.inset = '0';
-      backdrop.style.background = '#000';
+      // Light dim only (no blackout)
+      backdrop.style.background = 'rgba(0,0,0,0.45)';
       backdrop.style.opacity = '1';
       backdrop.style.pointerEvents = 'auto';
 
@@ -1626,9 +1629,12 @@ window.__clawdbotPanelInitError = null;
       if (card) {
         card.style.position = 'relative';
         card.style.zIndex = '100001';
-        card.style.margin = '18px';
-        card.style.maxHeight = 'min(86vh, 820px)';
-        card.style.overflow = 'auto';
+        card.style.margin = '16px';
+        card.style.width = 'min(720px, calc(100vw - 32px))';
+        card.style.maxWidth = 'min(720px, calc(100vw - 32px))';
+        card.style.maxHeight = 'min(84vh, 760px)';
+        card.style.overflowX = 'hidden';
+        card.style.overflowY = 'auto';
       }
 
       // Clicking backdrop closes
