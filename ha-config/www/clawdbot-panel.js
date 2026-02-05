@@ -2531,6 +2531,29 @@ async function fetchStatesRest(hass){
     try{ if (DEBUG_UI) dbgStep('init-start');
     console.debug('[clawdbot] init start', {top: window===window.top}); } catch(e) {}
     try {
+    // Title + tagline
+    try{
+      const cfg = (window.__CLAWDBOT_CONFIG__ || {});
+      const prof = cfg.agent_profile || {};
+      const name = (prof && prof.name) ? String(prof.name) : 'Agent 0';
+      const titleEl = document.getElementById('appTitle');
+      if (titleEl) titleEl.textContent = `Hello, this is ${name}, how can I help you today?`;
+
+      const taglines = [
+        'Calibrating thrusters… please stand by.',
+        'Running preflight checks on the conversation engine.',
+        'Warming up the stardrive. Coffee is optional.',
+        'Plotting a course through your automations.',
+        'Diagnostics green. Ready for instructions.',
+        'Listening for anomalies in the sensor chorus.',
+        'Systems nominal. What are we building today?',
+        'Docked to Home Assistant. Awaiting command.',
+      ];
+      const pick = taglines[Math.floor(Math.random()*taglines.length)];
+      const tagEl = document.getElementById('appTagline');
+      if (tagEl) tagEl.textContent = pick;
+    } catch(e){}
+
     renderConfigSummary();
     fillConnectionInputs();
     fillThemeInputs();

@@ -1,6 +1,6 @@
 {
   "domain": "clawdbot",
-  "name": "OpenClaw",
+  "name": "HA-openclaw",
   "version": "0.2.1",
   "documentation": "https://github.com/plummm/openclaw-homeassistant",
   "issue_tracker": "https://github.com/plummm/openclaw-homeassistant/issues",

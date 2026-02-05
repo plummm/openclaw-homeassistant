@@ -170,7 +170,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.74"
+PANEL_BUILD_ID = "89337ab.75"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -2072,9 +2072,9 @@ PANEL_HTML = """<!doctype html>
 </head>
 <body>
   <div class=\"surface\">
-  <h1>Clawdbot</h1>
-  <div class="muted" id="debugStamp" style="display:none;margin:6px 0 0 0"></div>
-  <div class=\"muted\" style=\"margin:0 0 10px 0;\">Home Assistant panel (served by HA). Uses HA auth to call HA services which relay to OpenClaw.</div>
+  <h1 id=\"appTitle\">Hello, this is Agent 0, how can I help you today?</h1>
+  <div class=\"muted\" id=\"debugStamp\" style=\"display:none;margin:6px 0 0 0\"></div>
+  <div class=\"muted\" id=\"appTagline\" style=\"margin:0 0 10px 0;\"></div>
 
   <script type=\"application/json\" id=\"clawdbot-config\">__CONFIG_JSON__</script>
   <script src=\"/local/clawdbot-panel.js?v=__PANEL_BUILD_ID__\"></script>
