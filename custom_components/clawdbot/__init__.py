@@ -169,11 +169,14 @@ AVATAR_STORE_VERSION = 1
 AGENT_STATE_WEBHOOK_STORE_KEY = "clawdbot_agent_state_webhook"
 AGENT_STATE_WEBHOOK_STORE_VERSION = 1
 
+AVATAR_WEBHOOK_STORE_KEY = "clawdbot_avatar_webhook"
+AVATAR_WEBHOOK_STORE_VERSION = 1
+
 OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.111"
+PANEL_BUILD_ID = "89337ab.112"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -3500,6 +3503,11 @@ async def async_setup(hass, config):
     agent_state_webhook = await agent_state_webhook_store.async_load() or {}
     if not isinstance(agent_state_webhook, dict):
         agent_state_webhook = {}
+
+    avatar_webhook_store = Store(hass, AVATAR_WEBHOOK_STORE_VERSION, AVATAR_WEBHOOK_STORE_KEY)
+    avatar_webhook = await avatar_webhook_store.async_load() or {}
+    if not isinstance(avatar_webhook, dict):
+        avatar_webhook = {}
     if not isinstance(journal_items, list):
         journal_items = []
 
@@ -3534,6 +3542,8 @@ async def async_setup(hass, config):
             "avatar": avatar,
             "agent_state_webhook_store": agent_state_webhook_store,
             "agent_state_webhook": agent_state_webhook,
+            "avatar_webhook_store": avatar_webhook_store,
+            "avatar_webhook": avatar_webhook,
         }
     )
 
@@ -3611,6 +3621,59 @@ async def async_setup(hass, config):
             _LOGGER.info("Registered agent state webhook → /api/webhook/%s", webhook_id)
     except Exception:
         _LOGGER.exception("Failed to register agent state webhook")
+
+    # Register avatar webhook handler (Agent0 can POST png_b64 without tokens)
+    try:
+        from homeassistant.components import webhook
+        from aiohttp.web import Response
+
+        store: Store = hass.data[DOMAIN].get("avatar_webhook_store")
+        data = hass.data[DOMAIN].get("avatar_webhook")
+        if store is not None and isinstance(data, dict):
+            webhook_id = data.get("webhook_id")
+            if not isinstance(webhook_id, str) or not webhook_id:
+                webhook_id = webhook.async_generate_id()
+                data = {"webhook_id": webhook_id}
+                await store.async_save(data)
+                hass.data[DOMAIN]["avatar_webhook"] = data
+
+            async def _handle_avatar_webhook(hass, webhook_id, request):
+                try:
+                    payload = await request.json()
+                except Exception:
+                    return Response(status=200)
+                if not isinstance(payload, dict):
+                    return Response(status=200)
+
+                call_data = {
+                    "agent_id": payload.get("agent_id") or "agent0",
+                    "png_b64": payload.get("png_b64"),
+                }
+
+                try:
+                    class _Call:
+                        __slots__ = ("data",)
+
+                        def __init__(self, data):
+                            self.data = data
+
+                    await handle_avatar_set_b64(_Call(call_data))
+                except Exception:
+                    return Response(status=200)
+                return Response(status=200)
+
+            webhook.async_register(
+                hass,
+                DOMAIN,
+                "avatar_push",
+                webhook_id,
+                _handle_avatar_webhook,
+                local_only=False,
+                allowed_methods=("POST",),
+            )
+            _LOGGER.info("Registered avatar webhook → /api/webhook/%s", webhook_id)
+    except Exception:
+        _LOGGER.exception("Failed to register avatar webhook")
 
     # Panel (iframe)
     try:
@@ -6094,6 +6157,24 @@ async def async_setup(hass, config):
 
         return {"ok": True, "request_id": request_id}
 
+    async def handle_avatar_webhook_get(call):
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("avatar_webhook_store")
+        data = cfg.get("avatar_webhook")
+        if store is None or not isinstance(data, dict):
+            raise HomeAssistantError("avatar webhook store not initialized")
+
+        from homeassistant.components import webhook
+
+        webhook_id = data.get("webhook_id")
+        if not isinstance(webhook_id, str) or not webhook_id:
+            webhook_id = webhook.async_generate_id()
+            data = {"webhook_id": webhook_id}
+            await store.async_save(data)
+            cfg["avatar_webhook"] = data
+
+        return {"ok": True, "webhook_id": webhook_id, "path": f"/api/webhook/{webhook_id}"}
+
     async def handle_avatar_set_b64(call):
         cfg = hass.data.get(DOMAIN, {})
         store: Store = cfg.get("avatar_store")
@@ -6175,6 +6256,7 @@ async def async_setup(hass, config):
 
     hass.services.async_register(DOMAIN, "avatar_prompt_set", handle_avatar_prompt_set, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "avatar_generate_request", handle_avatar_generate_request, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "avatar_webhook_get", handle_avatar_webhook_get, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "avatar_set_b64", handle_avatar_set_b64, supports_response=SupportsResponse.ONLY)
 
     # Back-compat: pulse now just refreshes state (read-only)
