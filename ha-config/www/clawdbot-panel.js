@@ -2001,33 +2001,52 @@ window.__clawdbotPanelInitError = null;
       try{ modal.style.display = 'none'; }catch(e){}
     };
 
-    if (useBtn) {
-      // Use capture so extensions/other handlers are less likely to interfere.
-      useBtn.addEventListener('click', async (ev) => {
-        try{ ev.preventDefault(); ev.stopPropagation(); }catch(e){}
-        toast('Applying…');
-        const rid = currentAvatarReqId || lastAvatarReqId;
-        if (!rid) { toast('No preview yet'); return; }
-        try{ useBtn.disabled = true; useBtn.textContent='Applying…'; }catch(e){}
-        setHint('Applying avatar…');
+    // Use-this handler: delegate at document capture so it survives DOM replacement.
+    // This fixes cases where the modal/button node gets re-rendered and loses the direct listener.
+    if (!window.__clawdbotAvatarUseThisBound) {
+      window.__clawdbotAvatarUseThisBound = true;
+      document.addEventListener('click', async (ev) => {
         try{
-          const rr = await callServiceResponse('clawdbot','avatar_apply', { request_id: rid });
-          const sr = (rr && rr.result && rr.result.service_response) ? rr.result.service_response : null;
-          if (sr && sr.ok) {
-            toast('Applied ✅');
-            try{ setAvatarPreview(); }catch(e){}
-            // Close unconditionally on ok:true
-            forceCloseModal();
-          } else {
-            toast('Failed to apply');
+          const t = ev && ev.target;
+          const btnEl = t && t.closest ? t.closest('#avatarGenUse') : null;
+          if (!btnEl) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+
+          toast('Applying…');
+
+          // Resolve request_id: prefer current/last, else parse from preview img src.
+          let rid = currentAvatarReqId || lastAvatarReqId || null;
+          if (!rid && prevImg && typeof prevImg.src === 'string' && prevImg.src.includes('request_id=')) {
+            try{
+              const u = new URL(prevImg.src, window.location.origin);
+              const q = u.searchParams.get('request_id');
+              if (q) rid = String(q);
+            } catch(e){}
           }
-        } catch(e) {
-          const msg = (e && e.message) ? String(e.message) : String(e||'');
-          toast('Failed to apply' + (msg ? ` (${msg.slice(0,80)})` : ''));
-        } finally {
-          try{ useBtn.disabled = false; useBtn.textContent='Use this'; }catch(e){}
-        }
-      }, { capture: true });
+          if (!rid) { toast('No preview yet'); return; }
+
+          try{ btnEl.disabled = true; btnEl.textContent='Applying…'; }catch(e){}
+          setHint('Applying avatar…');
+
+          try{
+            const rr = await callServiceResponse('clawdbot','avatar_apply', { request_id: rid });
+            const sr = (rr && rr.result && rr.result.service_response) ? rr.result.service_response : null;
+            if (sr && sr.ok) {
+              toast('Applied ✅');
+              try{ setAvatarPreview(); }catch(e){}
+              forceCloseModal();
+            } else {
+              toast('Failed to apply');
+            }
+          } catch(e) {
+            const msg = (e && e.message) ? String(e.message) : String(e||'');
+            toast('Failed to apply' + (msg ? ` (${msg.slice(0,80)})` : ''));
+          } finally {
+            try{ btnEl.disabled = false; btnEl.textContent='Use this'; }catch(e){}
+          }
+        } catch(e) {}
+      }, true);
     }
 
     let avatarInFlight = false;
