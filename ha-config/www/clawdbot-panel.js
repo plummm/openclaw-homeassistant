@@ -1909,7 +1909,7 @@ window.__clawdbotPanelInitError = null;
       useBtn.onclick = async () => {
         const rid = lastAvatarReqId;
         if (!rid) { toast('No preview yet'); return; }
-        try{ useBtn.disabled = true; }catch(e){}
+        try{ useBtn.disabled = true; useBtn.textContent='Applying…'; }catch(e){}
         setHint('Applying avatar…');
         try{
           const rr = await callServiceResponse('clawdbot','avatar_apply', { request_id: rid });
@@ -1927,7 +1927,8 @@ window.__clawdbotPanelInitError = null;
                 };
               }
             } catch(e){}
-            try{ refreshAvatar(); }catch(e){}
+            try{ setAvatarPreview(); }catch(e){}
+            toast('Applied ✅');
             setTimeout(() => { if (!done) setHint('Avatar updated ✅'); }, 1200);
           } else {
             toast('Failed to apply');
@@ -1935,7 +1936,7 @@ window.__clawdbotPanelInitError = null;
         } catch(e) {
           toast('Failed to apply');
         } finally {
-          try{ useBtn.disabled = false; }catch(e){}
+          try{ useBtn.disabled = false; useBtn.textContent='Use this'; }catch(e){}
         }
       };
     }
