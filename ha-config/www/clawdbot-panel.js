@@ -1733,8 +1733,7 @@ window.__clawdbotPanelInitError = null;
         try{ genBtn.disabled = false; }catch(e){}
         try{ cancelBtn.style.display = 'none'; }catch(e){}
         try{ currentAvatarReqId = null; }catch(e){}
-        try{ if (previewRetryTimer) clearTimeout(previewRetryTimer); }catch(e){}
-        previewRetryTimer = null;
+        try{ clearGenTimers(); }catch(e){}
         try{ setPreviewState('error', 'No preview yet'); }catch(e){}
         toast('Canceled');
       };
@@ -1921,6 +1920,14 @@ window.__clawdbotPanelInitError = null;
     };
 
     let previewRetryTimer = null;
+    let genHardTimeoutTimer = null;
+    const clearGenTimers = () => {
+      try{ if (previewRetryTimer) clearTimeout(previewRetryTimer); }catch(e){}
+      previewRetryTimer = null;
+      try{ if (genHardTimeoutTimer) clearTimeout(genHardTimeoutTimer); }catch(e){}
+      genHardTimeoutTimer = null;
+    };
+
     const setPreviewSrcForReqId = (rid) => {
       if (!prevImg) return;
       try{
@@ -1929,18 +1936,31 @@ window.__clawdbotPanelInitError = null;
         const url = `/api/clawdbot/avatar_preview.png?request_id=${encodeURIComponent(wantRid)}&ts=${Date.now()}`;
 
         // clear any pending retry when we attempt a load
-        try{ if (previewRetryTimer) clearTimeout(previewRetryTimer); }catch(e){}
-        previewRetryTimer = null;
+        clearGenTimers();
+
+        // hard timeout (keeps Generate disabled until we either have a preview or we time out)
+        genHardTimeoutTimer = setTimeout(() => {
+          try{
+            if (currentAvatarReqId && wantRid === currentAvatarReqId) {
+              setGenStage('timeout');
+              setPreviewState('error', 'No preview yet');
+              toast('No image yet — please try Generate again');
+              try{ genBtn.disabled = false; }catch(e){}
+              try{ if (cancelBtn) cancelBtn.style.display = 'none'; }catch(e){}
+              currentAvatarReqId = null;
+            }
+          } catch(e){}
+        }, 120000);
 
         prevImg.onload = () => {
           // Race guard: ignore late loads from older request_ids.
           if (wantRid && currentAvatarReqId && wantRid !== currentAvatarReqId) return;
-          try{ if (previewRetryTimer) clearTimeout(previewRetryTimer); }catch(e){}
-          previewRetryTimer = null;
+          clearGenTimers();
           setPreviewState('ready');
           setGenStage('preview');
           setHint('Preview ready. Click “Use this” to apply.');
           try{ if (cancelBtn) cancelBtn.style.display = 'none'; }catch(e){}
+          // keep Generate disabled until user chooses to regenerate or edits (safer)
           try{ genBtn.disabled = false; }catch(e){}
         };
         prevImg.onerror = () => {
@@ -1969,7 +1989,7 @@ window.__clawdbotPanelInitError = null;
       // Use capture so extensions/other handlers are less likely to interfere.
       useBtn.addEventListener('click', async (ev) => {
         try{ ev.preventDefault(); ev.stopPropagation(); }catch(e){}
-        const rid = lastAvatarReqId;
+        const rid = currentAvatarReqId || lastAvatarReqId;
         if (!rid) { toast('No preview yet'); return; }
         try{ useBtn.disabled = true; useBtn.textContent='Applying…'; }catch(e){}
         setHint('Applying avatar…');
@@ -2010,6 +2030,9 @@ window.__clawdbotPanelInitError = null;
       setHint('Requesting image generation…');
       // hard reset preview (no cached image)
       setPreviewState('generating', 'Generating…');
+      // prevent multiple in-flight runs
+      currentAvatarReqId = null;
+      try{ clearGenTimers(); }catch(e){}
 
       // Persist prompt + request generation (Agent0/host listens to HA event)
       try{
@@ -2035,25 +2058,18 @@ window.__clawdbotPanelInitError = null;
         setPreviewState('generating', 'Generating…');
         setPreviewSrcForReqId(reqId);
 
-        // soft timeout to re-enable UI + show retry hint
-        setTimeout(() => {
-          try{ genBtn.disabled = false; }catch(e){}
-          try{
-            const cur = String(hint && hint.textContent || '');
-            if (cur.includes('Waiting for image')) {
-              setGenStage('timeout');
-              setHint('No image yet. Please click Generate again.');
-              setPreviewState('error', 'No preview yet');
-            }
-          }catch(e){}
-        }, 45000);
+        // Note: Generate remains disabled until preview loads or hard-timeout triggers.
 
       } catch(e) {
         toast('Failed to request generation');
         setHint('');
         setDbg('');
-      } finally {
         try{ genBtn.disabled = false; }catch(e){}
+        try{ if (cancelBtn) cancelBtn.style.display = 'none'; }catch(e){}
+        try{ clearGenTimers(); }catch(e){}
+        currentAvatarReqId = null;
+      } finally {
+        // Generate stays disabled during in-flight generation; it is re-enabled on preview load or failure.
       }
     };
   }
