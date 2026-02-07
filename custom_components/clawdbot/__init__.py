@@ -176,7 +176,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.116"
+PANEL_BUILD_ID = "89337ab.117"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -3638,17 +3638,24 @@ async def async_setup(hass, config):
                 hass.data[DOMAIN]["avatar_webhook"] = data
 
             async def _handle_avatar_webhook(hass, webhook_id, request):
+                """Accept {agent_id, png_b64} and store via avatar_set_b64.
+
+                Always returns 200 so callers don't retry indefinitely, but includes JSON ok/error for debugging.
+                """
+                from aiohttp import web
+
                 try:
                     payload = await request.json()
                 except Exception:
-                    return Response(status=200)
+                    return web.json_response({"ok": False, "error": "invalid_json"}, status=200)
                 if not isinstance(payload, dict):
-                    return Response(status=200)
+                    return web.json_response({"ok": False, "error": "invalid_payload"}, status=200)
 
-                call_data = {
-                    "agent_id": payload.get("agent_id") or "agent0",
-                    "png_b64": payload.get("png_b64"),
-                }
+                agent_id = payload.get("agent_id") or "agent0"
+                png_b64 = payload.get("png_b64")
+                approx_len = len(png_b64) if isinstance(png_b64, str) else 0
+
+                call_data = {"agent_id": agent_id, "png_b64": png_b64}
 
                 try:
                     class _Call:
@@ -3658,9 +3665,19 @@ async def async_setup(hass, config):
                             self.data = data
 
                     await handle_avatar_set_b64(_Call(call_data))
-                except Exception:
-                    return Response(status=200)
-                return Response(status=200)
+                except Exception as e:
+                    _LOGGER.warning(
+                        "avatar webhook: failed to store avatar (agent_id=%s b64_len=%s): %s",
+                        agent_id,
+                        approx_len,
+                        str(e)[:200],
+                    )
+                    return web.json_response({"ok": False, "error": str(e)[:200]}, status=200)
+
+                _LOGGER.info(
+                    "avatar webhook: stored avatar (agent_id=%s b64_len=%s)", agent_id, approx_len
+                )
+                return web.json_response({"ok": True}, status=200)
 
             webhook.async_register(
                 hass,
@@ -6330,7 +6347,8 @@ async def async_setup(hass, config):
             raw = base64.b64decode(b64)
         except Exception:
             raise HomeAssistantError("invalid base64")
-        if len(raw) > 350_000:
+        # Size cap (bytes). 1K avatars can be ~200KB–900KB depending on content.
+        if len(raw) > 1_500_000:
             raise HomeAssistantError("image too large")
 
         avatar = cfg.get("avatar")
