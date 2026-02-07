@@ -1959,7 +1959,7 @@ window.__clawdbotPanelInitError = null;
               setGenStage('timeout');
               setPreviewState('error', 'No preview yet');
               toast('No image yet — please try Generate again');
-              avatarInFlight = false;
+              setInFlight(false);
               setGenerateEnabled(true);
               try{ if (cancelBtn) cancelBtn.style.display = 'none'; }catch(e){}
               currentAvatarReqId = null;
@@ -1976,7 +1976,7 @@ window.__clawdbotPanelInitError = null;
           setHint('Preview ready. Click “Use this” to apply.');
           try{ if (cancelBtn) cancelBtn.style.display = 'none'; }catch(e){}
           // Preview ready; allow user to iterate.
-          avatarInFlight = false;
+          setInFlight(false);
           setGenerateEnabled(true);
         };
         prevImg.onerror = () => {
@@ -2031,10 +2031,25 @@ window.__clawdbotPanelInitError = null;
     }
 
     let avatarInFlight = false;
+    let genWatchdog = null;
     const setGenerateEnabled = (enabled) => {
       try{ genBtn.disabled = !enabled; }catch(e){}
       try{ genBtn.style.pointerEvents = enabled ? '' : 'none'; }catch(e){}
       try{ genBtn.style.opacity = enabled ? '' : '0.65'; }catch(e){}
+    };
+    const setInFlight = (v) => {
+      avatarInFlight = !!v;
+      if (avatarInFlight) {
+        // Watchdog: some HA WS reconnect paths / rebinds can flip button state.
+        // Force it disabled while in-flight.
+        if (!genWatchdog) {
+          genWatchdog = setInterval(() => {
+            try{ if (avatarInFlight) setGenerateEnabled(false); else { clearInterval(genWatchdog); genWatchdog=null; } }catch(e){}
+          }, 400);
+        }
+      } else {
+        try{ if (genWatchdog) { clearInterval(genWatchdog); genWatchdog=null; } }catch(e){}
+      }
     };
 
     genBtn.onclick = async () => {
@@ -2049,7 +2064,7 @@ window.__clawdbotPanelInitError = null;
         ta.value = txt;
       }
 
-      avatarInFlight = true;
+      setInFlight(true);
       setGenerateEnabled(false);
       try{ if (cancelBtn) cancelBtn.style.display = ''; }catch(e){}
       setGenStage('sent');
@@ -2090,7 +2105,7 @@ window.__clawdbotPanelInitError = null;
         toast('Failed to request generation');
         setHint('');
         setDbg('');
-        avatarInFlight = false;
+        setInFlight(false);
         setGenerateEnabled(true);
         try{ if (cancelBtn) cancelBtn.style.display = 'none'; }catch(e){}
         try{ clearGenTimers(); }catch(e){}
