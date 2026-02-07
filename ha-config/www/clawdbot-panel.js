@@ -1607,6 +1607,7 @@ window.__clawdbotPanelInitError = null;
     const cancelBtn = document.getElementById('avatarGenCancel');
     const surpriseBtn = document.getElementById('avatarGenSurprise');
     const genBtn = document.getElementById('avatarGenGenerate');
+    const btnBlocker = document.getElementById('avatarGenBtnRowBlocker');
     const hint = document.getElementById('avatarGenHint');
     const stageEl = document.getElementById('avatarGenStage');
     const dbg = document.getElementById('avatarGenDebug');
@@ -1720,7 +1721,10 @@ window.__clawdbotPanelInitError = null;
         const rid = currentAvatarReqId || lastAvatarReqId || '';
         const rid8 = rid ? String(rid).slice(0,8) : '—';
         const s = genStage || 'idle';
-        stageEl.textContent = `stage=${s} req=${rid8}`;
+        const g = document.getElementById('avatarGenGenerate');
+        const dis = g ? !!g.disabled : false;
+        const pe = g && g.style ? (g.style.pointerEvents || '') : '';
+        stageEl.textContent = `stage=${s} req=${rid8} genDisabled=${dis} pe=${pe}`;
       } catch(e){}
     };
     const setGenStage = (stage, extraLine) => {
@@ -2052,12 +2056,13 @@ window.__clawdbotPanelInitError = null;
     let avatarInFlight = false;
     let genWatchdog = null;
     const setGenerateEnabled = (enabled) => {
-      // Always re-resolve element by id (modal DOM can be re-rendered/replaced)
       const el = (document && document.getElementById) ? document.getElementById('avatarGenGenerate') : genBtn;
       if (!el) return;
       try{ el.disabled = !enabled; }catch(e){}
       try{ el.style.pointerEvents = enabled ? '' : 'none'; }catch(e){}
       try{ el.style.opacity = enabled ? '' : '0.65'; }catch(e){}
+      try{ if (!enabled && btnBlocker) { btnBlocker.style.display='block'; btnBlocker.style.pointerEvents='auto'; } }catch(e){}
+      try{ if (enabled && btnBlocker) { btnBlocker.style.display='none'; } }catch(e){}
     };
     const setInFlight = (v) => {
       avatarInFlight = !!v;
