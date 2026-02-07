@@ -1700,16 +1700,38 @@ window.__clawdbotPanelInitError = null;
         getHass().then(({conn}) => {
           try{
             if (conn && conn.subscribeEvents) {
-              conn.subscribeEvents((_ev) => {
-                try{ setHint('Avatar updated'); }catch(e){}
-                try{ setDbg('avatar_changed'); }catch(e){}
-                try{ setAvatarPreview(); }catch(e){}
+              conn.subscribeEvents((ev) => {
+                try{
+                  const d = ev && ev.data ? ev.data : {};
+                  const rid = d && d.request_id ? String(d.request_id) : null;
+                  const lastPrev = d && d.last_preview_request_id ? String(d.last_preview_request_id) : null;
+
+                  // If this event corresponds to the currently-running request, refresh the per-run preview.
+                  const targetRid = lastAvatarReqId || rid || lastPrev;
+                  if (targetRid && prevImg && typeof setPreviewSrcForReqId === 'function') {
+                    setPreviewState('generating', 'Loading preview…');
+                    setPreviewSrcForReqId(targetRid);
+                  }
+
+                  // Always refresh active avatar image (for when user hits "Use this" / apply)
+                  setAvatarPreview();
+
+                  // Only show success wording when active avatar is updated (apply flow will also set its own hint)
+                  if (d && d.active_updated_ts) {
+                    setHint('Avatar updated ✅');
+                  }
+
+                  setDbg(`avatar_changed${rid ? ' request_id=' + String(rid).slice(0,8) : ''}`);
+                } catch(e){}
               }, 'clawdbot_avatar_changed').then((unsub)=>{ window.__clawdbotAvatarSub = unsub; }).catch(()=>{});
             }
           } catch(e){}
         }).catch(()=>{});
       }
     } catch(e){}
+
+    // Load active avatar immediately (so it shows without needing a click)
+    try{ setAvatarPreview(); }catch(e){}
 
     btn.onclick = () => {
       setHint('');
