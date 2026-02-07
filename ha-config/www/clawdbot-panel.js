@@ -1802,11 +1802,14 @@ window.__clawdbotPanelInitError = null;
     btn.onclick = () => {
       setHint('');
       setDbg('');
-      // Always show preview tile; if we have a request_id, load that preview, else show placeholder.
+      // Always show preview tile; never auto-load active avatar into preview.
+      // If we have a last request id and not currently generating, load that preview.
       try{
-        if (lastAvatarReqId) {
+        if (lastAvatarReqId && !currentAvatarReqId) {
           setPreviewState('generating', 'Loading preview…');
           setPreviewSrcForReqId(lastAvatarReqId);
+        } else if (currentAvatarReqId) {
+          setPreviewState('generating', 'Generating…');
         } else {
           setPreviewState('error', 'No preview yet');
         }
@@ -1971,7 +1974,7 @@ window.__clawdbotPanelInitError = null;
           setGenStage('preview');
           setHint('Preview ready. Click “Use this” to apply.');
           try{ if (cancelBtn) cancelBtn.style.display = 'none'; }catch(e){}
-          // keep Generate disabled until user chooses to regenerate or edits (safer)
+          // Preview ready; allow user to iterate.
           try{ genBtn.disabled = false; }catch(e){}
         };
         prevImg.onerror = () => {
