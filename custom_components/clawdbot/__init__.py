@@ -176,7 +176,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.120"
+PANEL_BUILD_ID = "89337ab.121"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -6391,23 +6391,52 @@ async def async_setup(hass, config):
             ]
         )
 
-        payload = {
-            "tool": "sessions_spawn",
-            "args": {
-                "task": task,
-                "label": f"avatar-generate:{request_id}",
-                "agentId": str(agent_target),
-                "cleanup": "keep",
-            },
-        }
+        # Prefer deterministic delivery to Agent0 main session (so it runs generation every time),
+        # falling back to sessions_spawn if no sessionKey is configured.
+        opts = hass.data.get(DOMAIN, {}).get("setup_options")
+        dispatch_session_key = None
+        if isinstance(opts, dict):
+            o = opts.get("agent0.dispatch_session_key")
+            if isinstance(o, dict):
+                v = o.get("value")
+                if isinstance(v, str) and v.strip():
+                    dispatch_session_key = v.strip()
+        # Last-resort default for our dev Discord channel (can be overridden via setup option).
+        if not dispatch_session_key:
+            dispatch_session_key = "agent:main:discord:channel:1467991467363405834"
 
-        res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
         run_id = None
-        try:
-            if isinstance(res, dict):
-                run_id = res.get("runId") or res.get("result", {}).get("runId")
-        except Exception:
-            run_id = None
+        dispatched_via = None
+
+        if dispatch_session_key:
+            payload = {
+                "tool": "sessions_send",
+                "args": {"sessionKey": dispatch_session_key, "message": task},
+            }
+            res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
+            dispatched_via = "sessions_send"
+            try:
+                if isinstance(res, dict):
+                    run_id = res.get("runId") or res.get("result", {}).get("runId")
+            except Exception:
+                run_id = None
+        else:
+            payload = {
+                "tool": "sessions_spawn",
+                "args": {
+                    "task": task,
+                    "label": f"avatar-generate:{request_id}",
+                    "agentId": str(agent_target),
+                    "cleanup": "keep",
+                },
+            }
+            res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
+            dispatched_via = "sessions_spawn"
+            try:
+                if isinstance(res, dict):
+                    run_id = res.get("runId") or res.get("result", {}).get("runId")
+            except Exception:
+                run_id = None
 
         return {
             "ok": True,
@@ -6416,6 +6445,8 @@ async def async_setup(hass, config):
             "webhook_path": webhook_path,
             "run_id": run_id,
             "dispatched_agent_id": agent_target,
+            "dispatched_via": dispatched_via,
+            "dispatch_session_key": dispatch_session_key,
         }
 
     async def handle_avatar_webhook_get(call):
