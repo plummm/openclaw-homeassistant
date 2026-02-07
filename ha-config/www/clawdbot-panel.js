@@ -1959,7 +1959,8 @@ window.__clawdbotPanelInitError = null;
               setGenStage('timeout');
               setPreviewState('error', 'No preview yet');
               toast('No image yet — please try Generate again');
-              try{ genBtn.disabled = false; }catch(e){}
+              avatarInFlight = false;
+              setGenerateEnabled(true);
               try{ if (cancelBtn) cancelBtn.style.display = 'none'; }catch(e){}
               currentAvatarReqId = null;
             }
@@ -1975,7 +1976,8 @@ window.__clawdbotPanelInitError = null;
           setHint('Preview ready. Click “Use this” to apply.');
           try{ if (cancelBtn) cancelBtn.style.display = 'none'; }catch(e){}
           // Preview ready; allow user to iterate.
-          try{ genBtn.disabled = false; }catch(e){}
+          avatarInFlight = false;
+          setGenerateEnabled(true);
         };
         prevImg.onerror = () => {
           if (wantRid && currentAvatarReqId && wantRid !== currentAvatarReqId) return;
@@ -2028,7 +2030,15 @@ window.__clawdbotPanelInitError = null;
       }, { capture: true });
     }
 
+    let avatarInFlight = false;
+    const setGenerateEnabled = (enabled) => {
+      try{ genBtn.disabled = !enabled; }catch(e){}
+      try{ genBtn.style.pointerEvents = enabled ? '' : 'none'; }catch(e){}
+      try{ genBtn.style.opacity = enabled ? '' : '0.65'; }catch(e){}
+    };
+
     genBtn.onclick = async () => {
+      if (avatarInFlight) { toast('Already generating…'); return; }
       let txt = String(ta.value || '').trim();
       if (!txt) {
         toast('Please describe your agent first');
@@ -2039,7 +2049,8 @@ window.__clawdbotPanelInitError = null;
         ta.value = txt;
       }
 
-      try{ genBtn.disabled = true; }catch(e){}
+      avatarInFlight = true;
+      setGenerateEnabled(false);
       try{ if (cancelBtn) cancelBtn.style.display = ''; }catch(e){}
       setGenStage('sent');
       setHint('Requesting image generation…');
@@ -2079,7 +2090,8 @@ window.__clawdbotPanelInitError = null;
         toast('Failed to request generation');
         setHint('');
         setDbg('');
-        try{ genBtn.disabled = false; }catch(e){}
+        avatarInFlight = false;
+        setGenerateEnabled(true);
         try{ if (cancelBtn) cancelBtn.style.display = 'none'; }catch(e){}
         try{ clearGenTimers(); }catch(e){}
         currentAvatarReqId = null;
