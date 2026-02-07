@@ -1579,6 +1579,7 @@ window.__clawdbotPanelInitError = null;
     const modal = document.getElementById('avatarGenModal');
     const ta = document.getElementById('avatarGenText');
     const closeBtn = document.getElementById('avatarGenClose');
+    const cancelBtn = document.getElementById('avatarGenCancel');
     const surpriseBtn = document.getElementById('avatarGenSurprise');
     const genBtn = document.getElementById('avatarGenGenerate');
     const hint = document.getElementById('avatarGenHint');
@@ -1684,7 +1685,53 @@ window.__clawdbotPanelInitError = null;
     const STYLE_LINE = 'Image style: profile pic, head shot style, character face to the camera, clean background.';
 
     const setHint = (t) => { try{ if (hint) hint.textContent = String(t||''); }catch(e){} };
+
+    let genTimer = null;
+    let genT0 = 0;
+    let genStage = 'idle';
+    const fmtElapsed = (ms) => {
+      const s = Math.max(0, Math.floor((ms||0)/1000));
+      const m = Math.floor(s/60);
+      const ss = String(s%60).padStart(2,'0');
+      return m ? `${m}:${ss}` : `${s}s`;
+    };
+    const renderGenStatus = (extraLine) => {
+      const elapsed = genT0 ? fmtElapsed(Date.now()-genT0) : '';
+      const lines = [];
+      if (genStage === 'idle') return;
+      if (genStage === 'sent') lines.push(`Sent to Agent0 • ${elapsed}`);
+      if (genStage === 'generating') lines.push(`Generating image… • ${elapsed}`);
+      if (genStage === 'uploading') lines.push(`Uploading to Home Assistant… • ${elapsed}`);
+      if (genStage === 'preview') lines.push(`Preview ready • ${elapsed}`);
+      if (genStage === 'timeout') lines.push(`Still working… • ${elapsed}`);
+      if (extraLine) lines.push(extraLine);
+      setHint(lines.join('\n'));
+    };
+    const setGenStage = (stage, extraLine) => {
+      genStage = stage;
+      if (stage === 'idle') {
+        try{ if (genTimer) clearInterval(genTimer); }catch(e){}
+        genTimer = null;
+        genT0 = 0;
+        return;
+      }
+      if (!genT0) genT0 = Date.now();
+      renderGenStatus(extraLine);
+      if (!genTimer) {
+        genTimer = setInterval(() => { try{ renderGenStatus(extraLine); }catch(e){} }, 500);
+      }
+    };
     const setDbg = (t) => { try{ if (dbg) dbg.textContent = String(t||''); }catch(e){} };
+
+    if (cancelBtn) {
+      cancelBtn.onclick = () => {
+        try{ setGenStage('idle'); }catch(e){}
+        try{ genBtn.disabled = false; }catch(e){}
+        try{ cancelBtn.style.display = 'none'; }catch(e){}
+        try{ setPreviewState('error', 'No preview yet'); }catch(e){}
+        toast('Canceled');
+      };
+    }
     const setAvatarPreview = () => {
       try{
         if (!img) return;
@@ -1896,9 +1943,13 @@ window.__clawdbotPanelInitError = null;
           : (`/api/clawdbot/avatar.png?ts=${Date.now()}`);
         prevImg.onload = () => {
           setPreviewState('ready');
+          setGenStage('preview');
           setHint('Preview ready. Click “Use this” to apply.');
+          try{ if (cancelBtn) cancelBtn.style.display = 'none'; }catch(e){}
+          try{ genBtn.disabled = false; }catch(e){}
         };
         prevImg.onerror = () => {
+          // image not ready yet; keep generating placeholder
           setPreviewState('generating', 'Generating…');
         };
         prevImg.src = url;
@@ -1953,6 +2004,8 @@ window.__clawdbotPanelInitError = null;
       }
 
       try{ genBtn.disabled = true; }catch(e){}
+      try{ if (cancelBtn) cancelBtn.style.display = ''; }catch(e){}
+      setGenStage('sent');
       setHint('Requesting image generation…');
 
       // Persist prompt + request generation (Agent0/host listens to HA event)
@@ -1971,7 +2024,7 @@ window.__clawdbotPanelInitError = null;
 
         const promptPrefix = String(txt || '').replace(/\s+/g,' ').trim().slice(0, 80);
         toast(reqId ? `Generating… (${reqId.slice(0,8)})` : 'Generating…');
-        setHint(`Request sent to Agent0 (id ${reqId ? reqId.slice(0,8) : '—'}). Waiting for image…` + (promptPrefix ? `\nUsing: “${promptPrefix}${(String(txt||'').replace(/\s+/g,' ').trim().length>80)?'…':''}”` : ''));
+        setGenStage('generating', promptPrefix ? `Using: “${promptPrefix}${(String(txt||'').replace(/\s+/g,' ').trim().length>80)?'…':''}”` : '');
         setDbg(reqId ? `request_id=${reqId}${runId ? ' run_id=' + runId : ''}${whUrl ? ' webhook_url=' + whUrl : whPath ? ' webhook_path=' + whPath : ''}` : '');
 
         // preview: immediately show placeholder, then load per-request image
@@ -1984,6 +2037,7 @@ window.__clawdbotPanelInitError = null;
           try{
             const cur = String(hint && hint.textContent || '');
             if (cur.includes('Waiting for image')) {
+              setGenStage('timeout');
               setHint('No image yet. Please click Generate again.');
               setPreviewState('error', 'No preview yet');
             }
