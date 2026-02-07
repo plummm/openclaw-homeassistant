@@ -1585,6 +1585,7 @@ window.__clawdbotPanelInitError = null;
     const dbg = document.getElementById('avatarGenDebug');
     const prevWrap = document.getElementById('avatarGenPreviewWrap');
     const prevImg = document.getElementById('avatarGenPreviewImg');
+    const useBtn = document.getElementById('avatarGenUse');
     const img = document.getElementById('agentAvatarImg');
     const fb = document.getElementById('agentAvatarFallback');
     if (!btn || !modal || !ta || !closeBtn || !surpriseBtn || !genBtn) return;
@@ -1834,6 +1835,32 @@ window.__clawdbotPanelInitError = null;
       }
     };
 
+    let lastAvatarReqId = null;
+
+    if (useBtn) {
+      useBtn.onclick = async () => {
+        const rid = lastAvatarReqId;
+        if (!rid) { toast('No preview yet'); return; }
+        try{ useBtn.disabled = true; }catch(e){}
+        setHint('Applying avatar…');
+        try{
+          const rr = await callServiceResponse('clawdbot','avatar_apply', { request_id: rid });
+          const sr = (rr && rr.result && rr.result.service_response) ? rr.result.service_response : null;
+          if (sr && sr.ok) {
+            toast('Avatar applied');
+            setHint('Avatar updated ✅');
+            try{ refreshAvatar(); }catch(e){}
+          } else {
+            toast('Failed to apply');
+          }
+        } catch(e) {
+          toast('Failed to apply');
+        } finally {
+          try{ useBtn.disabled = false; }catch(e){}
+        }
+      };
+    }
+
     genBtn.onclick = async () => {
       let txt = String(ta.value || '').trim();
       if (!txt) {
@@ -1857,6 +1884,7 @@ window.__clawdbotPanelInitError = null;
         const rr = await callServiceResponse('clawdbot','avatar_generate_dispatch', { agent_id: 'agent0', agent_target: 'main', prompt: txt, ha_origin: window.location.origin });
         const sr = (rr && rr.result && rr.result.service_response) ? rr.result.service_response : null;
         const reqId = sr && sr.request_id ? String(sr.request_id) : '';
+        lastAvatarReqId = reqId || null;
         const whPath = sr && sr.webhook_path ? String(sr.webhook_path) : '';
         const whUrl = sr && sr.webhook_url ? String(sr.webhook_url) : '';
         const runId = sr && sr.run_id ? String(sr.run_id) : '';
@@ -1865,9 +1893,9 @@ window.__clawdbotPanelInitError = null;
         setHint('Request sent to Agent0. Waiting for image push… (usually ~10–30s)');
         setDbg(reqId ? `request_id=${reqId}${runId ? ' run_id=' + runId : ''}${whUrl ? ' webhook_url=' + whUrl : whPath ? ' webhook_path=' + whPath : ''}` : '');
 
-        // show preview once updated (event subscription will refresh actual avatar)
+        // show preview for this request_id (will be populated once Agent0 posts png_b64 w/ request_id)
         try{ if (prevWrap) prevWrap.style.display = 'flex'; }catch(e){}
-        try{ if (prevImg) prevImg.src = `/api/clawdbot/avatar.png?ts=${Date.now()}`; }catch(e){}
+        try{ if (prevImg) prevImg.src = reqId ? (`/api/clawdbot/avatar_preview.png?request_id=${encodeURIComponent(reqId)}&ts=${Date.now()}`) : (`/api/clawdbot/avatar.png?ts=${Date.now()}`); }catch(e){}
 
         // soft timeout to re-enable UI + show retry hint
         setTimeout(() => {

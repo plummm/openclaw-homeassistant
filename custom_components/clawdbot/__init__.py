@@ -176,7 +176,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.117"
+PANEL_BUILD_ID = "89337ab.118"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -2364,7 +2364,7 @@ PANEL_HTML = """<!doctype html>
       <div style=\"position:absolute;inset:0;background:radial-gradient(circle at 20% 30%, rgba(0,245,255,.22), transparent 60%), radial-gradient(circle at 70% 40%, rgba(123,44,255,.20), transparent 65%);filter:blur(0px);pointer-events:none;z-index:1\"></div>
       <div class=\"row\" style=\"position:relative;z-index:1;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap\">
         <div class=\"row\" style=\"gap:14px;align-items:center\">
-          <button type=\"button\" id=\"agentAvatarBtn\" class=\"btn\" style=\"width:128px;height:128px;border-radius:28px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:linear-gradient(135deg, rgba(0,245,255,.25), rgba(123,44,255,.25));border:1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));font-weight:800;letter-spacing:.5px;font-size:28px;cursor:pointer;position:relative;padding:0\">\n            <img id=\"agentAvatarImg\" alt=\"agent avatar\" style=\"display:none;width:100%;height:100%;object-fit:cover\"/>\n            <div id=\"agentAvatarFallback\" style=\"display:flex;align-items:center;justify-content:center;width:100%;height:100%\">A0</div>\n          </button>\n          <div id=\"avatarGenModal\" class=\"modal hidden\" style=\"position:fixed;inset:0;background:rgba(0,0,0,0.45);display:none;align-items:center;justify-content:center;z-index:10000;\">\n            <div class=\"modal-card\" style=\"max-width:720px;width:min(720px,92vw);max-height:min(78vh,720px);overflow:auto;color:var(--primary-text-color);border-radius:20px;padding:22px;border:1px solid color-mix(in srgb, var(--claw-accent-a) 45%, transparent);box-shadow:0 26px 80px rgba(0,0,0,0.55);background:linear-gradient(135deg, color-mix(in srgb, var(--cb-card-bg) 92%, var(--claw-accent-a) 10%), color-mix(in srgb, var(--cb-card-bg) 92%, var(--claw-accent-b) 10%));\">\n              <div style=\"display:flex;justify-content:space-between;align-items:center;gap:12px\">\n                <div style=\"font-weight:950;letter-spacing:-0.02em;font-size:18px\">Describe your agent</div>\n                <button class=\"btn\" id=\"avatarGenClose\" title=\"Close\" style=\"width:38px;height:38px;border-radius:12px;padding:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.10);\">✕</button>\n              </div>\n              <div class=\"muted\" style=\"margin-top:8px;line-height:1.35;color:var(--secondary-text-color)\">Describe what your agent looks like. Or hit <b>Surprise me</b> to auto-draft a backstory + appearance.</div>\n              <textarea id=\"avatarGenText\" style=\"margin-top:12px;width:100%;min-height:120px;resize:vertical;border-radius:16px;border:1px solid color-mix(in srgb, var(--claw-accent-a) 25%, var(--cb-border-strong));padding:12px 24px 12px 18px;background:color-mix(in srgb, var(--cb-card-bg) 86%, #000);color:var(--primary-text-color);font-family:inherit;outline:none;box-sizing:border-box\" placeholder=\"e.g., Warm smile, short black hair, futuristic pilot jacket...\"></textarea>\n              <div id=\"avatarGenPreviewWrap\" style=\"margin-top:12px;display:none;gap:12px;align-items:center\">\n                <img id=\"avatarGenPreviewImg\" alt=\"avatar preview\" style=\"width:96px;height:96px;border-radius:18px;object-fit:cover;border:1px solid color-mix(in srgb, var(--claw-accent-a) 30%, var(--cb-border-strong));background:color-mix(in srgb, var(--cb-card-bg) 86%, #000)\"/>\n                <div class=\"muted\" style=\"font-size:12px;color:var(--secondary-text-color)\">Preview (auto-applied). If you don’t like it, edit the description and Generate again.</div>\n              </div>\n              <div class=\"row\" style=\"justify-content:flex-end;gap:10px;margin-top:12px;flex-wrap:wrap\">\n                <button class=\"btn\" id=\"avatarGenSurprise\" data-testid=\"avatar-surprise\" style=\"height:38px;border-radius:14px;padding:0 14px;background:color-mix(in srgb, var(--cb-card-bg) 80%, transparent);border:1px solid color-mix(in srgb, var(--claw-accent-a) 35%, var(--cb-border-strong));color:var(--primary-text-color);\">Surprise me</button>\n                <button class=\"btn primary\" id=\"avatarGenGenerate\" data-testid=\"avatar-generate\" style=\"height:38px;border-radius:14px;padding:0 16px;border:1px solid color-mix(in srgb, var(--claw-accent-a) 55%, transparent);background:linear-gradient(135deg, color-mix(in srgb, var(--claw-accent-a) 85%, #fff 0%), color-mix(in srgb, var(--claw-accent-b) 85%, #fff 0%));color:#061018;font-weight:900;\">Generate</button>\n              </div>\n              <div class=\"muted\" id=\"avatarGenHint\" style=\"margin-top:10px;font-size:12px;color:var(--secondary-text-color)\"></div>\n              <div class=\"muted\" id=\"avatarGenDebug\" style=\"display:none;margin-top:8px;font-size:11px;opacity:.65;color:var(--secondary-text-color)\"></div>\n            </div>\n          </div>
+          <button type=\"button\" id=\"agentAvatarBtn\" class=\"btn\" style=\"width:128px;height:128px;border-radius:28px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:linear-gradient(135deg, rgba(0,245,255,.25), rgba(123,44,255,.25));border:1px solid color-mix(in srgb, var(--primary-color) 45%, var(--divider-color));font-weight:800;letter-spacing:.5px;font-size:28px;cursor:pointer;position:relative;padding:0\">\n            <img id=\"agentAvatarImg\" alt=\"agent avatar\" style=\"display:none;width:100%;height:100%;object-fit:cover\"/>\n            <div id=\"agentAvatarFallback\" style=\"display:flex;align-items:center;justify-content:center;width:100%;height:100%\">A0</div>\n          </button>\n          <div id=\"avatarGenModal\" class=\"modal hidden\" style=\"position:fixed;inset:0;background:rgba(0,0,0,0.45);display:none;align-items:center;justify-content:center;z-index:10000;\">\n            <div class=\"modal-card\" style=\"max-width:720px;width:min(720px,92vw);max-height:min(78vh,720px);overflow:auto;color:var(--primary-text-color);border-radius:20px;padding:22px;border:1px solid color-mix(in srgb, var(--claw-accent-a) 45%, transparent);box-shadow:0 26px 80px rgba(0,0,0,0.55);background:linear-gradient(135deg, color-mix(in srgb, var(--cb-card-bg) 92%, var(--claw-accent-a) 10%), color-mix(in srgb, var(--cb-card-bg) 92%, var(--claw-accent-b) 10%));\">\n              <div style=\"display:flex;justify-content:space-between;align-items:center;gap:12px\">\n                <div style=\"font-weight:950;letter-spacing:-0.02em;font-size:18px\">Describe your agent</div>\n                <button class=\"btn\" id=\"avatarGenClose\" title=\"Close\" style=\"width:38px;height:38px;border-radius:12px;padding:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.10);\">✕</button>\n              </div>\n              <div class=\"muted\" style=\"margin-top:8px;line-height:1.35;color:var(--secondary-text-color)\">Describe what your agent looks like. Or hit <b>Surprise me</b> to auto-draft a backstory + appearance.</div>\n              <textarea id=\"avatarGenText\" style=\"margin-top:12px;width:100%;min-height:120px;resize:vertical;border-radius:16px;border:1px solid color-mix(in srgb, var(--claw-accent-a) 25%, var(--cb-border-strong));padding:12px 24px 12px 18px;background:color-mix(in srgb, var(--cb-card-bg) 86%, #000);color:var(--primary-text-color);font-family:inherit;outline:none;box-sizing:border-box\" placeholder=\"e.g., Warm smile, short black hair, futuristic pilot jacket...\"></textarea>\n              <div id=\"avatarGenPreviewWrap\" style=\"margin-top:12px;display:none;gap:12px;align-items:center;justify-content:space-between\">\n                <div style=\"display:flex;gap:12px;align-items:center\">\n                  <img id=\"avatarGenPreviewImg\" alt=\"avatar preview\" style=\"width:96px;height:96px;border-radius:18px;object-fit:cover;border:1px solid color-mix(in srgb, var(--claw-accent-a) 30%, var(--cb-border-strong));background:color-mix(in srgb, var(--cb-card-bg) 86%, #000)\"/>\n                  <div class=\"muted\" style=\"font-size:12px;color:var(--secondary-text-color)\">Preview for this run. Click <b>Use this</b> to apply as your profile avatar.</div>\n                </div>\n                <button class=\"btn\" id=\"avatarGenUse\" data-testid=\"avatar-use\" style=\"height:34px;border-radius:12px;padding:0 12px;background:color-mix(in srgb, var(--claw-accent-a) 18%, var(--cb-card-bg));border:1px solid color-mix(in srgb, var(--claw-accent-a) 40%, var(--cb-border-strong));color:var(--primary-text-color);font-weight:800\">Use this</button>\n              </div>\n              <div class=\"row\" style=\"justify-content:flex-end;gap:10px;margin-top:12px;flex-wrap:wrap\">\n                <button class=\"btn\" id=\"avatarGenSurprise\" data-testid=\"avatar-surprise\" style=\"height:38px;border-radius:14px;padding:0 14px;background:color-mix(in srgb, var(--cb-card-bg) 80%, transparent);border:1px solid color-mix(in srgb, var(--claw-accent-a) 35%, var(--cb-border-strong));color:var(--primary-text-color);\">Surprise me</button>\n                <button class=\"btn primary\" id=\"avatarGenGenerate\" data-testid=\"avatar-generate\" style=\"height:38px;border-radius:14px;padding:0 16px;border:1px solid color-mix(in srgb, var(--claw-accent-a) 55%, transparent);background:linear-gradient(135deg, color-mix(in srgb, var(--claw-accent-a) 85%, #fff 0%), color-mix(in srgb, var(--claw-accent-b) 85%, #fff 0%));color:#061018;font-weight:900;\">Generate</button>\n              </div>\n              <div class=\"muted\" id=\"avatarGenHint\" style=\"margin-top:10px;font-size:12px;color:var(--secondary-text-color)\"></div>\n              <div class=\"muted\" id=\"avatarGenDebug\" style=\"display:none;margin-top:8px;font-size:11px;opacity:.65;color:var(--secondary-text-color)\"></div>\n            </div>\n          </div>
           <div style=\"display:flex;flex-direction:column;gap:4px;min-width:260px\">
             <div class=\"agent-title\">Agent 0 <span class=\"agent-mood\" id=\"agentMood\">· mood: calm</span></div>
             <div class=\"agent-desc\" id=\"agentDesc\">Ship ops / energy monitoring assistant</div>
@@ -2767,7 +2767,7 @@ class ClawdbotSttWhisperApiView(HomeAssistantView):
 
 
 class ClawdbotAvatarPngView(HomeAssistantView):
-    """Serve stored avatar PNG (generated)"""
+    """Serve the active avatar PNG."""
 
     url = "/api/clawdbot/avatar.png"
     name = "api:clawdbot:avatar_png"
@@ -2782,7 +2782,64 @@ class ClawdbotAvatarPngView(HomeAssistantView):
         if not isinstance(avatar, dict):
             raise web.HTTPNotFound()
 
-        png_b64 = avatar.get("png_b64")
+        # Back-compat: older builds stored it at png_b64.
+        png_b64 = avatar.get("active_png_b64") or avatar.get("png_b64")
+        if not isinstance(png_b64, str) or not png_b64:
+            raise web.HTTPNotFound()
+
+        b64 = png_b64
+        if b64.startswith("data:"):
+            try:
+                b64 = b64.split(",", 1)[1]
+            except Exception:
+                raise web.HTTPNotFound()
+
+        try:
+            raw = base64.b64decode(b64)
+        except Exception:
+            raise web.HTTPNotFound()
+
+        return web.Response(
+            body=raw,
+            content_type="image/png",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
+
+
+class ClawdbotAvatarPreviewPngView(HomeAssistantView):
+    """Serve a request_id-scoped preview PNG (not necessarily active)."""
+
+    url = "/api/clawdbot/avatar_preview.png"
+    name = "api:clawdbot:avatar_preview_png"
+    requires_auth = False
+
+    async def get(self, request):
+        from aiohttp import web
+        import base64
+
+        hass = request.app["hass"]
+        cfg = hass.data.get(DOMAIN, {})
+        avatar = cfg.get("avatar")
+        if not isinstance(avatar, dict):
+            raise web.HTTPNotFound()
+
+        q = request.query
+        request_id = q.get("request_id") if q else None
+        if not isinstance(request_id, str) or not request_id.strip():
+            raise web.HTTPBadRequest()
+        request_id = request_id.strip()
+
+        previews = avatar.get("previews")
+        if not isinstance(previews, dict):
+            raise web.HTTPNotFound()
+        item = previews.get(request_id)
+        if not isinstance(item, dict):
+            raise web.HTTPNotFound()
+        png_b64 = item.get("png_b64")
         if not isinstance(png_b64, str) or not png_b64:
             raise web.HTTPNotFound()
 
@@ -3555,6 +3612,7 @@ async def async_setup(hass, config):
         hass.http.register_view(ClawdbotPanelSelfTestApiView)
         hass.http.register_view(ClawdbotSttWhisperApiView)
         hass.http.register_view(ClawdbotAvatarPngView)
+        hass.http.register_view(ClawdbotAvatarPreviewPngView)
         hass.http.register_view(ClawdbotHouseMemoryApiView)
         hass.http.register_view(ClawdbotChatHistoryApiView)
         hass.http.register_view(ClawdbotSessionsApiView)
@@ -3655,7 +3713,11 @@ async def async_setup(hass, config):
                 png_b64 = payload.get("png_b64")
                 approx_len = len(png_b64) if isinstance(png_b64, str) else 0
 
-                call_data = {"agent_id": agent_id, "png_b64": png_b64}
+                call_data = {
+                    "agent_id": agent_id,
+                    "request_id": payload.get("request_id"),
+                    "png_b64": png_b64,
+                }
 
                 try:
                     class _Call:
@@ -6219,6 +6281,54 @@ async def async_setup(hass, config):
 
         return {"ok": True, "request_id": request_id, "webhook_path": webhook_path, "webhook_url": webhook_url}
 
+    async def handle_avatar_apply(call):
+        """Promote a stored preview (by request_id) to the active avatar."""
+        cfg = hass.data.get(DOMAIN, {})
+        store: Store = cfg.get("avatar_store")
+        if store is None:
+            raise HomeAssistantError("avatar store not initialized")
+
+        request_id = call.data.get("request_id")
+        if not isinstance(request_id, str) or not request_id.strip():
+            raise HomeAssistantError("request_id is required")
+        request_id = request_id.strip()
+
+        avatar = cfg.get("avatar")
+        if not isinstance(avatar, dict):
+            avatar = {}
+        previews = avatar.get("previews")
+        if not isinstance(previews, dict):
+            raise HomeAssistantError("no previews")
+        item = previews.get(request_id)
+        if not isinstance(item, dict):
+            raise HomeAssistantError("preview not found")
+        png_b64 = item.get("png_b64")
+        if not isinstance(png_b64, str) or not png_b64:
+            raise HomeAssistantError("preview missing png")
+
+        import datetime as _dt
+
+        avatar["active_png_b64"] = png_b64
+        avatar["active_updated_ts"] = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+        avatar["active_request_id"] = request_id
+
+        await store.async_save(avatar)
+        cfg["avatar"] = avatar
+
+        try:
+            hass.bus.async_fire(
+                "clawdbot_avatar_changed",
+                {
+                    "agent_id": avatar.get("agent_id") or "agent0",
+                    "request_id": request_id,
+                    "active_updated_ts": avatar.get("active_updated_ts"),
+                },
+            )
+        except Exception:
+            pass
+
+        return {"ok": True, "request_id": request_id}
+
     async def handle_avatar_generate_dispatch(call):
         """Dispatch avatar generation to Agent0 via Gateway sessions_spawn.
 
@@ -6333,7 +6443,15 @@ async def async_setup(hass, config):
             raise HomeAssistantError("avatar store not initialized")
 
         import base64
+        import datetime as _dt
+
         agent_id = call.data.get("agent_id") or "agent0"
+        request_id = call.data.get("request_id")
+        if request_id is not None and not isinstance(request_id, str):
+            request_id = None
+        if isinstance(request_id, str):
+            request_id = request_id.strip() or None
+
         png_b64 = call.data.get("png_b64")
         if not isinstance(png_b64, str) or not png_b64.strip():
             raise HomeAssistantError("png_b64 is required")
@@ -6347,27 +6465,62 @@ async def async_setup(hass, config):
             raw = base64.b64decode(b64)
         except Exception:
             raise HomeAssistantError("invalid base64")
-        # Size cap (bytes). 1K avatars can be ~200KB–900KB depending on content.
+
+        # Size cap (bytes). 1K avatars can be ~200KB–1.3MB depending on content.
         if len(raw) > 1_500_000:
             raise HomeAssistantError("image too large")
 
         avatar = cfg.get("avatar")
         if not isinstance(avatar, dict):
             avatar = {}
-        avatar["agent_id"] = str(agent_id)
-        avatar["png_b64"] = b64
-        import datetime as _dt
-        avatar["updated_ts"] = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
+        # Store preview keyed by request_id when present.
+        if request_id:
+            previews = avatar.get("previews")
+            if not isinstance(previews, dict):
+                previews = {}
+            previews[request_id] = {
+                "png_b64": b64,
+                "ts": _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z"),
+            }
+            # keep last N previews
+            try:
+                if len(previews) > 6:
+                    keys = list(previews.keys())
+                    # sort by ts when possible
+                    keys.sort(key=lambda k: (previews.get(k, {}) or {}).get("ts") or "")
+                    for k in keys[:-6]:
+                        previews.pop(k, None)
+            except Exception:
+                pass
+            avatar["previews"] = previews
+            avatar["last_preview_request_id"] = request_id
+            avatar["last_preview_ts"] = previews.get(request_id, {}).get("ts")
+
+        # Back-compat: if no request_id provided, treat as active.
+        if not request_id:
+            avatar["active_png_b64"] = b64
+            avatar["active_updated_ts"] = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+        avatar["agent_id"] = str(agent_id)
         await store.async_save(avatar)
         cfg["avatar"] = avatar
 
+        # Fire event for UI refresh (preview or active)
         try:
-            hass.bus.async_fire("clawdbot_avatar_changed", {"agent_id": str(agent_id), "updated_ts": avatar.get("updated_ts")})
+            hass.bus.async_fire(
+                "clawdbot_avatar_changed",
+                {
+                    "agent_id": str(agent_id),
+                    "request_id": request_id,
+                    "active_updated_ts": avatar.get("active_updated_ts"),
+                    "last_preview_request_id": avatar.get("last_preview_request_id"),
+                },
+            )
         except Exception:
             pass
 
-        return {"ok": True}
+        return {"ok": True, "request_id": request_id}
 
     async def handle_agent_pulse(call):
         """Pulse is now read-only: refresh the latest agent-managed state."""
@@ -6409,6 +6562,7 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, "avatar_prompt_set", handle_avatar_prompt_set, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "avatar_generate_request", handle_avatar_generate_request, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "avatar_generate_dispatch", handle_avatar_generate_dispatch, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "avatar_apply", handle_avatar_apply, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "avatar_webhook_get", handle_avatar_webhook_get, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "avatar_set_b64", handle_avatar_set_b64, supports_response=SupportsResponse.ONLY)
 
