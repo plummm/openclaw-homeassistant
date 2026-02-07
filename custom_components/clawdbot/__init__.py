@@ -176,7 +176,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.115"
+PANEL_BUILD_ID = "89337ab.116"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -6214,6 +6214,12 @@ async def async_setup(hass, config):
         if not isinstance(prompt, str) or not prompt.strip():
             raise HomeAssistantError("prompt is required")
 
+        # OpenClaw gateway agent id to execute the generation (default: main)
+        agent_target = call.data.get("agent_target")
+        if not isinstance(agent_target, str) or not agent_target.strip():
+            agent_target = "main"
+        agent_target = agent_target.strip()
+
         ha_origin = call.data.get("ha_origin")
         if ha_origin is not None and not isinstance(ha_origin, str):
             ha_origin = None
@@ -6263,7 +6269,7 @@ async def async_setup(hass, config):
             "args": {
                 "task": task,
                 "label": f"avatar-generate:{request_id}",
-                "agentId": str(agent_id),
+                "agentId": str(agent_target),
                 "cleanup": "keep",
             },
         }
@@ -6282,6 +6288,7 @@ async def async_setup(hass, config):
             "webhook_url": webhook_url,
             "webhook_path": webhook_path,
             "run_id": run_id,
+            "dispatched_agent_id": agent_target,
         }
 
     async def handle_avatar_webhook_get(call):

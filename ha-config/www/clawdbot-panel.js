@@ -1854,7 +1854,7 @@ window.__clawdbotPanelInitError = null;
       } catch(e){}
 
       try{
-        const rr = await callServiceResponse('clawdbot','avatar_generate_dispatch', { agent_id: 'agent0', prompt: txt, ha_origin: window.location.origin });
+        const rr = await callServiceResponse('clawdbot','avatar_generate_dispatch', { agent_id: 'agent0', agent_target: 'main', prompt: txt, ha_origin: window.location.origin });
         const sr = (rr && rr.result && rr.result.service_response) ? rr.result.service_response : null;
         const reqId = sr && sr.request_id ? String(sr.request_id) : '';
         const whPath = sr && sr.webhook_path ? String(sr.webhook_path) : '';
