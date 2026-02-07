@@ -176,7 +176,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.122"
+PANEL_BUILD_ID = "89337ab.123"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -6498,7 +6498,7 @@ async def async_setup(hass, config):
             raise HomeAssistantError("invalid base64")
 
         # Size cap (bytes). 1K avatars can be ~200KB–1.3MB depending on content.
-        if len(raw) > 1_500_000:
+        if len(raw) > 1_700_000:
             raise HomeAssistantError("image too large")
 
         avatar = cfg.get("avatar")
