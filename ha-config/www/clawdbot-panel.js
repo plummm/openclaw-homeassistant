@@ -1585,6 +1585,7 @@ window.__clawdbotPanelInitError = null;
     const dbg = document.getElementById('avatarGenDebug');
     const prevWrap = document.getElementById('avatarGenPreviewWrap');
     const prevImg = document.getElementById('avatarGenPreviewImg');
+    const prevStatus = document.getElementById('avatarGenPreviewStatus');
     const useBtn = document.getElementById('avatarGenUse');
     const img = document.getElementById('agentAvatarImg');
     const fb = document.getElementById('agentAvatarFallback');
@@ -1837,6 +1838,42 @@ window.__clawdbotPanelInitError = null;
 
     let lastAvatarReqId = null;
 
+    const setPreviewState = (state, msg) => {
+      try{ if (!prevWrap) return; prevWrap.style.display = 'flex'; }catch(e){}
+      try{
+        if (state === 'generating') {
+          if (prevImg) { prevImg.style.display = 'none'; prevImg.removeAttribute('src'); }
+          if (prevStatus) { prevStatus.style.display = 'flex'; prevStatus.textContent = msg || 'Generating…'; }
+          if (useBtn) useBtn.disabled = true;
+        } else if (state === 'ready') {
+          if (prevStatus) { prevStatus.style.display = 'none'; }
+          if (prevImg) { prevImg.style.display = ''; }
+          if (useBtn) useBtn.disabled = false;
+        } else if (state === 'error') {
+          if (prevImg) { prevImg.style.display = 'none'; }
+          if (prevStatus) { prevStatus.style.display = 'flex'; prevStatus.textContent = msg || 'No preview yet'; }
+          if (useBtn) useBtn.disabled = true;
+        }
+      } catch(e){}
+    };
+
+    const setPreviewSrcForReqId = (rid) => {
+      if (!prevImg) return;
+      try{
+        const url = rid
+          ? (`/api/clawdbot/avatar_preview.png?request_id=${encodeURIComponent(rid)}&ts=${Date.now()}`)
+          : (`/api/clawdbot/avatar.png?ts=${Date.now()}`);
+        prevImg.onload = () => {
+          setPreviewState('ready');
+          setHint('Preview ready. Click “Use this” to apply.');
+        };
+        prevImg.onerror = () => {
+          setPreviewState('generating', 'Generating…');
+        };
+        prevImg.src = url;
+      } catch(e){}
+    };
+
     if (useBtn) {
       useBtn.onclick = async () => {
         const rid = lastAvatarReqId;
@@ -1848,8 +1885,19 @@ window.__clawdbotPanelInitError = null;
           const sr = (rr && rr.result && rr.result.service_response) ? rr.result.service_response : null;
           if (sr && sr.ok) {
             toast('Avatar applied');
-            setHint('Avatar updated ✅');
+            // Only show success after active avatar has reloaded
+            let done = false;
+            try{
+              if (img) {
+                img.onload = () => {
+                  if (done) return;
+                  done = true;
+                  setHint('Avatar updated ✅');
+                };
+              }
+            } catch(e){}
             try{ refreshAvatar(); }catch(e){}
+            setTimeout(() => { if (!done) setHint('Avatar updated ✅'); }, 1200);
           } else {
             toast('Failed to apply');
           }
@@ -1893,9 +1941,9 @@ window.__clawdbotPanelInitError = null;
         setHint('Request sent to Agent0. Waiting for image push… (usually ~10–30s)');
         setDbg(reqId ? `request_id=${reqId}${runId ? ' run_id=' + runId : ''}${whUrl ? ' webhook_url=' + whUrl : whPath ? ' webhook_path=' + whPath : ''}` : '');
 
-        // show preview for this request_id (will be populated once Agent0 posts png_b64 w/ request_id)
-        try{ if (prevWrap) prevWrap.style.display = 'flex'; }catch(e){}
-        try{ if (prevImg) prevImg.src = reqId ? (`/api/clawdbot/avatar_preview.png?request_id=${encodeURIComponent(reqId)}&ts=${Date.now()}`) : (`/api/clawdbot/avatar.png?ts=${Date.now()}`); }catch(e){}
+        // preview: immediately show placeholder, then load per-request image
+        setPreviewState('generating', 'Generating…');
+        setPreviewSrcForReqId(reqId);
 
         // soft timeout to re-enable UI + show retry hint
         setTimeout(() => {
@@ -1903,7 +1951,8 @@ window.__clawdbotPanelInitError = null;
           try{
             const cur = String(hint && hint.textContent || '');
             if (cur.includes('Waiting for image')) {
-              setHint('No image yet. Please click Generate again (Agent0 may still be working).');
+              setHint('No image yet. Please click Generate again.');
+              setPreviewState('error', 'No preview yet');
             }
           }catch(e){}
         }, 45000);
