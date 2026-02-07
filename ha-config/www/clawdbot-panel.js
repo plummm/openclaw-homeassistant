@@ -1583,9 +1583,14 @@ window.__clawdbotPanelInitError = null;
     const genBtn = document.getElementById('avatarGenGenerate');
     const hint = document.getElementById('avatarGenHint');
     const dbg = document.getElementById('avatarGenDebug');
+    const prevWrap = document.getElementById('avatarGenPreviewWrap');
+    const prevImg = document.getElementById('avatarGenPreviewImg');
     const img = document.getElementById('agentAvatarImg');
     const fb = document.getElementById('agentAvatarFallback');
     if (!btn || !modal || !ta || !closeBtn || !surpriseBtn || !genBtn) return;
+
+    const debugOn = (() => { try{ return !!(new URLSearchParams(window.location.search||'').get('debug')==='1'); }catch(e){ return false; } })();
+    try{ if (dbg) dbg.style.display = debugOn ? '' : 'none'; }catch(e){}
 
     // Critical: move modal to document.body so it can't be clipped by card overflow/height.
     try{
@@ -1593,10 +1598,9 @@ window.__clawdbotPanelInitError = null;
       if (modal.parentElement !== d.body) {
         (d.body || d.documentElement).appendChild(modal);
       }
-      // Force solid, full-screen overlay (use dedicated backdrop element)
+      // Force full-screen overlay (use dedicated backdrop element)
       modal.style.position = 'fixed';
       modal.style.inset = '0';
-      // Avoid 100vw (can cause horizontal overflow due to scrollbar); rely on inset:0
       modal.style.width = '';
       modal.style.height = '';
       modal.style.background = 'transparent';
@@ -1619,7 +1623,6 @@ window.__clawdbotPanelInitError = null;
       }
       backdrop.style.position = 'fixed';
       backdrop.style.inset = '0';
-      // Light dim only (no blackout)
       backdrop.style.background = 'rgba(0,0,0,0.45)';
       backdrop.style.opacity = '1';
       backdrop.style.zIndex = '100000';
@@ -1854,11 +1857,64 @@ window.__clawdbotPanelInitError = null;
         const rr = await callServiceResponse('clawdbot','avatar_generate_request', { agent_id: 'agent0', prompt: txt });
         const sr = (rr && rr.result && rr.result.service_response) ? rr.result.service_response : null;
         const reqId = sr && sr.request_id ? String(sr.request_id) : '';
-        toast(reqId ? `Generation requested (${reqId.slice(0,8)})` : 'Generation requested');
-        setHint('Waiting for Agent 0 to generate the image…');
+
+        // Fetch webhook path so Agent0 can POST without tokens
+        const rr2 = await callServiceResponse('clawdbot','avatar_webhook_get', {});
+        const sr2 = (rr2 && rr2.result && rr2.result.service_response) ? rr2.result.service_response : null;
+        const path = sr2 && sr2.path ? String(sr2.path) : '';
+        const webhookUrl = path ? (window.location.origin + path) : '';
+
+        toast(reqId ? `Generating… (${reqId.slice(0,8)})` : 'Generating…');
+        setHint('Generating avatar… this can take ~10–30s');
+        setDbg(reqId ? `request_id=${reqId}` : '');
+
+        // Ask Agent0 to generate image via nano-banana-pro and push to webhook
+        const GEN_LABEL = 'avatar-generate-agent0';
+        let genSession = null;
+        try{
+          // reuse/create session
+          const l = await callServiceResponse('clawdbot','chat_list_sessions', {});
+          const ld = (l && l.response) ? l.response : l;
+          const lr = ld && ld.result ? ld.result : ld;
+          const items = (lr && Array.isArray(lr.items)) ? lr.items : [];
+          for (const it of items) { if (it && it.label === GEN_LABEL && it.key) { genSession = String(it.key); break; } }
+          if (!genSession) {
+            const ns = await callServiceResponse('clawdbot','chat_new_session', { label: GEN_LABEL });
+            const nsd = (ns && ns.response) ? ns.response : ns;
+            const nsr = nsd && nsd.result ? nsd.result : nsd;
+            genSession = nsr && nsr.session_key ? String(nsr.session_key) : null;
+          }
+        } catch(e){}
+
+        if (genSession && webhookUrl) {
+          const msg = [
+            'Generate a 1:1 profile avatar image using nano-banana-pro.',
+            `request_id: ${reqId || 'unknown'}`,
+            `webhook_url: ${webhookUrl}`,
+            '',
+            'Prompt:',
+            txt
+          ].join('\n');
+          try{ await callService('clawdbot','chat_send', { session_key: genSession, message: msg }); }catch(e){}
+        } else {
+          toast('Generating queued, but missing webhook/session');
+        }
+
+        // show preview once updated (event subscription will refresh img)
+        try{ if (prevWrap) prevWrap.style.display = 'flex'; }catch(e){}
+        try{ if (prevImg) prevImg.src = `/api/clawdbot/avatar.png?ts=${Date.now()}`; }catch(e){}
+
+        // soft timeout to re-enable UI
+        setTimeout(() => {
+          try{ if (_speechActive){} }catch(e){}
+          try{ genBtn.disabled = false; }catch(e){}
+          try{ if (String(hint && hint.textContent||'').includes('Generating')) setHint('Still generating… try again if it takes too long.'); }catch(e){}
+        }, 30000);
+
       } catch(e) {
         toast('Failed to request generation');
         setHint('');
+        setDbg('');
       } finally {
         try{ genBtn.disabled = false; }catch(e){}
       }
