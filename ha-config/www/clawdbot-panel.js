@@ -1608,6 +1608,7 @@ window.__clawdbotPanelInitError = null;
     const surpriseBtn = document.getElementById('avatarGenSurprise');
     const genBtn = document.getElementById('avatarGenGenerate');
     const hint = document.getElementById('avatarGenHint');
+    const stageEl = document.getElementById('avatarGenStage');
     const dbg = document.getElementById('avatarGenDebug');
     const prevWrap = document.getElementById('avatarGenPreviewWrap');
     const prevImg = document.getElementById('avatarGenPreviewImg');
@@ -1713,8 +1714,18 @@ window.__clawdbotPanelInitError = null;
 
     // Simple, stage-only status (no timers)
     let genStage = 'idle';
+    const renderStageLine = () => {
+      try{
+        if (!stageEl) return;
+        const rid = currentAvatarReqId || lastAvatarReqId || '';
+        const rid8 = rid ? String(rid).slice(0,8) : '—';
+        const s = genStage || 'idle';
+        stageEl.textContent = `stage=${s} req=${rid8}`;
+      } catch(e){}
+    };
     const setGenStage = (stage, extraLine) => {
       genStage = stage;
+      renderStageLine();
       if (stage === 'idle') return;
       const lines = [];
       if (genStage === 'sent') lines.push('Sending request…');
@@ -1989,6 +2000,7 @@ window.__clawdbotPanelInitError = null;
       // Use capture so extensions/other handlers are less likely to interfere.
       useBtn.addEventListener('click', async (ev) => {
         try{ ev.preventDefault(); ev.stopPropagation(); }catch(e){}
+        toast('Applying…');
         const rid = currentAvatarReqId || lastAvatarReqId;
         if (!rid) { toast('No preview yet'); return; }
         try{ useBtn.disabled = true; useBtn.textContent='Applying…'; }catch(e){}
