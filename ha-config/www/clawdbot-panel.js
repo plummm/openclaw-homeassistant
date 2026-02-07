@@ -1686,40 +1686,19 @@ window.__clawdbotPanelInitError = null;
 
     const setHint = (t) => { try{ if (hint) hint.textContent = String(t||''); }catch(e){} };
 
-    let genTimer = null;
-    let genT0 = 0;
+    // Simple, stage-only status (no timers)
     let genStage = 'idle';
-    const fmtElapsed = (ms) => {
-      const s = Math.max(0, Math.floor((ms||0)/1000));
-      const m = Math.floor(s/60);
-      const ss = String(s%60).padStart(2,'0');
-      return m ? `${m}:${ss}` : `${s}s`;
-    };
-    const renderGenStatus = (extraLine) => {
-      const elapsed = genT0 ? fmtElapsed(Date.now()-genT0) : '';
-      const lines = [];
-      if (genStage === 'idle') return;
-      if (genStage === 'sent') lines.push(`Sent to Agent0 • ${elapsed}`);
-      if (genStage === 'generating') lines.push(`Generating image… • ${elapsed}`);
-      if (genStage === 'uploading') lines.push(`Uploading to Home Assistant… • ${elapsed}`);
-      if (genStage === 'preview') lines.push(`Preview ready • ${elapsed}`);
-      if (genStage === 'timeout') lines.push(`Still working… • ${elapsed}`);
-      if (extraLine) lines.push(extraLine);
-      setHint(lines.join('\n'));
-    };
     const setGenStage = (stage, extraLine) => {
       genStage = stage;
-      if (stage === 'idle') {
-        try{ if (genTimer) clearInterval(genTimer); }catch(e){}
-        genTimer = null;
-        genT0 = 0;
-        return;
-      }
-      if (!genT0) genT0 = Date.now();
-      renderGenStatus(extraLine);
-      if (!genTimer) {
-        genTimer = setInterval(() => { try{ renderGenStatus(extraLine); }catch(e){} }, 500);
-      }
+      if (stage === 'idle') return;
+      const lines = [];
+      if (genStage === 'sent') lines.push('Sending request…');
+      if (genStage === 'generating') lines.push('Generating image…');
+      if (genStage === 'uploading') lines.push('Uploading to Home Assistant…');
+      if (genStage === 'preview') lines.push('Preview ready');
+      if (genStage === 'timeout') lines.push('Still working…');
+      if (extraLine) lines.push(extraLine);
+      setHint(lines.join('\n'));
     };
     const setDbg = (t) => { try{ if (dbg) dbg.textContent = String(t||''); }catch(e){} };
 
@@ -1729,6 +1708,8 @@ window.__clawdbotPanelInitError = null;
         try{ genBtn.disabled = false; }catch(e){}
         try{ cancelBtn.style.display = 'none'; }catch(e){}
         try{ currentAvatarReqId = null; }catch(e){}
+        try{ if (previewRetryTimer) clearTimeout(previewRetryTimer); }catch(e){}
+        previewRetryTimer = null;
         try{ setPreviewState('error', 'No preview yet'); }catch(e){}
         toast('Canceled');
       };
@@ -1939,6 +1920,7 @@ window.__clawdbotPanelInitError = null;
       } catch(e){}
     };
 
+    let previewRetryTimer = null;
     const setPreviewSrcForReqId = (rid) => {
       if (!prevImg) return;
       try{
@@ -1947,9 +1929,15 @@ window.__clawdbotPanelInitError = null;
           ? (`/api/clawdbot/avatar_preview.png?request_id=${encodeURIComponent(wantRid)}&ts=${Date.now()}`)
           : (`/api/clawdbot/avatar.png?ts=${Date.now()}`);
 
+        // clear any pending retry when we attempt a load
+        try{ if (previewRetryTimer) clearTimeout(previewRetryTimer); }catch(e){}
+        previewRetryTimer = null;
+
         prevImg.onload = () => {
           // Race guard: ignore late loads from older request_ids.
           if (wantRid && currentAvatarReqId && wantRid !== currentAvatarReqId) return;
+          try{ if (previewRetryTimer) clearTimeout(previewRetryTimer); }catch(e){}
+          previewRetryTimer = null;
           setPreviewState('ready');
           setGenStage('preview');
           setHint('Preview ready. Click “Use this” to apply.');
@@ -1958,8 +1946,15 @@ window.__clawdbotPanelInitError = null;
         };
         prevImg.onerror = () => {
           if (wantRid && currentAvatarReqId && wantRid !== currentAvatarReqId) return;
-          // image not ready yet; keep generating placeholder
+          // Keep generating placeholder until the webhook lands and preview endpoint returns 200.
           setPreviewState('generating', 'Generating…');
+          setGenStage('generating');
+          // retry
+          if (wantRid && currentAvatarReqId) {
+            previewRetryTimer = setTimeout(() => {
+              try{ if (wantRid === currentAvatarReqId) setPreviewSrcForReqId(wantRid); }catch(e){}
+            }, 1200);
+          }
         };
         prevImg.src = url;
       } catch(e){}
@@ -1975,21 +1970,10 @@ window.__clawdbotPanelInitError = null;
           const rr = await callServiceResponse('clawdbot','avatar_apply', { request_id: rid });
           const sr = (rr && rr.result && rr.result.service_response) ? rr.result.service_response : null;
           if (sr && sr.ok) {
-            toast('Avatar applied');
-            // Only show success after active avatar has reloaded
-            let done = false;
-            try{
-              if (img) {
-                img.onload = () => {
-                  if (done) return;
-                  done = true;
-                  setHint('Avatar updated ✅');
-                };
-              }
-            } catch(e){}
-            try{ setAvatarPreview(); }catch(e){}
+            // Apply immediately, refresh hero avatar, and close modal.
             toast('Applied ✅');
-            setTimeout(() => { if (!done) setHint('Avatar updated ✅'); }, 1200);
+            try{ setAvatarPreview(); }catch(e){}
+            try{ close(); }catch(e){}
           } else {
             toast('Failed to apply');
           }
@@ -2016,6 +2000,8 @@ window.__clawdbotPanelInitError = null;
       try{ if (cancelBtn) cancelBtn.style.display = ''; }catch(e){}
       setGenStage('sent');
       setHint('Requesting image generation…');
+      // hard reset preview (no cached image)
+      setPreviewState('generating', 'Generating…');
 
       // Persist prompt + request generation (Agent0/host listens to HA event)
       try{
