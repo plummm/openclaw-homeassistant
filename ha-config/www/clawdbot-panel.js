@@ -1959,8 +1959,16 @@ window.__clawdbotPanelInitError = null;
       } catch(e){}
     };
 
+    const forceCloseModal = () => {
+      try{ close(); }catch(e){}
+      try{ modal.classList.add('hidden'); }catch(e){}
+      try{ modal.style.display = 'none'; }catch(e){}
+    };
+
     if (useBtn) {
-      useBtn.onclick = async () => {
+      // Use capture so extensions/other handlers are less likely to interfere.
+      useBtn.addEventListener('click', async (ev) => {
+        try{ ev.preventDefault(); ev.stopPropagation(); }catch(e){}
         const rid = lastAvatarReqId;
         if (!rid) { toast('No preview yet'); return; }
         try{ useBtn.disabled = true; useBtn.textContent='Applying…'; }catch(e){}
@@ -1969,19 +1977,20 @@ window.__clawdbotPanelInitError = null;
           const rr = await callServiceResponse('clawdbot','avatar_apply', { request_id: rid });
           const sr = (rr && rr.result && rr.result.service_response) ? rr.result.service_response : null;
           if (sr && sr.ok) {
-            // Apply immediately, refresh hero avatar, and close modal.
             toast('Applied ✅');
             try{ setAvatarPreview(); }catch(e){}
-            try{ close(); }catch(e){}
+            // Close unconditionally on ok:true
+            forceCloseModal();
           } else {
             toast('Failed to apply');
           }
         } catch(e) {
-          toast('Failed to apply');
+          const msg = (e && e.message) ? String(e.message) : String(e||'');
+          toast('Failed to apply' + (msg ? ` (${msg.slice(0,80)})` : ''));
         } finally {
           try{ useBtn.disabled = false; useBtn.textContent='Use this'; }catch(e){}
         }
-      };
+      }, { capture: true });
     }
 
     genBtn.onclick = async () => {
