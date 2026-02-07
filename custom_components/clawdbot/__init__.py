@@ -176,7 +176,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.113"
+PANEL_BUILD_ID = "89337ab.114"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -6146,16 +6146,61 @@ async def async_setup(hass, config):
         await store.async_save(avatar)
         cfg["avatar"] = avatar
 
-        # Emit event for Agent0/host listener
+        # Emit event for Agent0/host listener (preferred transport; avoids chat delivery issues)
+        webhook_path = None
+        webhook_url = None
+        try:
+            from homeassistant.components import webhook
+
+            wh_store: Store = cfg.get("avatar_webhook_store")
+            wh_data = cfg.get("avatar_webhook")
+            if wh_store is not None and isinstance(wh_data, dict):
+                webhook_id = wh_data.get("webhook_id")
+                if not isinstance(webhook_id, str) or not webhook_id:
+                    webhook_id = webhook.async_generate_id()
+                    wh_data = {"webhook_id": webhook_id}
+                    await wh_store.async_save(wh_data)
+                    cfg["avatar_webhook"] = wh_data
+                webhook_path = f"/api/webhook/{webhook_id}"
+
+            # Optional: include full URL using dynamic setup base_url (env-aware)
+            opts = cfg.get("setup_options")
+            base_url = None
+            if isinstance(opts, dict):
+                env_opt = opts.get("clawdbot.target_env")
+                env = None
+                if isinstance(env_opt, dict):
+                    v = env_opt.get("value")
+                    if isinstance(v, str) and v.strip():
+                        env = v.strip()
+                base_key = "ha.base_url.test" if env == "test" else "ha.base_url.prod" if env == "prod" else None
+                if base_key:
+                    b = opts.get(base_key)
+                    if isinstance(b, dict):
+                        bv = b.get("value")
+                        if isinstance(bv, str) and bv.strip():
+                            base_url = bv.strip().rstrip("/")
+            if base_url and webhook_path:
+                webhook_url = f"{base_url}{webhook_path}"
+        except Exception:
+            pass
+
         try:
             hass.bus.async_fire(
                 "clawdbot_avatar_generate_requested",
-                {"request_id": request_id, "agent_id": str(agent_id), "prompt": str(prompt), "ts": now},
+                {
+                    "request_id": request_id,
+                    "agent_id": str(agent_id),
+                    "prompt": str(prompt),
+                    "webhook_path": webhook_path,
+                    "webhook_url": webhook_url,
+                    "ts": now,
+                },
             )
         except Exception:
             pass
 
-        return {"ok": True, "request_id": request_id}
+        return {"ok": True, "request_id": request_id, "webhook_path": webhook_path, "webhook_url": webhook_url}
 
     async def handle_avatar_webhook_get(call):
         cfg = hass.data.get(DOMAIN, {})

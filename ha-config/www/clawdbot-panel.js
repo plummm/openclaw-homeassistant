@@ -1857,59 +1857,27 @@ window.__clawdbotPanelInitError = null;
         const rr = await callServiceResponse('clawdbot','avatar_generate_request', { agent_id: 'agent0', prompt: txt });
         const sr = (rr && rr.result && rr.result.service_response) ? rr.result.service_response : null;
         const reqId = sr && sr.request_id ? String(sr.request_id) : '';
-
-        // Fetch webhook path so Agent0 can POST without tokens
-        const rr2 = await callServiceResponse('clawdbot','avatar_webhook_get', {});
-        const sr2 = (rr2 && rr2.result && rr2.result.service_response) ? rr2.result.service_response : null;
-        const path = sr2 && sr2.path ? String(sr2.path) : '';
-        const webhookUrl = path ? (window.location.origin + path) : '';
+        const whPath = sr && sr.webhook_path ? String(sr.webhook_path) : '';
+        const whUrl = sr && sr.webhook_url ? String(sr.webhook_url) : '';
 
         toast(reqId ? `Generating… (${reqId.slice(0,8)})` : 'Generating…');
-        setHint('Generating avatar… this can take ~10–30s');
-        setDbg(reqId ? `request_id=${reqId}` : '');
+        setHint('Request sent. Waiting for image push… (usually ~10–30s)');
+        setDbg(reqId ? `request_id=${reqId}${whUrl ? ' webhook_url=' + whUrl : whPath ? ' webhook_path=' + whPath : ''}` : '');
 
-        // Ask Agent0 to generate image via nano-banana-pro and push to webhook
-        const GEN_LABEL = 'avatar-generate-agent0';
-        let genSession = null;
-        try{
-          // reuse/create session
-          const l = await callServiceResponse('clawdbot','chat_list_sessions', {});
-          const ld = (l && l.response) ? l.response : l;
-          const lr = ld && ld.result ? ld.result : ld;
-          const items = (lr && Array.isArray(lr.items)) ? lr.items : [];
-          for (const it of items) { if (it && it.label === GEN_LABEL && it.key) { genSession = String(it.key); break; } }
-          if (!genSession) {
-            const ns = await callServiceResponse('clawdbot','chat_new_session', { label: GEN_LABEL });
-            const nsd = (ns && ns.response) ? ns.response : ns;
-            const nsr = nsd && nsd.result ? nsd.result : nsd;
-            genSession = nsr && nsr.session_key ? String(nsr.session_key) : null;
-          }
-        } catch(e){}
-
-        if (genSession && webhookUrl) {
-          const msg = [
-            'Generate a 1:1 profile avatar image using nano-banana-pro.',
-            `request_id: ${reqId || 'unknown'}`,
-            `webhook_url: ${webhookUrl}`,
-            '',
-            'Prompt:',
-            txt
-          ].join('\n');
-          try{ await callService('clawdbot','chat_send', { session_key: genSession, message: msg }); }catch(e){}
-        } else {
-          toast('Generating queued, but missing webhook/session');
-        }
-
-        // show preview once updated (event subscription will refresh img)
+        // show preview once updated (event subscription will refresh actual avatar)
         try{ if (prevWrap) prevWrap.style.display = 'flex'; }catch(e){}
         try{ if (prevImg) prevImg.src = `/api/clawdbot/avatar.png?ts=${Date.now()}`; }catch(e){}
 
-        // soft timeout to re-enable UI
+        // soft timeout to re-enable UI + show retry hint
         setTimeout(() => {
-          try{ if (_speechActive){} }catch(e){}
           try{ genBtn.disabled = false; }catch(e){}
-          try{ if (String(hint && hint.textContent||'').includes('Generating')) setHint('Still generating… try again if it takes too long.'); }catch(e){}
-        }, 30000);
+          try{
+            const cur = String(hint && hint.textContent || '');
+            if (cur.includes('Waiting for image')) {
+              setHint('No image yet. Please click Generate again (Agent0 may still be working).');
+            }
+          }catch(e){}
+        }, 45000);
 
       } catch(e) {
         toast('Failed to request generation');
