@@ -1728,6 +1728,7 @@ window.__clawdbotPanelInitError = null;
         try{ setGenStage('idle'); }catch(e){}
         try{ genBtn.disabled = false; }catch(e){}
         try{ cancelBtn.style.display = 'none'; }catch(e){}
+        try{ currentAvatarReqId = null; }catch(e){}
         try{ setPreviewState('error', 'No preview yet'); }catch(e){}
         toast('Canceled');
       };
@@ -1755,6 +1756,8 @@ window.__clawdbotPanelInitError = null;
 
                   // If this event corresponds to the currently-running request, refresh the per-run preview.
                   const targetRid = lastAvatarReqId || rid || lastPrev;
+                  // Race guard: don't let old events overwrite current in-flight request
+                  if (currentAvatarReqId && targetRid && targetRid !== currentAvatarReqId) return;
                   if (targetRid && prevImg && typeof setPreviewSrcForReqId === 'function') {
                     setPreviewState('generating', 'Loading preview…');
                     setPreviewSrcForReqId(targetRid);
@@ -1915,6 +1918,7 @@ window.__clawdbotPanelInitError = null;
     };
 
     let lastAvatarReqId = null;
+    let currentAvatarReqId = null;
 
     const setPreviewState = (state, msg) => {
       try{ if (!prevWrap) return; prevWrap.style.display = 'flex'; }catch(e){}
@@ -1938,10 +1942,14 @@ window.__clawdbotPanelInitError = null;
     const setPreviewSrcForReqId = (rid) => {
       if (!prevImg) return;
       try{
-        const url = rid
-          ? (`/api/clawdbot/avatar_preview.png?request_id=${encodeURIComponent(rid)}&ts=${Date.now()}`)
+        const wantRid = rid || null;
+        const url = wantRid
+          ? (`/api/clawdbot/avatar_preview.png?request_id=${encodeURIComponent(wantRid)}&ts=${Date.now()}`)
           : (`/api/clawdbot/avatar.png?ts=${Date.now()}`);
+
         prevImg.onload = () => {
+          // Race guard: ignore late loads from older request_ids.
+          if (wantRid && currentAvatarReqId && wantRid !== currentAvatarReqId) return;
           setPreviewState('ready');
           setGenStage('preview');
           setHint('Preview ready. Click “Use this” to apply.');
@@ -1949,6 +1957,7 @@ window.__clawdbotPanelInitError = null;
           try{ genBtn.disabled = false; }catch(e){}
         };
         prevImg.onerror = () => {
+          if (wantRid && currentAvatarReqId && wantRid !== currentAvatarReqId) return;
           // image not ready yet; keep generating placeholder
           setPreviewState('generating', 'Generating…');
         };
@@ -2018,6 +2027,7 @@ window.__clawdbotPanelInitError = null;
         const sr = (rr && rr.result && rr.result.service_response) ? rr.result.service_response : null;
         const reqId = sr && sr.request_id ? String(sr.request_id) : '';
         lastAvatarReqId = reqId || null;
+        currentAvatarReqId = reqId || null;
         const whPath = sr && sr.webhook_path ? String(sr.webhook_path) : '';
         const whUrl = sr && sr.webhook_url ? String(sr.webhook_url) : '';
         const runId = sr && sr.run_id ? String(sr.run_id) : '';
