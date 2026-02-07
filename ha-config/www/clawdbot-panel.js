@@ -1880,46 +1880,21 @@ window.__clawdbotPanelInitError = null;
       return null;
     };
 
-    surpriseBtn.onclick = async () => {
-      // Always produce *something* immediately (fallback), then try Agent0 chat.
-      try{ ta.value = surpriseDraft(); }catch(e){}
-
+    // Surprise me: generate a local draft immediately (no network / no chat_send flakiness).
+    // (We can reintroduce an Agent0-backed version later via a dedicated dispatch+response path.)
+    surpriseBtn.onclick = () => {
       try{
-        surpriseBtn.disabled = true;
-        setHint('Starting…');
-        setDbg('creating/reusing session');
-
-        const sessionKey = await ensureSurpriseSession();
-
-        // Send prompt
-        setDbg('sending prompt');
-        await callService('clawdbot','chat_send', { session_key: sessionKey, message: SURPRISE_PROMPT });
-
-        const reply = await waitForAssistant(sessionKey, 15000);
-        if (!reply) {
-          toast('Surprise me: timed out (used local draft)');
-          setHint('Used a local draft (Agent reply timed out). Edit freely, then hit Generate.');
-          setDbg('timeout');
-          return;
-        }
-
-        let txt = String(reply || '').trim();
+        let txt = String(surpriseDraft() || '').trim();
         if (txt && !txt.toLowerCase().includes('image style:')) {
-          txt = txt + "\n" + "Image style: profile pic, head shot style, character face to the camera, clean background.";
+          txt = txt + "\n\n" + STYLE_LINE;
         }
         ta.value = txt;
+        setGenStage('idle');
         setHint('Draft generated. Edit freely, then hit Generate.');
-        setDbg('got reply');
-
-        // Persist draft in HA
-        try{ await callServiceResponse('clawdbot','avatar_prompt_set', { agent_id: 'agent0', text: txt }); } catch(e){}
-      } catch(e){
-        const msg = (e && e.message) ? String(e.message) : 'failed';
-        toast(`Surprise me failed (${msg}); used local draft`);
-        setHint('Used a local draft (Agent call failed). Edit freely, then hit Generate.');
-        setDbg('error');
-      } finally {
-        try{ surpriseBtn.disabled = false; }catch(e){}
+        setDbg('local_draft');
+        try{ callServiceResponse('clawdbot','avatar_prompt_set', { agent_id: 'agent0', text: txt }); }catch(e){}
+      } catch(e) {
+        toast('Surprise me failed');
       }
     };
 
