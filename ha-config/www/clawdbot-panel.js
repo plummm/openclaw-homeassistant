@@ -1854,15 +1854,16 @@ window.__clawdbotPanelInitError = null;
       } catch(e){}
 
       try{
-        const rr = await callServiceResponse('clawdbot','avatar_generate_request', { agent_id: 'agent0', prompt: txt });
+        const rr = await callServiceResponse('clawdbot','avatar_generate_dispatch', { agent_id: 'agent0', prompt: txt, ha_origin: window.location.origin });
         const sr = (rr && rr.result && rr.result.service_response) ? rr.result.service_response : null;
         const reqId = sr && sr.request_id ? String(sr.request_id) : '';
         const whPath = sr && sr.webhook_path ? String(sr.webhook_path) : '';
         const whUrl = sr && sr.webhook_url ? String(sr.webhook_url) : '';
+        const runId = sr && sr.run_id ? String(sr.run_id) : '';
 
         toast(reqId ? `Generating… (${reqId.slice(0,8)})` : 'Generating…');
-        setHint('Request sent. Waiting for image push… (usually ~10–30s)');
-        setDbg(reqId ? `request_id=${reqId}${whUrl ? ' webhook_url=' + whUrl : whPath ? ' webhook_path=' + whPath : ''}` : '');
+        setHint('Request sent to Agent0. Waiting for image push… (usually ~10–30s)');
+        setDbg(reqId ? `request_id=${reqId}${runId ? ' run_id=' + runId : ''}${whUrl ? ' webhook_url=' + whUrl : whPath ? ' webhook_path=' + whPath : ''}` : '');
 
         // show preview once updated (event subscription will refresh actual avatar)
         try{ if (prevWrap) prevWrap.style.display = 'flex'; }catch(e){}

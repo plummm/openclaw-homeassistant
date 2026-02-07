@@ -176,7 +176,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.114"
+PANEL_BUILD_ID = "89337ab.115"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -6202,6 +6202,88 @@ async def async_setup(hass, config):
 
         return {"ok": True, "request_id": request_id, "webhook_path": webhook_path, "webhook_url": webhook_url}
 
+    async def handle_avatar_generate_dispatch(call):
+        """Dispatch avatar generation to Agent0 via Gateway sessions_spawn.
+
+        Avoids relying on HA internal event bus (not reachable from Agent0 host) and avoids flaky chat sessions.
+        """
+        hass = call.hass
+
+        agent_id = call.data.get("agent_id") or "agent0"
+        prompt = call.data.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise HomeAssistantError("prompt is required")
+
+        ha_origin = call.data.get("ha_origin")
+        if ha_origin is not None and not isinstance(ha_origin, str):
+            ha_origin = None
+        if isinstance(ha_origin, str):
+            ha_origin = ha_origin.strip().rstrip("/")
+            if not ha_origin.startswith("http://") and not ha_origin.startswith("https://"):
+                ha_origin = None
+
+        # Generate request_id + webhook path (also records prompt in Store)
+        class _Call:
+            __slots__ = ("data", "hass")
+
+            def __init__(self, hass, data):
+                self.hass = hass
+                self.data = data
+
+        gen = await handle_avatar_generate_request(_Call(hass, {"agent_id": agent_id, "prompt": prompt}))
+        request_id = gen.get("request_id") if isinstance(gen, dict) else None
+        webhook_path = gen.get("webhook_path") if isinstance(gen, dict) else None
+        webhook_url = gen.get("webhook_url") if isinstance(gen, dict) else None
+
+        if not webhook_url and isinstance(ha_origin, str) and isinstance(webhook_path, str) and webhook_path:
+            webhook_url = f"{ha_origin}{webhook_path}"
+
+        if not isinstance(webhook_url, str) or not webhook_url:
+            # Still allow dispatch (Agent0 can reconstruct from path), but return useful diagnostics.
+            webhook_url = None
+
+        # Spawn Agent0 run on gateway
+        session, gateway_origin, token, _default_session_key = _runtime_gateway_parts(hass)
+
+        task = "\n".join(
+            [
+                "Generate a 1:1 profile avatar image using nano-banana-pro, then POST png_b64 to the webhook.",
+                f"agent_id: {agent_id}",
+                f"request_id: {request_id}",
+                f"webhook_url: {webhook_url or ''}",
+                f"webhook_path: {webhook_path or ''}",
+                "",
+                "Prompt:",
+                str(prompt).strip(),
+            ]
+        )
+
+        payload = {
+            "tool": "sessions_spawn",
+            "args": {
+                "task": task,
+                "label": f"avatar-generate:{request_id}",
+                "agentId": str(agent_id),
+                "cleanup": "keep",
+            },
+        }
+
+        res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
+        run_id = None
+        try:
+            if isinstance(res, dict):
+                run_id = res.get("runId") or res.get("result", {}).get("runId")
+        except Exception:
+            run_id = None
+
+        return {
+            "ok": True,
+            "request_id": request_id,
+            "webhook_url": webhook_url,
+            "webhook_path": webhook_path,
+            "run_id": run_id,
+        }
+
     async def handle_avatar_webhook_get(call):
         cfg = hass.data.get(DOMAIN, {})
         store: Store = cfg.get("avatar_webhook_store")
@@ -6301,6 +6383,7 @@ async def async_setup(hass, config):
 
     hass.services.async_register(DOMAIN, "avatar_prompt_set", handle_avatar_prompt_set, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "avatar_generate_request", handle_avatar_generate_request, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "avatar_generate_dispatch", handle_avatar_generate_dispatch, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "avatar_webhook_get", handle_avatar_webhook_get, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "avatar_set_b64", handle_avatar_set_b64, supports_response=SupportsResponse.ONLY)
 
