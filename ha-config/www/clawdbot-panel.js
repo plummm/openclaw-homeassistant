@@ -1774,11 +1774,18 @@ window.__clawdbotPanelInitError = null;
                   const rid = d && d.request_id ? String(d.request_id) : null;
                   const lastPrev = d && d.last_preview_request_id ? String(d.last_preview_request_id) : null;
 
+                  // Keep request ids in sync even if WS reconnect interrupts the dispatch response.
+                  if (rid) {
+                    lastAvatarReqId = rid;
+                    if (!currentAvatarReqId) currentAvatarReqId = rid;
+                    try{ renderStageLine(); }catch(e){}
+                  }
+
                   // If this event corresponds to the currently-running request, refresh the per-run preview.
-                  const targetRid = lastAvatarReqId || rid || lastPrev;
+                  const targetRid = currentAvatarReqId || lastAvatarReqId || rid || lastPrev;
                   // Race guard: don't let old events overwrite current in-flight request
                   if (currentAvatarReqId && targetRid && targetRid !== currentAvatarReqId) return;
-                  if (targetRid && prevImg && typeof setPreviewSrcForReqId === 'function') {
+                  if (targetRid && typeof setPreviewSrcForReqId === 'function') {
                     setPreviewState('generating', 'Loading preview…');
                     setPreviewSrcForReqId(targetRid);
                   }
@@ -2021,9 +2028,11 @@ window.__clawdbotPanelInitError = null;
 
           // Resolve request_id: prefer current/last, else parse from preview img src.
           let rid = currentAvatarReqId || lastAvatarReqId || null;
-          if (!rid && prevImg && typeof prevImg.src === 'string' && prevImg.src.includes('request_id=')) {
+          const imgEl = (document && document.getElementById) ? document.getElementById('avatarGenPreviewImg') : null;
+          const src = imgEl && typeof imgEl.src === 'string' ? imgEl.src : (prevImg && typeof prevImg.src === 'string' ? prevImg.src : '');
+          if (!rid && src && src.includes('request_id=')) {
             try{
-              const u = new URL(prevImg.src, window.location.origin);
+              const u = new URL(src, window.location.origin);
               const q = u.searchParams.get('request_id');
               if (q) rid = String(q);
             } catch(e){}
@@ -2041,7 +2050,8 @@ window.__clawdbotPanelInitError = null;
               try{ setAvatarPreview(); }catch(e){}
               forceCloseModal();
             } else {
-              toast('Failed to apply');
+              const err = sr && (sr.error || sr.message) ? String(sr.error || sr.message) : '';
+              toast('Failed to apply' + (err ? ` (${err.slice(0,80)})` : ''));
             }
           } catch(e) {
             const msg = (e && e.message) ? String(e.message) : String(e||'');
