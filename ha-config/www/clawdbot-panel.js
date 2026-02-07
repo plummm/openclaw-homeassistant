@@ -2052,18 +2052,26 @@ window.__clawdbotPanelInitError = null;
     let avatarInFlight = false;
     let genWatchdog = null;
     const setGenerateEnabled = (enabled) => {
-      try{ genBtn.disabled = !enabled; }catch(e){}
-      try{ genBtn.style.pointerEvents = enabled ? '' : 'none'; }catch(e){}
-      try{ genBtn.style.opacity = enabled ? '' : '0.65'; }catch(e){}
+      // Always re-resolve element by id (modal DOM can be re-rendered/replaced)
+      const el = (document && document.getElementById) ? document.getElementById('avatarGenGenerate') : genBtn;
+      if (!el) return;
+      try{ el.disabled = !enabled; }catch(e){}
+      try{ el.style.pointerEvents = enabled ? '' : 'none'; }catch(e){}
+      try{ el.style.opacity = enabled ? '' : '0.65'; }catch(e){}
     };
     const setInFlight = (v) => {
       avatarInFlight = !!v;
+      // also mirror to window so a second bindAvatarGenUi() call keeps state
+      try{ window.__clawdbotAvatarInFlight = avatarInFlight; }catch(e){}
       if (avatarInFlight) {
-        // Watchdog: some HA WS reconnect paths / rebinds can flip button state.
-        // Force it disabled while in-flight.
         if (!genWatchdog) {
           genWatchdog = setInterval(() => {
-            try{ if (avatarInFlight) setGenerateEnabled(false); else { clearInterval(genWatchdog); genWatchdog=null; } }catch(e){}
+            try{
+              // If we ever rebound UI, read global state.
+              const inflight = (typeof window !== 'undefined' && window.__clawdbotAvatarInFlight) ? true : avatarInFlight;
+              if (inflight) setGenerateEnabled(false);
+              else { clearInterval(genWatchdog); genWatchdog=null; }
+            } catch(e){}
           }, 400);
         }
       } else {
