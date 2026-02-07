@@ -4,6 +4,31 @@ window.__clawdbotPanelInit = 'booting';
 window.__clawdbotPanelInitError = null;
 (function(){
 
+  // Polyfill: some HA webviews/older Chromium builds lack crypto.randomUUID.
+  try{
+    if (typeof window !== 'undefined') {
+      const c = window.crypto;
+      if (c && typeof c.randomUUID !== 'function') {
+        c.randomUUID = () => {
+          // Prefer getRandomValues when available.
+          const rnd = (n) => {
+            if (c.getRandomValues) {
+              const a = new Uint8Array(n);
+              c.getRandomValues(a);
+              return Array.from(a);
+            }
+            return Array.from({length:n}, () => Math.floor(Math.random()*256));
+          };
+          const b = rnd(16);
+          b[6] = (b[6] & 0x0f) | 0x40; // v4
+          b[8] = (b[8] & 0x3f) | 0x80; // variant
+          const hex = b.map(x => x.toString(16).padStart(2,'0')).join('');
+          return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+        };
+      }
+    }
+  } catch(e) {}
+
   try{
     const el = document.getElementById('clawdbot-config');
     const txt = el ? (el.textContent || el.innerText || '{}') : '{}';
