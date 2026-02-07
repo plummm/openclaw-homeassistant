@@ -1736,6 +1736,15 @@ window.__clawdbotPanelInitError = null;
     btn.onclick = () => {
       setHint('');
       setDbg('');
+      // Always show preview tile; if we have a request_id, load that preview, else show placeholder.
+      try{
+        if (lastAvatarReqId) {
+          setPreviewState('generating', 'Loading preview…');
+          setPreviewSrcForReqId(lastAvatarReqId);
+        } else {
+          setPreviewState('error', 'No preview yet');
+        }
+      } catch(e){}
       // refresh avatar display state (if already generated)
       setAvatarPreview();
       open();
