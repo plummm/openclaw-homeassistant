@@ -1925,9 +1925,8 @@ window.__clawdbotPanelInitError = null;
       if (!prevImg) return;
       try{
         const wantRid = rid || null;
-        const url = wantRid
-          ? (`/api/clawdbot/avatar_preview.png?request_id=${encodeURIComponent(wantRid)}&ts=${Date.now()}`)
-          : (`/api/clawdbot/avatar.png?ts=${Date.now()}`);
+        if (!wantRid) return;
+        const url = `/api/clawdbot/avatar_preview.png?request_id=${encodeURIComponent(wantRid)}&ts=${Date.now()}`;
 
         // clear any pending retry when we attempt a load
         try{ if (previewRetryTimer) clearTimeout(previewRetryTimer); }catch(e){}
