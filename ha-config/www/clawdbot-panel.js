@@ -84,6 +84,182 @@ window.__clawdbotPanelInitError = null;
   let chatLastPollTs = null;
   let chatLastPollAppended = 0;
   let chatLastPollError = null;
+
+  // Chat voice mode (MVP)
+  let _chatMode = 'text';
+  let _chatLastAgentText = '';
+  let _chatVoiceAudioCtx = null;
+  let _chatVoiceAnalyser = null;
+  let _chatVoiceSrc = null;
+  let _chatVoiceRaf = null;
+  let _chatVoiceLoading = false;
+
+  function chatSetMode(mode){
+    _chatMode = (mode === 'voice') ? 'voice' : 'text';
+    const box = document.getElementById('chatVoiceBox');
+    const shell = document.querySelector('#viewChat .chat-shell');
+    const loadTop = document.getElementById('chatLoadTop');
+    if (box) box.classList.toggle('hidden', _chatMode !== 'voice');
+    if (shell) shell.style.display = (_chatMode === 'voice') ? 'none' : '';
+    if (loadTop) loadTop.style.display = (_chatMode === 'voice') ? 'none' : '';
+    const st = document.getElementById('chatVoiceStatus');
+    if (st) st.textContent = (_chatMode === 'voice') ? 'Voice mode' : '';
+    try{ if (_chatMode === 'voice') { chatVoiceVizStart(); } else { chatVoiceVizStop(); } }catch(e){}
+    try{ if (_chatMode === 'voice') chatTtsRefreshStatus(); }catch(e){}
+    try{
+      const a = document.getElementById('chatVoiceAudio');
+      if (a) a.style.display = a.src ? '' : 'none';
+    }catch(e){}
+  }
+
+
+  async function chatTtsRefreshStatus(){
+    const st = document.getElementById('chatVoiceStatus');
+    try{
+      if (st) st.textContent = 'Checking TTS…';
+      const r = await Promise.race([
+        callServiceResponse('clawdbot','tts_vibevoice_health',{}),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error('health timeout')), 6000)),
+      ]);
+      const data = (r && r.response) ? r.response : r;
+      const rr = data && data.result ? data.result : data;
+      if (!rr || rr.ok === false) {
+        if (st) st.textContent = 'TTS unavailable';
+        return;
+      }
+      const cls = rr.error_class || rr.blocked_reason || null;
+      const hs = rr.http_status;
+      if (!rr.configured) {
+        if (st) st.textContent = 'TTS not configured';
+        return;
+      }
+      if (cls === 'out_of_credits') {
+        if (st) st.textContent = 'Provider out of credits';
+        return;
+      }
+      if (cls === 'verification_required') {
+        if (st) st.textContent = 'Provider account requires verification';
+        return;
+      }
+      if ((hs===401||hs===403) || cls === 'auth_failed') {
+        if (st) st.textContent = 'TTS authentication failed';
+        return;
+      }
+      if (rr.reachable === false) {
+        if (st) st.textContent = 'TTS unreachable';
+        return;
+      }
+      if (st) st.textContent = 'TTS ready';
+    } catch(e){
+      const msg = (e && (e.message||e.toString)) ? String(e.message||e.toString()) : '';
+      if (st) st.textContent = (msg && msg.includes('timeout')) ? 'TTS check timed out' : 'TTS unavailable';
+    }
+  }
+
+  function chatVoiceAppend(role, text){
+    const el = document.getElementById('chatVoiceTranscript');
+    if (!el) return;
+    const row = document.createElement('div');
+    row.className = 'ent';
+    row.innerHTML = `<div class="ent-id">${escapeHtml(role)}</div><div class="ent-state" style="white-space:pre-wrap">${escapeHtml(String(text||''))}</div>`;
+    el.appendChild(row);
+    try{ el.scrollTop = el.scrollHeight; }catch(e){}
+  }
+
+  function chatVoiceVizStop(){
+    try{ if (_chatVoiceRaf) cancelAnimationFrame(_chatVoiceRaf); }catch(e){}
+    _chatVoiceRaf = null;
+  }
+
+  function chatVoiceVizStart(){
+    const canvas = document.getElementById('chatVoiceViz');
+    const audio = document.getElementById('chatVoiceAudio');
+    if (!canvas || !audio) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    try{
+      if (!_chatVoiceAudioCtx) {
+        _chatVoiceAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (!_chatVoiceAnalyser) {
+        _chatVoiceAnalyser = _chatVoiceAudioCtx.createAnalyser();
+        _chatVoiceAnalyser.fftSize = 512;
+      }
+      if (!_chatVoiceSrc) {
+        _chatVoiceSrc = _chatVoiceAudioCtx.createMediaElementSource(audio);
+        _chatVoiceSrc.connect(_chatVoiceAnalyser);
+        _chatVoiceAnalyser.connect(_chatVoiceAudioCtx.destination);
+      }
+    } catch(e) {
+      return;
+    }
+
+    const arr = _chatVoiceAnalyser ? new Uint8Array(_chatVoiceAnalyser.frequencyBinCount) : new Uint8Array(256);
+    let idlePhase = 0;
+    const draw = () => {
+      try{
+        const w = canvas.width, h = canvas.height;
+        // background
+        ctx.clearRect(0,0,w,h);
+        const g = ctx.createLinearGradient(0,0,w,h);
+        g.addColorStop(0,'#0b1020');
+        g.addColorStop(0.55,'#0b2a2a');
+        g.addColorStop(1,'#1b0b2b');
+        ctx.fillStyle = g;
+        ctx.fillRect(0,0,w,h);
+        // subtle grid
+        ctx.globalAlpha = 0.12;
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+        for (let x=0; x<=w; x+=48){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke(); }
+        for (let y=0; y<=h; y+=48){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+        ctx.globalAlpha = 1;
+
+        // waveform
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = 'rgba(0,245,255,0.92)';
+        ctx.shadowColor = 'rgba(0,245,255,0.35)';
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        for (let i=0;i<arr.length;i++){
+          const x = (i/(arr.length-1))*w;
+          const v = (arr[i]-128)/128;
+          const y = h/2 + v*(h*0.36);
+          if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        }
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // amplitude ring + loading spinner
+        let rms=0;
+        for (let i=0;i<arr.length;i++){ const v=(arr[i]-128)/128; rms += v*v; }
+        rms = Math.sqrt(rms/arr.length);
+        const amp = Math.min(1, rms*6);
+        const cx=w*0.88, cy=h*0.26;
+        const r0=18, r1=r0 + amp*26;
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(123,44,255,0.85)';
+        ctx.beginPath(); ctx.arc(cx,cy,r1,0,Math.PI*2); ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+        ctx.beginPath(); ctx.arc(cx,cy,r0,0,Math.PI*2); ctx.stroke();
+        if (_chatVoiceLoading) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+          ctx.lineWidth = 4;
+          const a0 = (Date.now()%1400)/1400 * Math.PI*2;
+          ctx.beginPath(); ctx.arc(cx,cy,r0+8,a0,a0+Math.PI*1.3); ctx.stroke();
+        }
+
+        // status text
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.font = '600 14px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto';
+        const label = _chatVoiceLoading ? 'Generating…' : (audio && !audio.paused && !audio.ended && audio.currentTime>0) ? 'Playing' : 'Idle';
+        ctx.fillText(label, 14, 22);
+      } catch(e){}
+      _chatVoiceRaf = requestAnimationFrame(draw);
+    };
+    if (!_chatVoiceRaf) draw();
+  }
+
   const BUILD_ID = ((window.__CLAWDBOT_CONFIG__||{}).build_id || 'unknown');
   const DEBUG_UI = (() => {
     try{
@@ -1470,6 +1646,21 @@ window.__clawdbotPanelInitError = null;
       const r = await callServiceResponse('clawdbot','derived_sensors_status',{});
       const data = (r && r.response) ? r.response : r;
       const rr = data && data.result ? data.result : data;
+          if (rr && rr.ok === false) {
+            const st = qs('#chatVoiceStatus');
+            const cls = rr.error_class || 'unknown';
+            let msg = rr.message || '';
+            if (cls === 'auth_failed') msg = 'TTS authentication failed';
+            else if (cls === 'out_of_credits') msg = 'Provider out of credits';
+            else if (cls === 'verification_required') msg = 'Provider account requires verification';
+            else if (cls === 'bad_request') msg = 'TTS request rejected';
+            else msg = 'TTS unavailable';
+            if (st) st.textContent = msg;
+            _chatVoiceLoading = false;
+            try{ if (speakBtn) speakBtn.disabled = false; }catch(e){}
+            return;
+          }
+
       derivedOn = !!(rr && rr.enabled);
       if (derivedPill) {
         derivedPill.textContent = derivedOn ? 'virtual sensors: ON' : 'virtual sensors: OFF';
@@ -1488,6 +1679,21 @@ window.__clawdbotPanelInitError = null;
       const r = await callServiceResponse('clawdbot','gateway_test',{});
       const data = (r && r.response) ? r.response : r;
       const rr = data && data.result ? data.result : data;
+          if (rr && rr.ok === false) {
+            const st = qs('#chatVoiceStatus');
+            const cls = rr.error_class || 'unknown';
+            let msg = rr.message || '';
+            if (cls === 'auth_failed') msg = 'TTS authentication failed';
+            else if (cls === 'out_of_credits') msg = 'Provider out of credits';
+            else if (cls === 'verification_required') msg = 'Provider account requires verification';
+            else if (cls === 'bad_request') msg = 'TTS request rejected';
+            else msg = 'TTS unavailable';
+            if (st) st.textContent = msg;
+            _chatVoiceLoading = false;
+            try{ if (speakBtn) speakBtn.disabled = false; }catch(e){}
+            return;
+          }
+
       const ms = rr && rr.latency_ms != null ? Number(rr.latency_ms) : null;
       gatewayOk = true;
       if (connPill) {
@@ -2197,6 +2403,22 @@ window.__clawdbotPanelInitError = null;
         if (t.length > maxChars) t = t.slice(0, maxChars) + '…';
 
         outEl.textContent = t;
+        try{
+          if (typeof _chatMode !== 'undefined' && _chatMode === 'voice') {
+            // Update last user transcript line in voice box
+            if (!window.__chatVoiceUserLine) {
+              const el = document.getElementById('chatVoiceTranscript');
+              if (el) {
+                const row = document.createElement('div');
+                row.className = 'ent';
+                row.innerHTML = `<div class="ent-id">you</div><div class="ent-state" style="white-space:pre-wrap"></div>`;
+                el.appendChild(row);
+                window.__chatVoiceUserLine = row.querySelector('.ent-state');
+              }
+            }
+            if (window.__chatVoiceUserLine) window.__chatVoiceUserLine.textContent = t;
+          }
+        }catch(e){}
         _lastSpeechText = t;
         try{ if (t) { if (_sttClearTimer) clearTimeout(_sttClearTimer); _sttClearTimer=null; } }catch(e){}
         // Hide the line completely when empty (avoid “empty bar” look)
@@ -3524,7 +3746,225 @@ async function fetchStatesRest(hass){
   }
   }
 
-  async function init(){
+  
+
+  // Automations page (MVP)
+  let _autoEvents = [];
+  let _autoSeenEventKeys = {}; // key->lastMs
+  let _autoLastRenderMs = 0;
+  let _autoUnsubs = [];
+
+  function _autoAddEvent(ev){
+    try{
+      if (!ev) return;
+      const t = ev.event_type || 'event';
+      const d = ev.data || {};
+      const ctx = ev.context || {};
+      const ctxId = ctx && ctx.id ? String(ctx.id) : '';
+      const key = String(t) + '|' + ctxId;
+      const nowMs = Date.now();
+      // Dedupe burst duplicates (e.g., double subscriptions)
+      if (ctxId) {
+        const last = _autoSeenEventKeys[key] || 0;
+        if (last && (nowMs - last) < 8000) return;
+        _autoSeenEventKeys[key] = nowMs;
+      }
+      const now = new Date().toISOString();
+      _autoEvents.unshift({ ts: now, type: String(t), data: d, context_id: ctxId });
+      _autoEvents = _autoEvents.slice(0, 10);
+    }catch(e){}
+  }
+
+  function renderAutoSignals(hass){
+    // Update placeholder tiles (if present)
+    try{
+      const pick = (id) => (hass && hass.states) ? hass.states[id] : null;
+      const set = (elId, entityId) => {
+        const el = document.getElementById(elId);
+        if (!el) return;
+        const st = pick(entityId);
+        el.textContent = st ? String(st.state) : '—';
+      };
+      set('autoSigJournal','sensor.openclaw_agent_journal_updated');
+      set('autoSigMood','sensor.openclaw_agent_mood');
+      set('autoSigStatus','sensor.openclaw_agent_status');
+      set('autoSigAssist','sensor.openclaw_last_assist_result');
+      set('autoSigGwOk','binary_sensor.openclaw_gateway_connected');
+      set('autoSigGwLat','sensor.openclaw_gateway_latency_ms');
+    } catch(e){}
+
+    // Also render a full tile grid (fallback) if container exists.
+    const el = document.getElementById('autoSignals');
+    if (!el) return;
+    // If tiles already exist (placeholders), do not wipe them.
+    if (el.children && el.children.length) return;
+
+    const ids = [
+      'sensor.openclaw_agent_journal_updated',
+      'sensor.openclaw_agent_mood',
+      'sensor.openclaw_agent_status',
+      'sensor.openclaw_last_assist_result',
+      'binary_sensor.openclaw_gateway_connected',
+      'sensor.openclaw_gateway_latency_ms',
+    ];
+    for (const id of ids){
+      const st = hass && hass.states ? hass.states[id] : null;
+      const state = st ? String(st.state) : '—';
+      const name = (st && st.attributes && st.attributes.friendly_name) ? String(st.attributes.friendly_name) : id;
+      const box = document.createElement('div');
+      box.innerHTML = `<div style="font-weight:800">${escapeHtml(name)}</div><div class="muted" style="margin-top:4px">${escapeHtml(state)}</div><div class="muted" style="margin-top:4px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(id)}</div>`;
+      el.appendChild(box);
+    }
+  }
+
+  function renderAutoEvents(){
+    const el = document.getElementById('autoEvents');
+    if (!el) return;
+    if (!_autoEvents.length){
+      el.innerHTML = '<div class="muted">No events yet.</div>';
+      return;
+    }
+    el.innerHTML='';
+    for (const it of _autoEvents){
+      const row = document.createElement('div');
+      row.className = 'ent';
+      const meta = it.ts ? it.ts.slice(11,19) : '';
+      row.innerHTML = `<div class="ent-id" style="font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis">${escapeHtml(it.type)}</div><div class="ent-state" style="font-size:11px;white-space:nowrap">${escapeHtml(meta)}</div>`;
+      el.appendChild(row);
+      const pre = document.createElement('pre');
+      pre.style.margin='6px 0 10px 0';
+      pre.style.whiteSpace='pre-wrap';
+      pre.style.fontSize='11px';
+      pre.style.color='var(--secondary-text-color)';
+      pre.textContent = JSON.stringify(it.data||{}, null, 2);
+      el.appendChild(pre);
+    }
+  }
+
+
+
+  function bindAutoTests(){
+    const btnJ = document.getElementById('autoTestJournal');
+    const btnH = document.getElementById('autoTestHealth');
+    const res = document.getElementById('autoTestResult');
+    if (btnJ && !btnJ.__bound){
+      btnJ.__bound = true;
+      btnJ.onclick = async () => {
+        try{
+          if (res) res.textContent = 'sending…';
+          const title = 'AUTO_TEST_' + Date.now();
+          await callServiceResponse('clawdbot','journal_append',{title, mood:'steady', body:'Automations test fire', source:'panel_test'});
+          if (res) res.textContent = 'fired';
+          setTimeout(()=>{ try{ if (res) res.textContent=''; }catch(e){} }, 1500);
+        } catch(e){
+          if (res) res.textContent = 'error';
+          setTimeout(()=>{ try{ if (res) res.textContent=''; }catch(e){} }, 2000);
+        }
+      };
+    }
+    if (btnH && !btnH.__bound){
+      btnH.__bound = true;
+      btnH.onclick = async () => {
+        try{
+          if (res) res.textContent = 'probing…';
+          await callServiceResponse('clawdbot','gateway_test',{});
+          if (res) res.textContent = 'ok';
+          setTimeout(()=>{ try{ if (res) res.textContent=''; }catch(e){} }, 1500);
+        } catch(e){
+          if (res) res.textContent = 'error';
+          setTimeout(()=>{ try{ if (res) res.textContent=''; }catch(e){} }, 2000);
+        }
+      };
+    }
+  }
+  function renderAutoYaml(){
+    const ta = document.getElementById('autoYaml');
+    if (!ta) return;
+    ta.value = [
+      'alias: OpenClaw – React to journal append',
+      'mode: single',
+      'trigger:',
+      '  - platform: event',
+      '    event_type: openclaw_journal_appended',
+      'action:',
+      '  - service: clawdbot.agent_prompt',
+      '    data:',
+      '      text: >-',
+      '        The agent just appended a journal entry.',
+      '        Title={{ trigger.event.data.title }}',
+      '        Mood={{ trigger.event.data.mood }}',
+      '        Time={{ trigger.event.data.updated_ts }}',
+      '        Summarize it in one sentence and suggest one next automation.',
+    ].join('\n');
+
+    const btn = document.getElementById('autoYamlCopy');
+    const res = document.getElementById('autoYamlCopyResult');
+    if (btn && !btn.__bound){
+      btn.__bound = true;
+      btn.onclick = async () => {
+        try{
+          await navigator.clipboard.writeText(ta.value);
+          if (res) res.textContent = 'Copied ✅';
+          setTimeout(()=>{ try{ if (res) res.textContent=''; }catch(e){} }, 8000);
+        } catch(e){
+          try{ ta.select(); document.execCommand('copy'); }catch(_e){}
+          if (res) res.textContent = 'Copied ✅';
+          setTimeout(()=>{ try{ if (res) res.textContent=''; }catch(e){} }, 8000);
+        }
+      };
+    }
+  }
+
+  async function renderAutomationsView(){
+    const setErr = (msg) => {
+      try{
+        const el = document.getElementById('autoEvents');
+        if (el) el.innerHTML = `<div class="muted">${escapeHtml(String(msg||'Error'))}</div>`;
+      } catch(e){}
+    };
+    try{
+      const h = await getHass();
+      const hass = h && h.hass;
+      const conn = h && h.conn;
+      if (!hass || !hass.states) { setErr('Automations: unable to access hass state (open inside HA sidebar panel).'); return; }
+
+      // Render live signals + YAML
+      try{ renderAutoSignals(hass); }catch(e){}
+      try{ renderAutoYaml(); }catch(e){}
+      try{ bindAutoTests(); }catch(e){}
+      try{ renderAutoEvents(); }catch(e){}
+
+      // Subscribe once (catch-all subscription; filter for our event types)
+      if (!_autoUnsubs.length) {
+        const types = ['openclaw_journal_appended','openclaw_assist_processed','openclaw_health_changed'];
+        const c = (hass && hass.connection) ? hass.connection : conn;
+        if (c && c.subscribeEvents){
+          try{
+            const unsubAll = await c.subscribeEvents((ev)=>{
+              try{
+                if (!ev || !ev.event_type) return;
+                if (types.indexOf(ev.event_type) === -1) return;
+                _autoAddEvent(ev);
+                renderAutoEvents();
+              } catch(e){}
+            });
+            _autoUnsubs.push(unsubAll);
+          } catch(e){}
+
+          // Visible proof of life
+          try{
+            _autoAddEvent({ event_type: 'openclaw_health_changed', data: { note: 'subscribed', ts: new Date().toISOString() }, context: { id: 'subscribed' } });
+            renderAutoEvents();
+          } catch(e){}
+        } else {
+          setErr('Automations: hass connection missing (cannot subscribe to events).');
+        }
+      }
+    } catch(e) {
+      setErr('Automations error: ' + String(e && e.message ? e.message : e));
+    }
+  }
+async function init(){
     try{ setStatus(false, 'checking…', 'initializing…', (window===window.top)?'Tip: open via the Home Assistant sidebar panel (iframe) to access hass connection.':''); } catch(e) {}
     try{ if (DEBUG_UI) dbgStep('init-start');
     console.debug('[clawdbot] init start', {top: window===window.top}); } catch(e) {}
@@ -3569,19 +4009,23 @@ async function fetchStatesRest(hass){
       const viewCockpit = qs('#viewCockpit');
       const viewAgent = qs('#viewAgent');
       const viewChat = qs('#viewChat');
+      const viewAutomations = qs('#viewAutomations');
       const agentTab = qs('#tabAgent');
-      if (!setupTab || !cockpitTab || !chatTab || !agentTab || !viewSetup || !viewCockpit || !viewAgent || !viewChat) return;
+      const autoTab = qs('#tabAutomations');
+      if (!setupTab || !cockpitTab || !chatTab || !agentTab || !autoTab || !viewSetup || !viewCockpit || !viewAgent || !viewChat || !viewAutomations) return;
 
       setupTab.classList.toggle('active', which === 'setup');
       cockpitTab.classList.toggle('active', which === 'cockpit');
       agentTab.classList.toggle('active', which === 'agent');
       chatTab.classList.toggle('active', which === 'chat');
+      autoTab.classList.toggle('active', which === 'automations');
 
       // Hard display toggles (production UI must isolate views)
       setHidden(viewSetup, which !== 'setup');
       setHidden(viewCockpit, which !== 'cockpit');
       setHidden(viewAgent, which !== 'agent');
       setHidden(viewChat, which !== 'chat');
+      setHidden(viewAutomations, which !== 'automations');
 
       if (which === 'cockpit') {
     try{ if (DEBUG_UI) dbgStep('before-getHass');
@@ -3595,6 +4039,12 @@ async function fetchStatesRest(hass){
         try{ const { hass } = await getHass(); await refreshEntities(); renderEntityConfig(hass); } catch(e){}
         try{ await refreshSetupOptions(); } catch(e){}
       }
+      // Update hash (deep link)
+      try{
+        const h = '#' + which;
+        if (location && location.hash !== h) history.replaceState(null, '', h);
+      } catch(e){}
+
       if (which === 'chat') {
         loadChatFromConfig();
         ensureSessionSelectValue();
@@ -3602,6 +4052,7 @@ async function fetchStatesRest(hass){
         // Prefer live fetch for the selected session (keeps dropdown + history in sync)
         await loadChatLatest();
         renderChat({ autoScroll: true });
+        try{ if (_chatMode==="voice") chatVoiceVizStart(); }catch(e){}
         await refreshTokenUsage();
         startChatPolling();
         updateChatPollDebug();
@@ -3625,6 +4076,68 @@ async function fetchStatesRest(hass){
     bindTab('#tabAgent','agent');
     bindTab('#tabChat','chat');
 
+    // Chat voice mode toggle
+    try{
+      const bt = qs('#chatModeText');
+      const bv = qs('#chatModeVoice');
+      if (bt) bt.onclick = ()=> chatSetMode('text');
+      if (bv) bv.onclick = ()=> chatSetMode('voice');
+    } catch(e){}
+
+
+    // Refresh TTS status
+    try{
+      const rbtn = qs('#chatTtsRefresh');
+      if (rbtn) rbtn.onclick = ()=> chatTtsRefreshStatus();
+    } catch(e){}
+    // Speak last assistant reply via VibeVoice
+    try{
+      const speakBtn = qs('#chatSpeakBtn');
+      const audio = qs('#chatVoiceAudio');
+      if (speakBtn) speakBtn.onclick = async ()=>{
+        try{
+          const st = qs('#chatVoiceStatus');
+          if (st) st.textContent = 'Generating audio…';
+          _chatVoiceLoading = true;
+          let slowGenTimer = null;
+          try{ slowGenTimer = setTimeout(()=>{ try{ const st2=qs('#chatVoiceStatus'); if(st2) st2.textContent='Still generating…'; }catch(e){} }, 8000); }catch(e){}
+          try{ if (speakBtn) speakBtn.disabled = true; }catch(e){}
+          const r = await callServiceResponse('clawdbot','tts_vibevoice',{text: _chatLastAgentText || 'Hello'});
+          const data = (r && r.response) ? r.response : r;
+          const rr = data && data.result ? data.result : data;
+          if (rr && rr.ok === false) {
+            const st = qs('#chatVoiceStatus');
+            const cls = rr.error_class || 'unknown';
+            let msg = rr.message || '';
+            if (cls === 'auth_failed') msg = 'TTS authentication failed';
+            else if (cls === 'out_of_credits') msg = 'Provider out of credits';
+            else if (cls === 'verification_required') msg = 'Provider account requires verification';
+            else if (cls === 'bad_request') msg = 'TTS request rejected';
+            else msg = 'TTS unavailable';
+            if (st) st.textContent = msg;
+            _chatVoiceLoading = false;
+            try{ if (speakBtn) speakBtn.disabled = false; }catch(e){}
+            return;
+          }
+
+          const url = (rr && (rr.audio_url||rr.audioUrl)) ? (rr.audio_url||rr.audioUrl) : null;
+          if (!url) throw new Error('no audio_url');
+          if (audio) { audio.src = url; try{ audio.style.display=''; }catch(e){} await audio.play(); chatVoiceVizStart(); }
+          try{ if (typeof slowGenTimer !== 'undefined' && slowGenTimer) clearTimeout(slowGenTimer); }catch(e){}
+          _chatVoiceLoading = false;
+          if (st) st.textContent = 'Playing';
+          try{ if (speakBtn) speakBtn.disabled = false; }catch(e){}
+          chatVoiceAppend('agent', _chatLastAgentText || '');
+        } catch(e){
+          const st = qs('#chatVoiceStatus');
+          const msg = (e && (e.message||e.toString)) ? String(e.message||e.toString()).slice(0,80) : 'failed';
+          if (st) st.textContent = 'TTS failed' + (msg ? (': ' + msg) : '');
+        }
+      };
+    } catch(e){}
+
+    bindTab('#tabAutomations','automations');
+
     // Extra robustness: event delegation so clicks on child nodes still switch.
     try{
       const tabs = qs('.tabs');
@@ -3636,6 +4149,7 @@ async function fetchStatesRest(hass){
         if (id === 'tabCockpit') switchTab('cockpit');
         if (id === 'tabAgent') switchTab('agent');
         if (id === 'tabChat') switchTab('chat');
+        if (id === 'tabAutomations') switchTab('automations');
       }, true);
     } catch(e){}
 
@@ -3643,7 +4157,30 @@ async function fetchStatesRest(hass){
     try{ fillThemeInputs(); } catch(e){}
 
     // Normalize initial state (ensures non-active views are truly hidden).
-    switchTab('cockpit');
+    try{
+      const h = ((location && location.hash) ? String(location.hash) : (window.parent && window.parent.location ? String(window.parent.location.hash||'') : '')).toLowerCase();
+      if (h.includes('automations')) switchTab('automations');
+      else if (h.includes('setup')) switchTab('setup');
+      else if (h.includes('chat')) switchTab('chat');
+      else if (h.includes('agent')) switchTab('agent');
+      else switchTab('cockpit');
+    } catch(e){
+      switchTab('cockpit');
+    }
+
+    // Automations view refresh: some HA shells swallow click handlers; poll active tab and render.
+    try{
+      setInterval(() => {
+        try{
+          const autoTab = qs('#tabAutomations');
+          if (!autoTab || !autoTab.classList || !autoTab.classList.contains('active')) return;
+          const now = Date.now();
+          if (_autoLastRenderMs && (now - _autoLastRenderMs) < 2500) return;
+          _autoLastRenderMs = now;
+          renderAutomationsView();
+        } catch(e){}
+      }, 3000);
+    } catch(e){}
 
     qs('#refreshBtn').onclick = refreshEntities;
     qs('#clearFilter').onclick = () => { qs('#filter').value=''; getHass().then(({hass})=>renderEntities(hass,'')); };
@@ -3769,6 +4306,7 @@ async function fetchStatesRest(hass){
           chatSessionKey = key;
           await loadChatLatest();
           renderChat({ autoScroll: true });
+        try{ if (_chatMode==="voice") chatVoiceVizStart(); }catch(e){}
           await refreshTokenUsage();
           if (chatPollingActive) scheduleChatPoll(CHAT_POLL_INITIAL_MS);
           toast('Created new session');

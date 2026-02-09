@@ -176,7 +176,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.141"
+PANEL_BUILD_ID = "89337ab.169"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -2108,7 +2108,46 @@ PANEL_HTML = """<!doctype html>
     <button type=\"button\" class=\"tab active\" id=\"tabAgent\">Agent</button>
     <button type=\"button\" class=\"tab\" id=\"tabCockpit\">Cockpit</button>
     <button type=\"button\" class=\"tab\" id=\"tabChat\">Chat</button>
+    <button type=\"button\" class=\"tab\" id=\"tabAutomations\">Automations</button>
     <button type=\"button\" class=\"tab\" id=\"tabSetup\">Setup</button>
+  </div>
+
+  <div id=\"viewAutomations\" class=\"hidden\">
+    <div class=\"card\">
+      <div class=\"row\" style=\"justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap\">
+        <h2 style=\"margin:0\">Automations</h2>
+        <div class=\"row\" style=\"justify-content:flex-end;gap:10px;flex-wrap:wrap\">
+          <button class=\"btn\" id=\"autoTestJournal\">Fire journal event</button>
+          <button class=\"btn\" id=\"autoTestHealth\">Probe gateway</button>
+          <span class=\"muted\" id=\"autoTestResult\" style=\"font-size:12px\"></span>
+        </div>
+      </div>
+      <div class=\"muted\" style=\"margin-top:6px\">Build automations from OpenClaw signals: journal updates, agent state, Assist results, and gateway health.</div>
+      <div id=\"autoSignals\" class=\"kv\" style=\"margin-top:10px\">
+        <div><div style=\"font-weight:800\">Journal updated</div><div class=\"muted\" style=\"margin-top:4px\" id=\"autoSigJournal\">—</div><div class=\"muted\" style=\"margin-top:4px;font-size:11px\">sensor.openclaw_agent_journal_updated</div></div>
+        <div><div style=\"font-weight:800\">Mood</div><div class=\"muted\" style=\"margin-top:4px\" id=\"autoSigMood\">—</div><div class=\"muted\" style=\"margin-top:4px;font-size:11px\">sensor.openclaw_agent_mood</div></div>
+        <div><div style=\"font-weight:800\">Status</div><div class=\"muted\" style=\"margin-top:4px\" id=\"autoSigStatus\">—</div><div class=\"muted\" style=\"margin-top:4px;font-size:11px\">sensor.openclaw_agent_status</div></div>
+        <div><div style=\"font-weight:800\">Last Assist result</div><div class=\"muted\" style=\"margin-top:4px\" id=\"autoSigAssist\">—</div><div class=\"muted\" style=\"margin-top:4px;font-size:11px\">sensor.openclaw_last_assist_result</div></div>
+        <div><div style=\"font-weight:800\">Gateway connected</div><div class=\"muted\" style=\"margin-top:4px\" id=\"autoSigGwOk\">—</div><div class=\"muted\" style=\"margin-top:4px;font-size:11px\">binary_sensor.openclaw_gateway_connected</div></div>
+        <div><div style=\"font-weight:800\">Gateway latency</div><div class=\"muted\" style=\"margin-top:4px\" id=\"autoSigGwLat\">—</div><div class=\"muted\" style=\"margin-top:4px;font-size:11px\">sensor.openclaw_gateway_latency_ms</div></div>
+      </div>
+    </div>
+
+    <div class=\"card\">
+      <h2 style=\"display:flex;justify-content:space-between;align-items:center\">Events <span class=\"muted\" style=\"font-size:12px\">latest</span></h2>
+      <div class=\"muted\" style=\"margin-top:6px\">Watching: <code>openclaw_journal_appended</code>, <code>openclaw_assist_processed</code>, <code>openclaw_health_changed</code></div>
+      <div id=\"autoEvents\" class=\"entities\" style=\"margin-top:10px;max-height:280px\"><div class=\"muted\">No events yet.</div></div>
+    </div>
+
+    <div class=\"card\">
+      <h2>Automation YAML (copy)</h2>
+      <div class=\"muted\">Trigger on journal append → call <code>clawdbot.agent_prompt</code> (Assist-native) with data from the event.</div>
+      <textarea id=\"autoYaml\" style=\"margin-top:10px;width:100%;min-height:220px;resize:vertical;border-radius:16px;border:1px solid var(--divider-color);padding:12px;background:var(--ha-card-background, var(--card-background-color));color:var(--primary-text-color);font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;\"></textarea>
+      <div class=\"row\" style=\"justify-content:flex-end;gap:10px;margin-top:10px\">
+        <button class=\"btn\" id=\"autoYamlCopy\">Copy</button>
+        <span class=\"muted\" id=\"autoYamlCopyResult\"></span>
+      </div>
+    </div>
   </div>
 
   <div id=\"viewSetup\" class=\"hidden\">
@@ -2378,10 +2417,8 @@ PANEL_HTML = """<!doctype html>
             </div>
           </div>
         </div>
-        <div class=\"row\" style=\"gap:10px;align-items:center\">
-          <div id=\"agentVizWrap\" style=\"width:96px;height:96px;position:relative;flex:0 0 auto\">
-            <canvas id=\"agentViz\" width=\"96\" height=\"96\" style=\"width:96px;height:96px;display:block\"></canvas>
-          </div>
+        <div id=\"agentVizWrap\" style=\"width:96px;height:96px;position:absolute;top:12px;right:12px;left:auto;z-index:6\">
+          <canvas id=\"agentViz\" width=\"96\" height=\"96\" style=\"width:96px;height:96px;display:block\"></canvas>
         </div>
       </div>
     </div>
@@ -2414,7 +2451,8 @@ PANEL_HTML = """<!doctype html>
         <span id=\"chatPollDebug\" class=\"muted\" style=\"font-size:12px;display:none\"></span>
       </div>
     </div>
-    <div class=\"chat-load-top\" id=\"chatLoadTop\">
+    <div class=\"row\" style=\"justify-content:flex-end;gap:10px;margin-bottom:10px\">\n      <button class=\"btn\" id=\"chatModeText\">Text mode</button>\n      <button class=\"btn\" id=\"chatModeVoice\">Voice mode</button>\n      <span class=\"muted\" id=\"chatVoiceStatus\" style=\"font-size:12px\"></span>\n    </div>\n\n    <div id=\"chatVoiceBox\" class=\"card hidden\">\n      <div style=\"display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap\">\n        <h2 style=\"margin:0\">Voice</h2>\n        <div class=\"row\" style=\"gap:10px\">\n          <button class=\"btn\" id=\"chatTtsRefresh\">Refresh TTS</button>
+          <button class=\"btn primary\" id=\"chatSpeakBtn\">Speak last reply</button>\n        </div>\n      </div>\n      <div class=\"muted\" style=\"margin-top:6px\">Visualizer animates while audio plays. Transcript appears below.</div>\n      <canvas id=\"chatVoiceViz\" width=\"640\" height=\"160\" style=\"width:100%;height:160px;margin-top:10px;border-radius:16px;border:1px solid var(--divider-color);background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 85%, #000);display:block\"></canvas>\n      <audio id=\"chatVoiceAudio\" controls style=\"width:100%;margin-top:10px\"></audio>\n      <div id=\"chatVoiceTranscript\" class=\"entities\" style=\"margin-top:10px;max-height:260px\"></div>\n    </div>\n\n    <div class=\"chat-load-top\" id=\"chatLoadTop\">
       <button class=\"btn\" id=\"chatLoadOlderBtn\">Load older</button>
     </div>
     <div class=\"chat-shell\">
@@ -2660,6 +2698,36 @@ class ClawdbotPanelSelfTestApiView(HomeAssistantView):
         }
         return web.json_response(out)
 
+
+
+
+class ClawdbotTtsVibevoiceApiView(HomeAssistantView):
+    """Same-origin authenticated TTS audio fetch for VibeVoice (LocalAI proxy)."""
+
+    url = "/api/clawdbot/tts_vibevoice.{ext}"
+    name = "api:clawdbot:tts_vibevoice"
+    requires_auth = True
+
+    async def get(self, request):
+        from aiohttp import web
+
+        hass = request.app["hass"]
+        rt = _runtime(hass)
+        cache = rt.get("tts_vibevoice_cache")
+        if not isinstance(cache, dict):
+            raise web.HTTPNotFound()
+        rid = request.query.get("request_id")
+        if not rid or rid not in cache:
+            raise web.HTTPNotFound()
+        item = cache.get(rid) or {}
+        data = item.get("bytes")
+        if not isinstance(data, (bytes, bytearray)):
+            raise web.HTTPNotFound()
+        ext = (request.match_info.get('ext') or (item.get('format') or 'wav')).lower()
+        ct = 'audio/wav' if ext == 'wav' else 'audio/mpeg'
+        return web.Response(body=data, content_type=ct, headers={
+            'Cache-Control': 'no-store',
+        })
 
 class ClawdbotSttWhisperApiView(HomeAssistantView):
     """Same-origin authenticated STT: browser mic → OpenAI Whisper."""
@@ -3438,6 +3506,118 @@ async def async_setup(hass, config):
         "chat_last_agent_text": {},  # {session_key: {"text": str, "ts": epoch}}
     }
     hass.data[DOMAIN]["runtime"] = runtime
+    # VibeVoice TTS cache (in-memory)
+    runtime["tts_vibevoice_cache"] = {}  # request_id -> {ts, format, bytes}
+    runtime["tts_vibevoice_health_cache"] = {"ts": 0, "result": None}
+    runtime["tts_vibevoice_last_ts"] = {}  # rate limit bucket
+    # OpenClaw automation-friendly entity/event surface (MVP)
+    runtime.setdefault("openclaw", {})
+    runtime["openclaw"].setdefault("journal_seq", 0)
+    runtime["openclaw"].setdefault("gateway_connected", None)
+    runtime["openclaw"].setdefault("gateway_latency_ms", None)
+
+    def _oc_now_iso():
+        import datetime as _dt
+        return _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+    def _oc_fire(ev_type: str, data: dict):
+        try:
+            hass.bus.async_fire(ev_type, data)
+        except Exception:
+            pass
+
+    def _oc_set(entity_id: str, state, attrs: dict | None = None):
+        try:
+            hass.states.async_set(entity_id, state, attrs or {})
+        except Exception:
+            _LOGGER.exception("Failed setting OpenClaw state: %s", entity_id)
+
+    def _oc_agent_identity(cfg: dict):
+        # MVP: single active agent identity (from profile store if present)
+        prof = cfg.get("agent_profile") if isinstance(cfg, dict) else None
+        if not isinstance(prof, dict):
+            prof = {}
+        agent_id = str(prof.get("agent_id") or "agent0")
+        agent_name = str(prof.get("agent_name") or "Agent 0")
+        return agent_id, agent_name, prof
+
+    def _oc_update_gateway_health(connected: bool, latency_ms: int | None, error: str | None = None, source: str = "gateway_test"):
+        ts = _oc_now_iso()
+        runtime["openclaw"]["gateway_connected"] = bool(connected)
+        runtime["openclaw"]["gateway_latency_ms"] = int(latency_ms) if isinstance(latency_ms, int) else None
+        _oc_set(
+            "binary_sensor.openclaw_gateway_connected",
+            "on" if connected else "off",
+            {"updated_ts": ts, "error": (str(error)[:240] if isinstance(error, str) and error else None), "source": source},
+        )
+        _oc_set(
+            "sensor.openclaw_gateway_latency_ms",
+            int(latency_ms) if (connected and isinstance(latency_ms, int)) else "unknown",
+            {"updated_ts": ts, "source": source},
+        )
+        _oc_fire(
+            "openclaw_health_changed",
+            {
+                "gateway_connected": bool(connected),
+                "latency_ms": (int(latency_ms) if isinstance(latency_ms, int) else None),
+                "updated_ts": ts,
+                "error": (str(error)[:240] if isinstance(error, str) and error else None),
+                "source": source,
+            },
+        )
+
+    def _oc_update_agent_mood_status(cfg: dict, source: str = "agent_state"):
+        ts = _oc_now_iso()
+        agent_id, agent_name, prof = _oc_agent_identity(cfg)
+        mood = prof.get("mood")
+        if not isinstance(mood, str) or not mood.strip():
+            mood = "unknown"
+        _oc_set(
+            "sensor.openclaw_agent_mood",
+            str(mood)[:40],
+            {"agent_id": agent_id, "agent_name": agent_name, "source": source, "updated_ts": ts},
+        )
+
+        # MVP status heuristic
+        gw_ok = runtime.get("openclaw", {}).get("gateway_connected")
+        status = "idle"
+        if gw_ok is False:
+            status = "offline"
+        _oc_set(
+            "sensor.openclaw_agent_status",
+            status,
+            {
+                "agent_id": agent_id,
+                "agent_name": agent_name,
+                "source": source,
+                "updated_ts": ts,
+                "busy_reason": None,
+                "last_error": None,
+            },
+        )
+
+    def _oc_update_journal_trigger(cfg: dict, item: dict, source: str = "journal"):
+        ts = item.get("ts") if isinstance(item, dict) else None
+        if not isinstance(ts, str) or not ts:
+            ts = _oc_now_iso()
+        agent_id, agent_name, _prof = _oc_agent_identity(cfg)
+        runtime["openclaw"]["journal_seq"] = int(runtime["openclaw"].get("journal_seq") or 0) + 1
+        seq = runtime["openclaw"]["journal_seq"]
+        payload = {
+            "agent_id": agent_id,
+            "agent_name": agent_name,
+            "source": source,
+            "title": item.get("title") if isinstance(item, dict) else None,
+            "mood": item.get("mood") if isinstance(item, dict) else None,
+            "updated_ts": ts,
+            "seq": seq,
+        }
+        _oc_set(
+            "sensor.openclaw_agent_journal_updated",
+            ts,
+            payload,
+        )
+        _oc_fire("openclaw_journal_appended", payload)
 
     # Store sanitized config for the panel (never expose the token).
 
@@ -3611,6 +3791,7 @@ async def async_setup(hass, config):
         hass.http.register_view(ClawdbotMappingApiView)
         hass.http.register_view(ClawdbotPanelSelfTestApiView)
         hass.http.register_view(ClawdbotSttWhisperApiView)
+        hass.http.register_view(ClawdbotTtsVibevoiceApiView)
         hass.http.register_view(ClawdbotAvatarPngView)
         hass.http.register_view(ClawdbotAvatarPreviewPngView)
         hass.http.register_view(ClawdbotHouseMemoryApiView)
@@ -4739,14 +4920,25 @@ async def async_setup(hass, config):
         import time
 
         t0 = time.monotonic()
+        t_post_ms = None
+        t_dl_ms = None
+
         try:
             await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
         except Exception as e:
             # NOTE: Keep logs token-safe (never log/echo token).
             await _notify("Clawdbot: gateway_test", f"ERROR: {e}")
+            try:
+                _oc_update_gateway_health(False, None, error=str(e), source="gateway_test")
+            except Exception:
+                pass
             raise
 
         latency_ms = int((time.monotonic() - t0) * 1000)
+        try:
+            _oc_update_gateway_health(True, latency_ms, error=None, source="gateway_test")
+        except Exception:
+            pass
         return {
             "ok": True,
             "gateway_origin": gateway_origin,
@@ -5493,7 +5685,7 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, "set_connection_overrides", handle_set_connection_overrides, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "reset_connection_overrides", handle_reset_connection_overrides, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, SERVICE_NOTIFY_EVENT, handle_notify_event)
-    hass.services.async_register(DOMAIN, SERVICE_GATEWAY_TEST, handle_gateway_test, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, SERVICE_GATEWAY_TEST, handle_gateway_test, supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, SERVICE_SET_MAPPING, handle_set_mapping)
     hass.services.async_register(DOMAIN, SERVICE_REFRESH_HOUSE_MEMORY, handle_refresh_house_memory)
     hass.services.async_register(DOMAIN, SERVICE_TOOLS_INVOKE, handle_tools_invoke)
@@ -5721,6 +5913,18 @@ async def async_setup(hass, config):
         ensure("stt.mode", "Speech to text mode", "select", default="native", allowed=["native", "whisper_openai"])
         ensure("stt.chunk_seconds", "STT chunk seconds", "number", default=5)
         ensure("stt.whisper_openai_api_key", "OpenAI API key (Whisper)", "secret")
+        # TTS / VibeVoice (LocalAI) options (MVP)
+        ensure("tts.vibevoice_base_url", "VibeVoice base URL (LocalAI)", "url")
+        ensure("tts.vibevoice_voice", "VibeVoice voice preset", "string", default="Frank")
+        ensure("tts.vibevoice_format", "VibeVoice audio format", "select", default="wav", allowed=["wav","mp3"])
+        ensure("tts.vibevoice_timeout_ms", "VibeVoice timeout (ms)", "number", default=45000)
+
+        ensure("tts.vibevoice_provider", "VibeVoice provider", "select", default="aimlapi", allowed=["aimlapi"])
+        ensure("tts.vibevoice_aimlapi_key", "AimlAPI key (Bearer)", "secret")
+        ensure("tts.vibevoice_model", "VibeVoice model", "string", default="microsoft/vibevoice-1.5b")
+        ensure("tts.vibevoice_speaker1_preset", "VibeVoice speaker 1 preset", "string", default="Frank [EN]")
+        ensure("tts.vibevoice_speaker2_preset", "VibeVoice speaker 2 preset", "string", default="Alice [EN]")
+
 
         reg["options"] = opts
         await _setup_save(cfg)
@@ -5961,11 +6165,296 @@ async def async_setup(hass, config):
                     configured = True
         return {"ok": True, "configured": configured}
 
-    hass.services.async_register(DOMAIN, "setup_options_list", handle_setup_options_list, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "setup_option_define", handle_setup_option_define, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "setup_option_set", handle_setup_option_set, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "setup_option_reset", handle_setup_option_reset, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "stt_whisper_health", handle_stt_whisper_health, supports_response=SupportsResponse.ONLY)
+
+    async def handle_tts_vibevoice_health(call):
+        cfg = hass.data.get(DOMAIN, {})
+        await _setup_seed_defaults(cfg)
+        opts = cfg.get("setup_options")
+
+        def _opt(key, default=None):
+            if not isinstance(opts, dict):
+                return default
+            o = opts.get(key)
+            if isinstance(o, dict) and isinstance(o.get('value'), str) and o.get('value').strip():
+                return o.get('value').strip()
+            if isinstance(o, dict) and o.get('value') is not None:
+                return o.get('value')
+            return default
+
+        provider = _opt('tts.vibevoice_provider', 'aimlapi')
+        configured = False
+        reachable = False
+        detail = {}
+
+        if provider != 'aimlapi':
+            return {"ok": True, "configured": False, "reachable": False, "error": f"unsupported provider: {provider}"}
+
+        # For AimlAPI: treat as configured only when API key is present.
+        api_key = _opt('tts.vibevoice_aimlapi_key')
+        configured = bool(api_key)
+        if not configured:
+            return {"ok": True, "provider": provider, "configured": False, "reachable": False}
+
+        # Cache last health result to avoid spamming provider + UI hangs
+        rt = _runtime(hass)
+        hc = rt.get('tts_vibevoice_health_cache') if isinstance(rt, dict) else None
+        import time as _time
+        now_s = _time.time()
+        health_cache_ttl = 30  # seconds
+        if isinstance(hc, dict):
+            last_ts = float(hc.get('ts') or 0)
+            last_res = hc.get('result')
+            if last_res and (now_s - last_ts) < health_cache_ttl:
+                out = dict(last_res)
+                out['cached'] = True
+                out['age_s'] = int(now_s - last_ts)
+                return out
+
+        # Best-effort reachability check: perform a HEAD/GET to base endpoint expecting non-network failure.
+        import time
+        t0 = time.monotonic()
+        try:
+            session = _runtime(hass).get('session')
+            if session is None:
+                raise HomeAssistantError('http session not ready')
+            url = 'https://api.aimlapi.com/v1/tts'
+            headers = {"Authorization": f"Bearer {api_key}"}
+            async with session.post(url, json={"model": "microsoft/vibevoice-1.5b", "script": "Speaker 1: test"}, headers=headers, timeout=6) as resp:
+                http_status = int(resp.status)
+                body = ''
+                try:
+                    body = (await resp.text())[:300]
+                except Exception:
+                    body = ''
+            # Reachable means network path is OK (any HTTP response)
+            reachable = True
+            error_class = None
+            msg = None
+            if http_status in (401, 403):
+                error_class = 'auth_failed'
+                msg = 'provider returned unauthorized/forbidden'
+                b=(body or '').lower()
+                if 'verification' in b:
+                    error_class = 'verification_required'
+                    msg = 'AimlAPI account verification required'
+                if 'out of credits' in b or 'billing' in b or 'top up' in b:
+                    error_class = 'out_of_credits'
+                    msg = 'AimlAPI out of credits'
+            elif http_status >= 400:
+                error_class = 'bad_request'
+                msg = 'provider returned error'
+            auth_ok = (http_status not in (401, 403))
+            blocked_reason = None
+            if error_class == 'verification_required':
+                blocked_reason = 'verification_required'
+            if error_class == 'out_of_credits':
+                blocked_reason = 'out_of_credits'
+            try:
+                rt = _runtime(hass)
+                if isinstance(rt, dict) and isinstance(rt.get('tts_vibevoice_health_cache'), dict):
+                    rt['tts_vibevoice_health_cache']['ts'] = now_s
+                    rt['tts_vibevoice_health_cache']['result'] = {"ok": True, "provider": provider, "configured": True, "reachable": bool(reachable), "auth_ok": bool(auth_ok), "blocked_reason": blocked_reason, "http_status": http_status, "error_class": error_class, "message": msg, "latency_ms": int((time.monotonic()-t0)*1000)}
+            except Exception:
+                pass
+            return {"ok": True, "provider": provider, "configured": True, "reachable": bool(reachable), "auth_ok": bool(auth_ok), "blocked_reason": blocked_reason, "http_status": http_status, "error_class": error_class, "message": msg, "latency_ms": int((time.monotonic()-t0)*1000)}
+        except Exception as e:
+            err = str(e)[:240]
+            cls = 'network'
+            if 'timeout' in err.lower():
+                cls = 'timeout'
+            # fallback to last cached result if present
+            try:
+                rt = _runtime(hass)
+                hc = rt.get('tts_vibevoice_health_cache') if isinstance(rt, dict) else None
+                if isinstance(hc, dict) and hc.get('result'):
+                    out = dict(hc.get('result'))
+                    out['cached'] = True
+                    out['stale'] = True
+                    out['error_class'] = cls
+                    out['error'] = err
+                    return out
+            except Exception:
+                pass
+            return {"ok": True, "provider": provider, "configured": True, "reachable": False, "error_class": cls, "error": err, "latency_ms": int((time.monotonic()-t0)*1000)}
+
+
+    async def handle_tts_vibevoice(call):
+        try:
+                cfg = hass.data.get(DOMAIN, {})
+                await _setup_seed_defaults(cfg)
+                opts = cfg.get("setup_options")
+
+                def _opt(key, default=None):
+                    if not isinstance(opts, dict):
+                        return default
+                    o = opts.get(key)
+                    if isinstance(o, dict) and isinstance(o.get('value'), str) and o.get('value').strip():
+                        return o.get('value').strip()
+                    if isinstance(o, dict) and o.get('value') is not None:
+                        return o.get('value')
+                    return default
+
+                provider = _opt('tts.vibevoice_provider', 'aimlapi')
+                if provider != 'aimlapi':
+                    raise HomeAssistantError(f"unsupported provider: {provider}")
+
+                api_key = _opt('tts.vibevoice_aimlapi_key')
+                if not api_key:
+                    raise HomeAssistantError('AimlAPI key not configured (tts.vibevoice_aimlapi_key)')
+
+                model = _opt('tts.vibevoice_model', 'microsoft/vibevoice-1.5b')
+                preset1 = _opt('tts.vibevoice_speaker1_preset', 'Frank [EN]')
+                preset2 = _opt('tts.vibevoice_speaker2_preset', 'Alice [EN]')
+                default_fmt = _opt('tts.vibevoice_format', 'wav')
+                timeout_ms = _opt('tts.vibevoice_timeout_ms', 20000)
+
+                text_in = call.data.get('text')
+                if text_in is None or not str(text_in).strip():
+                    raise HomeAssistantError('text is required')
+
+                # For AimlAPI, the field name is `script` and supports multi-speaker with "Speaker X:" lines.
+                script = str(text_in).strip()
+
+                import time, uuid
+                import asyncio
+                rid = str(uuid.uuid4())
+
+                # simple rate limit: one request per 2s per user
+                rt = _runtime(hass)
+                bucket = str(call.context.user_id or 'anon')
+                last_map = rt.get('tts_vibevoice_last_ts') or {}
+                last = float(last_map.get(bucket) or 0)
+                now = time.time()
+                if now - last < 1.5:
+                    raise HomeAssistantError('rate limited')
+                last_map[bucket] = now
+                rt['tts_vibevoice_last_ts'] = last_map
+
+                fmt = (call.data.get('format') or default_fmt or 'wav')
+                if fmt not in ('wav', 'mp3'):
+                    fmt = 'wav'
+
+                session = rt.get('session')
+                if session is None:
+                    raise HomeAssistantError('http session not ready')
+
+                t0 = time.monotonic()
+                headers = {"Authorization": f"Bearer {api_key}"}
+                url = 'https://api.aimlapi.com/v1/tts'
+
+                payload = {
+                    "model": model,
+                    "script": script,
+                    # Optional speakers array (best-effort; docs show this shape)
+                    "speakers": [
+                        {"preset": preset1},
+                        {"preset": preset2},
+                    ],
+                }
+
+                # Step 1: request generation → returns JSON with audio.url
+                j = None
+                for attempt in range(2):
+                    try:
+                        t_post0 = time.monotonic()
+                        async with session.post(
+                            url,
+                            json=payload,
+                            headers=headers,
+                            timeout=float(int(timeout_ms)) / 1000.0,
+                        ) as resp:
+                            raw = await resp.read()
+                            if resp.status not in (200, 201):
+                                body_snip = ''
+                                try:
+                                    body_snip = raw.decode('utf-8', errors='ignore')[:220]
+                                except Exception:
+                                    body_snip = ''
+                                raise HomeAssistantError(f"aimlapi http {resp.status} ({len(raw)} bytes) {body_snip}")
+                            try:
+                                import json
+
+                                j = json.loads(raw.decode('utf-8', errors='ignore'))
+                                t_post_ms = int((time.monotonic()-t_post0)*1000)
+                            except Exception:
+                                raise HomeAssistantError('aimlapi returned non-json')
+                            break
+                    except Exception:
+                        if attempt >= 1:
+                            raise
+                        await asyncio.sleep(0.35)
+
+                audio_src = None
+                file_name = None
+                try:
+                    audio = j.get('audio') if isinstance(j, dict) else None
+                    if isinstance(audio, dict):
+                        audio_src = audio.get('url')
+                        file_name = audio.get('file_name')
+                except Exception:
+                    pass
+                if not audio_src or not isinstance(audio_src, str):
+                    raise HomeAssistantError('aimlapi response missing audio.url')
+
+                # If provider returns a file extension, trust it for content-type.
+                if isinstance(file_name, str) and '.' in file_name:
+                    ext = file_name.rsplit('.', 1)[-1].lower().strip()
+                    if ext in ('wav', 'mp3'):
+                        fmt = ext
+
+                # Step 2: download audio bytes
+                t_dl0 = time.monotonic()
+                async with session.get(audio_src, timeout=float(int(timeout_ms))/1000.0) as resp2:
+                    data = await resp2.read()
+                    t_dl_ms = int((time.monotonic()-t_dl0)*1000)
+                    if not (200 <= resp2.status < 300):
+                        raise HomeAssistantError(f'aimlapi audio fetch http {resp2.status} ({len(data)} bytes)')
+
+                if len(data) > 2_500_000:
+                    raise HomeAssistantError('tts audio too large')
+
+                cache = rt.get('tts_vibevoice_cache')
+                if not isinstance(cache, dict):
+                    cache = {}
+                    rt['tts_vibevoice_cache'] = cache
+                cache[rid] = {"ts": time.time(), "format": fmt, "bytes": data}
+                if len(cache) > 10:
+                    for k,_ in sorted(cache.items(), key=lambda kv: kv[1].get('ts',0))[:-10]:
+                        cache.pop(k, None)
+
+                audio_url = f'/api/clawdbot/tts_vibevoice.{fmt}?request_id={rid}'
+                try:
+                    _LOGGER.info("tts_vibevoice ok rid=%s post_ms=%s dl_ms=%s bytes=%s", rid, t_post_ms, t_dl_ms, len(data))
+                except Exception:
+                    pass
+                return {"ok": True, "provider": provider, "request_id": rid, "audio_url": audio_url, "format": fmt, "latency_ms": int((time.monotonic()-t0)*1000), "post_ms": t_post_ms, "download_ms": t_dl_ms}
+
+
+
+        except Exception as e:
+            _LOGGER.exception("tts_vibevoice failed")
+            # Return structured error for panel UX (avoid leaking secrets)
+            msg = str(e)[:120] if e else 'failed'
+            http_status = None
+            if 'http ' in msg:
+                try:
+                    http_status = int(msg.split('http ',1)[1].split()[0])
+                except Exception:
+                    http_status = None
+            error_class = 'unknown'
+            if http_status in (401,403):
+                error_class = 'auth_failed'
+            elif http_status and http_status >= 400 and http_status < 500:
+                error_class = 'bad_request'
+            elif http_status and http_status >= 500:
+                error_class = 'provider_error'
+            m2 = msg.lower()
+            if 'verification' in m2:
+                error_class = 'verification_required'
+            if 'out of credits' in m2 or 'billing' in m2 or 'top up' in m2:
+                error_class = 'out_of_credits'
+            return {"ok": False, "provider": 'aimlapi', "http_status": http_status, "error_class": error_class, "message": msg, "post_ms": locals().get("t_post_ms"), "download_ms": locals().get("t_dl_ms") }
+
 
     async def handle_journal_append(call):
         cfg = hass.data.get(DOMAIN, {})
@@ -6002,6 +6491,10 @@ async def async_setup(hass, config):
             items = items[-200:]
         await store.async_save(items)
         cfg["journal"] = items
+        try:
+            _oc_update_journal_trigger(cfg, item, source=str(item.get("source") or "service"))
+        except Exception:
+            pass
         return {"ok": True}
 
     async def handle_journal_list(call):
@@ -6020,8 +6513,112 @@ async def async_setup(hass, config):
             limit = 50
         return {"ok": True, "items": items[-limit:]}
 
-    hass.services.async_register(DOMAIN, "journal_append", handle_journal_append, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "journal_append", handle_journal_append, supports_response=SupportsResponse.OPTIONAL)
+
+
+    async def handle_agent_prompt(call):
+        """Process a natural-language prompt via Home Assistant Assist (conversation.process).
+
+        MVP: uses HA's native intent/conversation machinery (Option A).
+        """
+        text_in = call.data.get("text")
+        if text_in is None:
+            raise HomeAssistantError("text is required")
+        text_in = str(text_in)
+        if not text_in.strip():
+            raise HomeAssistantError("text is required")
+
+        language = call.data.get("language")
+        agent_id = call.data.get("agent_id")
+        conversation_id = call.data.get("conversation_id")
+
+        svc_data = {"text": text_in}
+        if isinstance(language, str) and language.strip():
+            svc_data["language"] = language.strip()
+        if isinstance(agent_id, str) and agent_id.strip():
+            svc_data["agent_id"] = agent_id.strip()
+        if isinstance(conversation_id, str) and conversation_id.strip():
+            svc_data["conversation_id"] = conversation_id.strip()
+
+        import datetime as _dt
+        ts = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+        # Call HA Assist
+        res = None
+        try:
+            # return_response supported on modern HA; fall back if not.
+            res = await hass.services.async_call(
+                "conversation",
+                "process",
+                svc_data,
+                blocking=True,
+                return_response=True,
+            )
+        except TypeError:
+            # Older HA without return_response
+            await hass.services.async_call("conversation", "process", svc_data, blocking=True)
+            res = {"ok": True}
+
+        # Best-effort extraction
+        response_type = None
+        speech = None
+        targets = None
+        success_count = 0
+        failed_count = 0
+        try:
+            # Common shapes:
+            # {"response": {"response_type": ..., "speech": {"plain": {"speech": "..."}}, "data": {...}}}
+            root = res or {}
+            r0 = root.get("response") if isinstance(root, dict) else None
+            if isinstance(r0, dict):
+                response_type = r0.get("response_type")
+                data = r0.get("data") if isinstance(r0.get("data"), dict) else {}
+                targets = data.get("targets")
+                sc = data.get("success")
+                fc = data.get("failed")
+                if isinstance(sc, list):
+                    success_count = len(sc)
+                if isinstance(fc, list):
+                    failed_count = len(fc)
+                sp = r0.get("speech")
+                if isinstance(sp, dict):
+                    plain = sp.get("plain")
+                    if isinstance(plain, dict) and isinstance(plain.get("speech"), str):
+                        speech = plain.get("speech")
+        except Exception:
+            pass
+
+        if not isinstance(response_type, str) or not response_type:
+            # fallback heuristics
+            response_type = "error" if (isinstance(res, dict) and res.get("error")) else "action_done"
+
+        attrs = {
+            "text": text_in,
+            "agent_id": (str(agent_id) if isinstance(agent_id, str) else None),
+            "conversation_id": (str(conversation_id) if isinstance(conversation_id, str) else None),
+            "language": (str(language) if isinstance(language, str) else None),
+            "speech": (str(speech)[:800] if isinstance(speech, str) else None),
+            "targets": targets,
+            "success_count": int(success_count),
+            "failed_count": int(failed_count),
+            "ts": ts,
+        }
+        try:
+            _oc_set("sensor.openclaw_last_assist_result", str(response_type)[:40], attrs)
+            _oc_fire(
+                "openclaw_assist_processed",
+                {
+                    **attrs,
+                    "response_type": str(response_type)[:40],
+                },
+            )
+        except Exception:
+            pass
+
+        return {"ok": True, "result": res}
+
     hass.services.async_register(DOMAIN, "journal_list", handle_journal_list, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "agent_prompt", handle_agent_prompt, supports_response=SupportsResponse.OPTIONAL)
 
     async def handle_agent_profile_get(call):
         cfg = hass.data.get(DOMAIN, {})
@@ -6102,6 +6699,10 @@ async def async_setup(hass, config):
 
         await prof_store.async_save(prof)
         cfg["agent_profile"] = prof
+        try:
+            _oc_update_agent_mood_status(cfg, source=str(prof.get("source") or "agent_state"))
+        except Exception:
+            pass
 
         # Notify listeners (panel) that agent state changed.
         try:
@@ -6139,6 +6740,10 @@ async def async_setup(hass, config):
                 await journal_store.async_save(items)
                 cfg["journal"] = items
                 appended = True
+                try:
+                    _oc_update_journal_trigger(cfg, items[-1], source=str(items[-1].get("source") or "webhook"))
+                except Exception:
+                    pass
 
         return {"ok": True, "profile": prof, "journal_appended": appended}
 
@@ -6586,7 +7191,7 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, "agent_profile_get", handle_agent_profile_get, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "agent_profile_set", handle_agent_profile_set, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "agent_state_get", handle_agent_state_get, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "agent_state_set", handle_agent_state_set, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "agent_state_set", handle_agent_state_set, supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, "agent_state_reset", handle_agent_state_reset, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "agent_state_webhook_get", handle_agent_state_webhook_get, supports_response=SupportsResponse.ONLY)
 
@@ -6699,6 +7304,10 @@ async def async_setup(hass, config):
         }
 
     hass.services.async_register(DOMAIN, "build_info", handle_build_info, supports_response=SupportsResponse.ONLY)
+    # TTS (AimlAPI VibeVoice)
+    hass.services.async_register(DOMAIN, "tts_vibevoice_health", handle_tts_vibevoice_health, supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(DOMAIN, "tts_vibevoice", handle_tts_vibevoice, supports_response=SupportsResponse.OPTIONAL)
+
 
     hass.services.async_register(DOMAIN, SERVICE_SESSIONS_LIST, handle_sessions_list, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, SERVICE_SESSIONS_SPAWN, handle_sessions_spawn, supports_response=SupportsResponse.ONLY)

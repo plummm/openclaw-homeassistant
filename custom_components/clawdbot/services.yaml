@@ -140,6 +140,27 @@ reset_connection_overrides:
   description: Clear stored overrides and revert to YAML defaults.
   fields: {}
 
+agent_prompt:
+  name: Process a natural-language prompt (via Assist)
+  description: "Routes text through Home Assistant Assist (conversation.process) and updates OpenClaw automation entities/events. Domain remains clawdbot for compatibility."
+  fields:
+    text:
+      required: true
+      selector:
+        text:
+    language:
+      required: false
+      selector:
+        text:
+    agent_id:
+      required: false
+      selector:
+        text:
+    conversation_id:
+      required: false
+      selector:
+        text:
+
 set_mapping:
   name: Set core signal mapping
   description: Save entity_id mapping for soc/voltage/solar/load.
@@ -190,3 +211,29 @@ clear_dummy_entities:
   name: Clear dummy entities
   description: Remove dummy entities created by create_dummy_entities.
   fields: {}
+
+tts_vibevoice_health:
+  name: VibeVoice TTS health
+  description: Check whether VibeVoice (LocalAI) TTS base_url is configured and reachable.
+  fields: {}
+
+tts_vibevoice:
+  name: Speak text via VibeVoice (LocalAI)
+  description: Generate TTS audio via LocalAI VibeVoice and return an audio_url served by HA.
+  fields:
+    text:
+      required: true
+      selector:
+        text:
+    voice:
+      required: false
+      selector:
+        text:
+    format:
+      required: false
+      selector:
+        select:
+          options:
+            - wav
+            - mp3
+
