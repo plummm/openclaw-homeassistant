@@ -1,6 +1,6 @@
 tools_invoke:
-  name: Invoke an OpenClaw Gateway tool
-  description: Call a single tool via the OpenClaw Gateway /tools/invoke endpoint.
+  name: Invoke an OpenClaw Gateway tool (advanced)
+  description: Advanced/admin action. Calls a single tool via the OpenClaw Gateway /tools/invoke endpoint. Prefer dedicated services when available.
   fields:
     tool:
       required: true
