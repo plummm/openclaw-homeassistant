@@ -4,10 +4,12 @@ tools_invoke:
   fields:
     tool:
       required: true
+      description: Tool name (e.g. sessions_list). Calls /tools/invoke.
       selector:
         text: {}
     args:
       required: false
+      description: Tool arguments object (JSON). Exact shape depends on the tool.
       selector:
         object: {}
 
@@ -22,18 +24,22 @@ ha_call_service:
   fields:
     domain:
       required: true
+      description: Service domain (e.g. persistent_notification).
       selector:
         text: {}
     service:
       required: true
+      description: Service name (e.g. create).
       selector:
         text: {}
     entity_id:
       required: false
+      description: Optional target entity_id (when applicable for the chosen service).
       selector:
         entity: {}
     service_data:
       required: false
+      description: Optional service data object (JSON). Example for persistent_notification.create -> {"title":"OpenClaw test","message":"ok"}.
       selector:
         object: {}
 
@@ -43,14 +49,17 @@ set_connection_overrides:
   fields:
     gateway_url:
       required: false
+      description: Override the OpenClaw Gateway base URL (origin). Example: https://gateway.example.com
       selector:
         text: {}
     token:
       required: false
+      description: Override the Gateway auth token (stored in HA plaintext storage).
       selector:
         text: {}
     session_key:
       required: false
+      description: Override the Gateway session_key target (defaults to "main").
       selector:
         text: {}
 
@@ -65,6 +74,7 @@ set_mapping:
   fields:
     mapping:
       required: true
+      description: Mapping object. Keys: soc, voltage, solar, load. Values: entity_id strings.
       selector:
         object: {}
 
@@ -74,14 +84,17 @@ journal_append:
   fields:
     text:
       required: true
+      description: Journal entry text.
       selector:
         text: {}
     title:
       required: false
+      description: Optional short title for the entry.
       selector:
         text: {}
     mood:
       required: false
+      description: Optional mood/tag string.
       selector:
         text: {}
 
@@ -92,6 +105,7 @@ journal_list:
     limit:
       required: false
       default: 20
+      description: Max entries to return.
       selector:
         number:
           min: 1
@@ -103,18 +117,22 @@ agent_prompt:
   fields:
     text:
       required: true
+      description: Prompt text to send to Assist.
       selector:
         text: {}
     language:
       required: false
+      description: Optional language hint (e.g. en, zh).
       selector:
         text: {}
     agent_id:
       required: false
+      description: Optional conversation agent_id to target.
       selector:
         text: {}
     conversation_id:
       required: false
+      description: Optional conversation_id to continue an existing Assist thread.
       selector:
         text: {}
 
@@ -129,11 +147,13 @@ tts_vibevoice:
   fields:
     text:
       required: true
+      description: Text to synthesize.
       selector:
         text: {}
     format:
       required: false
       default: mp3
+      description: Audio format to return.
       selector:
         select:
           options:
@@ -141,6 +161,7 @@ tts_vibevoice:
             - wav
     media_player_entity_id:
       required: false
+      description: Optional. If set, HA will play the generated audio via media_player.play_media; if omitted, only returns audio_url.
       selector:
         entity:
           domain: media_player
