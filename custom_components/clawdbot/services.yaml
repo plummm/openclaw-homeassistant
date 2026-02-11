@@ -1,15 +1,15 @@
 tools_invoke:
   name: Invoke an OpenClaw Gateway tool (advanced)
-  description: Advanced/admin action. Calls a single tool via the OpenClaw Gateway /tools/invoke endpoint. Prefer dedicated services when available.
+  description: 'Advanced/admin action. Calls a single tool via the OpenClaw Gateway /tools/invoke endpoint. Prefer dedicated services when available.'
   fields:
     tool:
       required: true
-      description: Tool name (e.g. sessions_list). Calls /tools/invoke.
+      description: 'Tool name (e.g. sessions_list). Calls /tools/invoke.'
       selector:
         text: {}
     args:
       required: false
-      description: Tool arguments object (JSON). Exact shape depends on the tool.
+      description: 'Tool arguments object (JSON). Exact shape depends on the tool.'
       selector:
         object: {}
 
@@ -20,21 +20,21 @@ ha_get_states:
 
 ha_call_service:
   name: Call a Home Assistant service (guardrailed)
-  description: Calls a limited allowlist of HA services locally. This is a safe subset vs tools_invoke. (Allowlist is defined in custom_components/clawdbot/__init__.py handle_ha_call_service.)
+  description: 'Calls a limited allowlist of HA services locally. This is a safe subset vs tools_invoke. (Allowlist is defined in custom_components/clawdbot/__init__.py handle_ha_call_service.)'
   fields:
     domain:
       required: true
-      description: Service domain (e.g. persistent_notification).
+      description: 'Service domain (e.g. persistent_notification).'
       selector:
         text: {}
     service:
       required: true
-      description: Service name (e.g. create).
+      description: 'Service name (e.g. create).'
       selector:
         text: {}
     entity_id:
       required: false
-      description: Optional target entity_id (when applicable for the chosen service).
+      description: 'Optional target entity_id (when applicable for the chosen service).'
       selector:
         entity: {}
     service_data:
@@ -45,7 +45,7 @@ ha_call_service:
 
 set_connection_overrides:
   name: Save/apply connection overrides
-  description: Persist gateway_url/token/session_key overrides to HA storage and apply immediately.
+  description: 'Persist gateway_url/token/session_key overrides to HA storage and apply immediately.'
   fields:
     gateway_url:
       required: false
@@ -54,23 +54,23 @@ set_connection_overrides:
         text: {}
     token:
       required: false
-      description: Override the Gateway auth token (stored in HA plaintext storage).
+      description: 'Override the Gateway auth token (stored in HA plaintext storage).'
       selector:
         text: {}
     session_key:
       required: false
-      description: Override the Gateway session_key target (defaults to "main").
+      description: 'Override the Gateway session_key target (defaults to "main").'
       selector:
         text: {}
 
 reset_connection_overrides:
   name: Reset connection overrides
-  description: Clear stored overrides and revert to YAML defaults.
+  description: 'Clear stored overrides and revert to YAML defaults.'
   fields: {}
 
 set_mapping:
   name: Set core signal mapping
-  description: Save entity_id mapping for soc/voltage/solar/load.
+  description: 'Save entity_id mapping for soc/voltage/solar/load.'
   fields:
     mapping:
       required: true
@@ -80,32 +80,32 @@ set_mapping:
 
 journal_append:
   name: Append to agent journal
-  description: Append a journal entry; updates OpenClaw automation sensors/events.
+  description: 'Append a journal entry; updates OpenClaw automation sensors/events.'
   fields:
     text:
       required: true
-      description: Journal entry text.
+      description: 'Journal entry text.'
       selector:
         text: {}
     title:
       required: false
-      description: Optional short title for the entry.
+      description: 'Optional short title for the entry.'
       selector:
         text: {}
     mood:
       required: false
-      description: Optional mood/tag string.
+      description: 'Optional mood/tag string.'
       selector:
         text: {}
 
 journal_list:
   name: List journal entries
-  description: Return recent journal entries from HA storage.
+  description: 'Return recent journal entries from HA storage.'
   fields:
     limit:
       required: false
       default: 20
-      description: Max entries to return.
+      description: 'Max entries to return.'
       selector:
         number:
           min: 1
@@ -113,47 +113,47 @@ journal_list:
 
 agent_prompt:
   name: Process a natural-language prompt (via Assist)
-  description: Routes text through Home Assistant Assist (conversation.process) and updates OpenClaw automation entities/events.
+  description: 'Routes text through Home Assistant Assist (conversation.process) and updates OpenClaw automation entities/events.'
   fields:
     text:
       required: true
-      description: Prompt text to send to Assist.
+      description: 'Prompt text to send to Assist.'
       selector:
         text: {}
     language:
       required: false
-      description: Optional language hint (e.g. en, zh).
+      description: 'Optional language hint (e.g. en, zh).'
       selector:
         text: {}
     agent_id:
       required: false
-      description: Optional conversation agent_id to target.
+      description: 'Optional conversation agent_id to target.'
       selector:
         text: {}
     conversation_id:
       required: false
-      description: Optional conversation_id to continue an existing Assist thread.
+      description: 'Optional conversation_id to continue an existing Assist thread.'
       selector:
         text: {}
 
 tts_vibevoice_health:
   name: VibeVoice TTS health
-  description: Check whether the VibeVoice TTS provider is configured and reachable.
+  description: 'Check whether the VibeVoice TTS provider is configured and reachable.'
   fields: {}
 
 tts_vibevoice:
   name: Generate VibeVoice TTS audio
-  description: Generates TTS audio and returns a same-origin audio_url served by HA. If media_player_entity_id is provided, also calls media_player.play_media to play it.
+  description: 'Generates TTS audio and returns a same-origin audio_url served by HA. If media_player_entity_id is provided, also calls media_player.play_media to play it.'
   fields:
     text:
       required: true
-      description: Text to synthesize.
+      description: 'Text to synthesize.'
       selector:
         text: {}
     format:
       required: false
       default: mp3
-      description: Audio format to return.
+      description: 'Audio format to return.'
       selector:
         select:
           options:
@@ -161,7 +161,7 @@ tts_vibevoice:
             - wav
     media_player_entity_id:
       required: false
-      description: Optional. If set, HA will play the generated audio via media_player.play_media; if omitted, only returns audio_url.
+      description: 'Optional. If set, HA will play the generated audio via media_player.play_media; if omitted, only returns audio_url.'
       selector:
         entity:
           domain: media_player
