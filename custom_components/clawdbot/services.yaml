@@ -15,7 +15,7 @@ tools_invoke:
 
 ha_get_states:
   name: List Home Assistant entity states
-  description: Lists states locally inside Home Assistant and shows results in a persistent notification (warning: can be noisy/spammy).
+  description: 'Lists states locally inside Home Assistant and shows results in a persistent notification (warning: can be noisy/spammy).'
   fields: {}
 
 ha_call_service:
@@ -74,7 +74,7 @@ set_mapping:
   fields:
     mapping:
       required: true
-      description: Mapping object. Keys: soc, voltage, solar, load. Values: entity_id strings.
+      description: 'Mapping object. Keys: soc, voltage, solar, load. Values: entity_id strings.'
       selector:
         object: {}
 
