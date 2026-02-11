@@ -1,15 +1,6 @@
-send_chat:
-  name: Send message to Xiaochen (via Clawdbot)
-  description: MVP path. Uses Clawdbot Gateway /tools/invoke + message.send (Telegram).
-  fields:
-    message:
-      required: true
-      selector:
-        text:
-
 tools_invoke:
-  name: Invoke a Clawdbot tool via Gateway
-  description: Call a single tool via the Clawdbot Gateway /tools/invoke endpoint.
+  name: Invoke an OpenClaw Gateway tool
+  description: Call a single tool via the OpenClaw Gateway /tools/invoke endpoint.
   fields:
     tool:
       required: true
@@ -26,8 +17,8 @@ ha_get_states:
   fields: {}
 
 ha_call_service:
-  name: Call a Home Assistant service
-  description: Calls a HA service locally (domain/service/optional entity_id + service_data).
+  name: Call a Home Assistant service (guardrailed)
+  description: Calls a limited allowlist of HA services locally (domain/service/optional entity_id + service_data).
   fields:
     domain:
       required: true
@@ -40,86 +31,14 @@ ha_call_service:
     entity_id:
       required: false
       selector:
-        text:
+        entity:
     service_data:
       required: false
       selector:
         object:
 
-chat_append:
-  name: Append a chat message
-  description: Add a chat message to the local history store (used by the panel).
-  fields:
-    role:
-      required: true
-      selector:
-        text:
-    text:
-      required: true
-      selector:
-        text:
-    session_key:
-      required: false
-      selector:
-        text:
-    id:
-      required: false
-      selector:
-        text:
-    ts:
-      required: false
-      selector:
-        text:
-
-chat_poll:
-  name: Poll OpenClaw for new assistant replies (server-side)
-  description: Calls OpenClaw sessions_history, sanitizes + dedupes, and appends new agent messages into the HA chat store.
-  fields:
-    session_key:
-      required: false
-      selector:
-        text:
-    limit:
-      required: false
-      selector:
-        number:
-          min: 1
-          max: 100
-
-chat_send:
-  name: Send a message to OpenClaw session (server-side)
-  description: Sends a user message to OpenClaw via sessions_send (avoids panel HTTP auth issues).
-  fields:
-    session_key:
-      required: false
-      selector:
-        text:
-    message:
-      required: true
-      selector:
-        text:
-
-chat_history_delta:
-  name: Fetch chat history from HA store (optionally since after_ts)
-  description: Returns chat_history items from the HA Store; use after_ts to get only new items.
-  fields:
-    session_key:
-      required: false
-      selector:
-        text:
-    after_ts:
-      required: false
-      selector:
-        text:
-    limit:
-      required: false
-      selector:
-        number:
-          min: 1
-          max: 500
-
 set_connection_overrides:
-  name: Save/Apply connection overrides
+  name: Save/apply connection overrides
   description: Persist gateway_url/token/session_key overrides to HA storage and apply immediately.
   fields:
     gateway_url:
@@ -140,9 +59,46 @@ reset_connection_overrides:
   description: Clear stored overrides and revert to YAML defaults.
   fields: {}
 
+set_mapping:
+  name: Set core signal mapping
+  description: Save entity_id mapping for soc/voltage/solar/load.
+  fields:
+    mapping:
+      required: true
+      selector:
+        object:
+
+journal_append:
+  name: Append to agent journal
+  description: Append a journal entry; updates OpenClaw automation sensors/events.
+  fields:
+    text:
+      required: true
+      selector:
+        text:
+    title:
+      required: false
+      selector:
+        text:
+    mood:
+      required: false
+      selector:
+        text:
+
+journal_list:
+  name: List journal entries
+  description: Return recent journal entries from HA storage.
+  fields:
+    limit:
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 200
+
 agent_prompt:
   name: Process a natural-language prompt (via Assist)
-  description: "Routes text through Home Assistant Assist (conversation.process) and updates OpenClaw automation entities/events. Domain remains clawdbot for compatibility."
+  description: Routes text through Home Assistant Assist (conversation.process) and updates OpenClaw automation entities/events.
   fields:
     text:
       required: true
@@ -161,72 +117,17 @@ agent_prompt:
       selector:
         text:
 
-set_mapping:
-  name: Set core signal mapping
-  description: Save entity_id mapping for soc/voltage/solar/load.
-  fields:
-    mapping:
-      required: true
-      selector:
-        object:
-
-create_dummy_entities:
-  name: Create dummy entities
-  description: Create/refresh dummy sensor states (sensor.clawdbot_test_*) for panel mapping QA.
-  fields:
-    soc:
-      required: false
-      selector:
-        number:
-          min: 0
-          max: 100
-          mode: box
-    voltage:
-      required: false
-      selector:
-        number:
-          min: 0
-          max: 80
-          mode: box
-    solar_w:
-      required: false
-      selector:
-        number:
-          min: 0
-          max: 5000
-          mode: box
-    load_w:
-      required: false
-      selector:
-        number:
-          min: 0
-          max: 5000
-          mode: box
-    connected:
-      required: false
-      selector:
-        boolean:
-
-clear_dummy_entities:
-  name: Clear dummy entities
-  description: Remove dummy entities created by create_dummy_entities.
-  fields: {}
-
 tts_vibevoice_health:
   name: VibeVoice TTS health
-  description: Check whether VibeVoice (LocalAI) TTS base_url is configured and reachable.
+  description: Check whether the VibeVoice TTS provider is configured and reachable.
   fields: {}
 
 tts_vibevoice:
-  name: Speak text via VibeVoice (LocalAI)
-  description: Generate TTS audio via LocalAI VibeVoice and return an audio_url served by HA.
+  name: Generate VibeVoice TTS audio
+  description: Generates TTS audio and returns a same-origin audio_url served by HA. Does not automatically play unless media_player_entity_id is provided.
   fields:
     text:
       required: true
-      selector:
-        text:
-    voice:
-      required: false
       selector:
         text:
     format:
@@ -236,4 +137,8 @@ tts_vibevoice:
           options:
             - wav
             - mp3
-
+    media_player_entity_id:
+      required: false
+      selector:
+        entity:
+          domain: media_player

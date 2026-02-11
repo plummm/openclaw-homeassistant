@@ -176,7 +176,7 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.169"
+PANEL_BUILD_ID = "89337ab.170"
 INTEGRATION_BUILD_ID = "158ee3a"
 
 PANEL_JS = r"""
@@ -2452,6 +2452,7 @@ PANEL_HTML = """<!doctype html>
       </div>
     </div>
     <div class=\"row\" style=\"justify-content:flex-end;gap:10px;margin-bottom:10px\">\n      <button class=\"btn\" id=\"chatModeText\">Text mode</button>\n      <button class=\"btn\" id=\"chatModeVoice\">Voice mode</button>\n      <span class=\"muted\" id=\"chatVoiceStatus\" style=\"font-size:12px\"></span>\n    </div>\n\n    <div id=\"chatVoiceBox\" class=\"card hidden\">\n      <div style=\"display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap\">\n        <h2 style=\"margin:0\">Voice</h2>\n        <div class=\"row\" style=\"gap:10px\">\n          <button class=\"btn\" id=\"chatTtsRefresh\">Refresh TTS</button>
+          <button class=\"btn\" id=\"chatTtsTestBtn\">Test TTS (short)</button>
           <button class=\"btn primary\" id=\"chatSpeakBtn\">Speak last reply</button>\n        </div>\n      </div>\n      <div class=\"muted\" style=\"margin-top:6px\">Visualizer animates while audio plays. Transcript appears below.</div>\n      <canvas id=\"chatVoiceViz\" width=\"640\" height=\"160\" style=\"width:100%;height:160px;margin-top:10px;border-radius:16px;border:1px solid var(--divider-color);background:color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) 85%, #000);display:block\"></canvas>\n      <audio id=\"chatVoiceAudio\" controls style=\"width:100%;margin-top:10px\"></audio>\n      <div id=\"chatVoiceTranscript\" class=\"entities\" style=\"margin-top:10px;max-height:260px\"></div>\n    </div>\n\n    <div class=\"chat-load-top\" id=\"chatLoadTop\">
       <button class=\"btn\" id=\"chatLoadOlderBtn\">Load older</button>
     </div>
@@ -5368,9 +5369,10 @@ async def async_setup(hass, config):
     if runtime.get("derived_enabled"):
         runtime["derived_task"] = hass.async_create_task(_derived_loop())
 
-    hass.services.async_register(DOMAIN, "derived_sensors_set_enabled", handle_derived_sensors_set_enabled, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "derived_sensors_status", handle_derived_sensors_status, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "derived_sensors_suggest", handle_derived_sensors_suggest, supports_response=SupportsResponse.ONLY)
+    # Action-surface reduction (Captain request): remove derived_sensors_* services
+    # hass.services.async_register(DOMAIN, "derived_sensors_set_enabled", handle_derived_sensors_set_enabled, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "derived_sensors_status", handle_derived_sensors_status, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "derived_sensors_suggest", handle_derived_sensors_suggest, supports_response=SupportsResponse.ONLY)
 
     # --- Agent 0 analysis services (token-safe) ---
     AGENT0_MAX_ENTITIES = 12
@@ -5678,28 +5680,29 @@ async def async_setup(hass, config):
     except Exception:
         _LOGGER.exception("Failed to start agent0 history sampler")
 
-    hass.services.async_register(DOMAIN, "agent0_get_context", handle_agent0_get_context, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "agent0_history_stats", handle_agent0_history_stats, supports_response=SupportsResponse.ONLY)
+    # NOTE: action-surface reduction (Captain request): removed agent0_* and chat_* services
+    # hass.services.async_register(DOMAIN, "agent0_get_context", handle_agent0_get_context, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "agent0_history_stats", handle_agent0_history_stats, supports_response=SupportsResponse.ONLY)
 
-    hass.services.async_register(DOMAIN, SERVICE_SEND_CHAT, handle_send_chat)
+    # hass.services.async_register(DOMAIN, SERVICE_SEND_CHAT, handle_send_chat)
     hass.services.async_register(DOMAIN, "set_connection_overrides", handle_set_connection_overrides, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "reset_connection_overrides", handle_reset_connection_overrides, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, SERVICE_NOTIFY_EVENT, handle_notify_event)
-    hass.services.async_register(DOMAIN, SERVICE_GATEWAY_TEST, handle_gateway_test, supports_response=SupportsResponse.OPTIONAL)
+    # hass.services.async_register(DOMAIN, SERVICE_GATEWAY_TEST, handle_gateway_test, supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, SERVICE_SET_MAPPING, handle_set_mapping)
-    hass.services.async_register(DOMAIN, SERVICE_REFRESH_HOUSE_MEMORY, handle_refresh_house_memory)
+    # hass.services.async_register(DOMAIN, SERVICE_REFRESH_HOUSE_MEMORY, handle_refresh_house_memory)
     hass.services.async_register(DOMAIN, SERVICE_TOOLS_INVOKE, handle_tools_invoke)
     hass.services.async_register(DOMAIN, SERVICE_HA_GET_STATES, handle_ha_get_states)
     hass.services.async_register(DOMAIN, SERVICE_HA_CALL_SERVICE, handle_ha_call_service)
-    hass.services.async_register(DOMAIN, SERVICE_CREATE_DUMMY_ENTITIES, handle_create_dummy_entities)
-    hass.services.async_register(DOMAIN, SERVICE_CLEAR_DUMMY_ENTITIES, handle_clear_dummy_entities)
-    hass.services.async_register(DOMAIN, "chat_append", handle_chat_append)
-    hass.services.async_register(DOMAIN, SERVICE_CHAT_FETCH, handle_chat_fetch)
-    hass.services.async_register(DOMAIN, SERVICE_CHAT_SEND, handle_chat_send)
-    hass.services.async_register(DOMAIN, SERVICE_CHAT_HISTORY_DELTA, handle_chat_history_delta, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, SERVICE_CREATE_DUMMY_ENTITIES, handle_create_dummy_entities)
+    # hass.services.async_register(DOMAIN, SERVICE_CLEAR_DUMMY_ENTITIES, handle_clear_dummy_entities)
+    # hass.services.async_register(DOMAIN, "chat_append", handle_chat_append)
+    # hass.services.async_register(DOMAIN, SERVICE_CHAT_FETCH, handle_chat_fetch)
+    # hass.services.async_register(DOMAIN, SERVICE_CHAT_SEND, handle_chat_send)
+    # hass.services.async_register(DOMAIN, SERVICE_CHAT_HISTORY_DELTA, handle_chat_history_delta, supports_response=SupportsResponse.ONLY)
 
-    hass.services.async_register(DOMAIN, "chat_new_session", handle_chat_new_session, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "chat_list_sessions", handle_chat_list_sessions, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "chat_new_session", handle_chat_new_session, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "chat_list_sessions", handle_chat_list_sessions, supports_response=SupportsResponse.ONLY)
 
     async def handle_chat_debug_stats(call):
         """Lightweight server-side stats for debugging duplication/filtering.
@@ -5754,7 +5757,7 @@ async def async_setup(hass, config):
             "bad_marker_samples": bad_samples,
         }
 
-    hass.services.async_register(DOMAIN, "chat_debug_stats", handle_chat_debug_stats, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "chat_debug_stats", handle_chat_debug_stats, supports_response=SupportsResponse.ONLY)
 
     async def handle_theme_set(call):
         cfg = hass.data.get(DOMAIN, {})
@@ -5843,11 +5846,12 @@ async def async_setup(hass, config):
             current = {}
         return {"ok": True, "theme": current}
 
-    hass.services.async_register(DOMAIN, "theme_set", handle_theme_set, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "theme_reset", handle_theme_reset, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "theme_upsert", handle_theme_upsert, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "theme_delete", handle_theme_delete, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "theme_list", handle_theme_list, supports_response=SupportsResponse.ONLY)
+    # Action-surface reduction (Captain request): remove theme_* services
+    # hass.services.async_register(DOMAIN, "theme_set", handle_theme_set, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "theme_reset", handle_theme_reset, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "theme_upsert", handle_theme_upsert, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "theme_delete", handle_theme_delete, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "theme_list", handle_theme_list, supports_response=SupportsResponse.ONLY)
 
     # --- Dynamic Setup options registry (MVP) ---
 
@@ -6423,11 +6427,31 @@ async def async_setup(hass, config):
                         cache.pop(k, None)
 
                 audio_url = f'/api/clawdbot/tts_vibevoice.{fmt}?request_id={rid}'
+
+                # Optional: play via media_player if requested (automation-friendly)
+                mp_eid = call.data.get('media_player_entity_id')
+                played = False
+                if isinstance(mp_eid, str) and mp_eid.strip():
+                    try:
+                        await hass.services.async_call(
+                            'media_player',
+                            'play_media',
+                            {
+                                'entity_id': mp_eid.strip(),
+                                'media_content_id': audio_url,
+                                'media_content_type': f'audio/{fmt}',
+                            },
+                            blocking=True,
+                        )
+                        played = True
+                    except Exception:
+                        _LOGGER.exception('tts_vibevoice: play_media failed')
+
                 try:
-                    _LOGGER.info("tts_vibevoice ok rid=%s post_ms=%s dl_ms=%s bytes=%s", rid, t_post_ms, t_dl_ms, len(data))
+                    _LOGGER.info("tts_vibevoice ok rid=%s post_ms=%s dl_ms=%s bytes=%s played=%s", rid, t_post_ms, t_dl_ms, len(data), played)
                 except Exception:
                     pass
-                return {"ok": True, "provider": provider, "request_id": rid, "audio_url": audio_url, "format": fmt, "latency_ms": int((time.monotonic()-t0)*1000), "post_ms": t_post_ms, "download_ms": t_dl_ms}
+                return {"ok": True, "provider": provider, "request_id": rid, "audio_url": audio_url, "format": fmt, "latency_ms": int((time.monotonic()-t0)*1000), "post_ms": t_post_ms, "download_ms": t_dl_ms, "bytes": len(data), "played": played, "media_player_entity_id": mp_eid if isinstance(mp_eid, str) else None}
 
 
 
@@ -7188,19 +7212,20 @@ async def async_setup(hass, config):
         # Only return the id + path; full URL depends on HA external_url/internal_url.
         return {"ok": True, "webhook_id": webhook_id, "path": f"/api/webhook/{webhook_id}"}
 
-    hass.services.async_register(DOMAIN, "agent_profile_get", handle_agent_profile_get, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "agent_profile_set", handle_agent_profile_set, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "agent_state_get", handle_agent_state_get, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "agent_state_set", handle_agent_state_set, supports_response=SupportsResponse.OPTIONAL)
-    hass.services.async_register(DOMAIN, "agent_state_reset", handle_agent_state_reset, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "agent_state_webhook_get", handle_agent_state_webhook_get, supports_response=SupportsResponse.ONLY)
+    # Action-surface reduction (Captain request): remove agent_profile_*, agent_state_*, avatar_* services
+    # hass.services.async_register(DOMAIN, "agent_profile_get", handle_agent_profile_get, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "agent_profile_set", handle_agent_profile_set, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "agent_state_get", handle_agent_state_get, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "agent_state_set", handle_agent_state_set, supports_response=SupportsResponse.OPTIONAL)
+    # hass.services.async_register(DOMAIN, "agent_state_reset", handle_agent_state_reset, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "agent_state_webhook_get", handle_agent_state_webhook_get, supports_response=SupportsResponse.ONLY)
 
-    hass.services.async_register(DOMAIN, "avatar_prompt_set", handle_avatar_prompt_set, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "avatar_generate_request", handle_avatar_generate_request, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "avatar_generate_dispatch", handle_avatar_generate_dispatch, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "avatar_apply", handle_avatar_apply, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "avatar_webhook_get", handle_avatar_webhook_get, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, "avatar_set_b64", handle_avatar_set_b64, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "avatar_prompt_set", handle_avatar_prompt_set, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "avatar_generate_request", handle_avatar_generate_request, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "avatar_generate_dispatch", handle_avatar_generate_dispatch, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "avatar_apply", handle_avatar_apply, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "avatar_webhook_get", handle_avatar_webhook_get, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "avatar_set_b64", handle_avatar_set_b64, supports_response=SupportsResponse.ONLY)
 
     # Back-compat: pulse now just refreshes state (read-only)
     hass.services.async_register(DOMAIN, "agent_pulse", handle_agent_pulse, supports_response=SupportsResponse.ONLY)
@@ -7283,7 +7308,7 @@ async def async_setup(hass, config):
             "kept": len(out),
         }
 
-    hass.services.async_register(DOMAIN, "chat_store_sanitize", handle_chat_store_sanitize, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, "chat_store_sanitize", handle_chat_store_sanitize, supports_response=SupportsResponse.ONLY)
 
     async def handle_build_info(call):
         # For deployment verification (no secrets)
@@ -7309,12 +7334,12 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, "tts_vibevoice", handle_tts_vibevoice, supports_response=SupportsResponse.OPTIONAL)
 
 
-    hass.services.async_register(DOMAIN, SERVICE_SESSIONS_LIST, handle_sessions_list, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, SERVICE_SESSIONS_SPAWN, handle_sessions_spawn, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, SERVICE_SESSION_STATUS_GET, handle_session_status_get, supports_response=SupportsResponse.ONLY)
-    _LOGGER.info("Registering service: %s.%s", DOMAIN, SERVICE_CHAT_POLL)
-    # Fire-and-forget: panel calls this service; backend updates Store. No service response needed.
-    hass.services.async_register(DOMAIN, SERVICE_CHAT_POLL, handle_chat_poll)
+    # Action-surface reduction (Captain request): remove session_* and chat_poll services
+    # hass.services.async_register(DOMAIN, SERVICE_SESSIONS_LIST, handle_sessions_list, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, SERVICE_SESSIONS_SPAWN, handle_sessions_spawn, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, SERVICE_SESSION_STATUS_GET, handle_session_status_get, supports_response=SupportsResponse.ONLY)
+    # _LOGGER.info("Registering service: %s.%s", DOMAIN, SERVICE_CHAT_POLL)
+    # hass.services.async_register(DOMAIN, SERVICE_CHAT_POLL, handle_chat_poll)
 
     _LOGGER.info(
         "Clawdbot services registered (%s.%s, %s.%s, %s.%s, %s.%s)",
