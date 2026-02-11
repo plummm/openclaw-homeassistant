@@ -1,11 +1,11 @@
 {
   "domain": "clawdbot",
   "name": "OpenClaw",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "documentation": "https://github.com/plummm/openclaw-homeassistant",
   "issue_tracker": "https://github.com/plummm/openclaw-homeassistant/issues",
   "requirements": [],
   "codeowners": ["@plummm"],
   "iot_class": "cloud_push",
-  "config_flow": false
+  "config_flow": true
 }

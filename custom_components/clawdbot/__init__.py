@@ -3455,6 +3455,11 @@ def _compute_house_memory_from_states(states: dict, mapping: dict | None = None)
         "generator": pack(gen_ev, mapped_ids=[], base_if_mapped=0.75, require_hits=2),
     }
 async def async_setup(hass, config):
+    # If installed/configured via UI (config entries), HA may call async_setup with
+    # no YAML section. In that case do not initialize here.
+    if DOMAIN not in (config or {}):
+        return True
+
     conf = config.get(DOMAIN, {}) or {}
     # For MVP: always serve panel content from HA itself.
     # This avoids OpenClaw Control UI auth/device-identity and makes the iframe same-origin.
@@ -7354,3 +7359,8 @@ async def async_setup(hass, config):
     )
 
     return True
+
+
+async def async_setup_entry(hass, entry):
+    """Set up OpenClaw from a config entry (UI install via HACS)."""
+    return await async_setup(hass, {DOMAIN: dict(entry.data or {})})
