@@ -5,11 +5,11 @@ tools_invoke:
     tool:
       required: true
       selector:
-        text:
+        text: {}
     args:
       required: false
       selector:
-        object:
+        object: {}
 
 ha_get_states:
   name: List Home Assistant entity states
@@ -23,19 +23,19 @@ ha_call_service:
     domain:
       required: true
       selector:
-        text:
+        text: {}
     service:
       required: true
       selector:
-        text:
+        text: {}
     entity_id:
       required: false
       selector:
-        entity:
+        entity: {}
     service_data:
       required: false
       selector:
-        object:
+        object: {}
 
 set_connection_overrides:
   name: Save/apply connection overrides
@@ -44,15 +44,15 @@ set_connection_overrides:
     gateway_url:
       required: false
       selector:
-        text:
+        text: {}
     token:
       required: false
       selector:
-        text:
+        text: {}
     session_key:
       required: false
       selector:
-        text:
+        text: {}
 
 reset_connection_overrides:
   name: Reset connection overrides
@@ -66,7 +66,7 @@ set_mapping:
     mapping:
       required: true
       selector:
-        object:
+        object: {}
 
 journal_append:
   name: Append to agent journal
@@ -75,15 +75,15 @@ journal_append:
     text:
       required: true
       selector:
-        text:
+        text: {}
     title:
       required: false
       selector:
-        text:
+        text: {}
     mood:
       required: false
       selector:
-        text:
+        text: {}
 
 journal_list:
   name: List journal entries
@@ -104,19 +104,19 @@ agent_prompt:
     text:
       required: true
       selector:
-        text:
+        text: {}
     language:
       required: false
       selector:
-        text:
+        text: {}
     agent_id:
       required: false
       selector:
-        text:
+        text: {}
     conversation_id:
       required: false
       selector:
-        text:
+        text: {}
 
 tts_vibevoice_health:
   name: VibeVoice TTS health
@@ -130,7 +130,7 @@ tts_vibevoice:
     text:
       required: true
       selector:
-        text:
+        text: {}
     format:
       required: false
       default: mp3
