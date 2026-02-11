@@ -27,6 +27,25 @@ class ClawdbotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             sk = (user_input.get(CONF_SESSION_KEY) or DEFAULT_SESSION_KEY).strip() or DEFAULT_SESSION_KEY
             panel_url = (user_input.get(CONF_PANEL_URL) or "").strip()
 
+            # This integration uses HTTP(S) REST calls to the OpenClaw Gateway.
+            # ws:// is a common mistake (that's for websocket endpoints).
+            if gw.startswith("ws://") or gw.startswith("wss://"):
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=vol.Schema(
+                        {
+                            vol.Required(CONF_GATEWAY_URL, default=gw): str,
+                            vol.Required(CONF_TOKEN, default=tok): str,
+                            vol.Optional(CONF_SESSION_KEY, default=sk): str,
+                            vol.Optional(CONF_PANEL_URL, default=panel_url): str,
+                        }
+                    ),
+                    errors={CONF_GATEWAY_URL: "invalid_url"},
+                    description_placeholders={
+                        "hint": "Use http(s)://HOST:7773 (not ws://).",
+                    },
+                )
+
             data = {
                 CONF_GATEWAY_URL: gw,
                 CONF_TOKEN: tok,

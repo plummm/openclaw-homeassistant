@@ -3812,6 +3812,7 @@ async def async_setup(hass, config):
     except Exception:
         _LOGGER.exception("Failed to register Clawdbot HTTP views")
 
+
     # Register agent state webhook handler (cross-host push without token)
     try:
         from homeassistant.components import webhook
@@ -3854,16 +3855,22 @@ async def async_setup(hass, config):
                     return Response(status=200)
                 return Response(status=200)
 
-            webhook.async_register(
-                hass,
-                DOMAIN,
-                "agent_state_push",
-                webhook_id,
-                _handle_agent_state_webhook,
-                local_only=False,
-                allowed_methods=("POST",),
-            )
-            _LOGGER.info("Registered agent state webhook → /api/webhook/%s", webhook_id)
+            try:
+                webhook.async_register(
+                    hass,
+                    DOMAIN,
+                    "agent_state_push",
+                    webhook_id,
+                    _handle_agent_state_webhook,
+                    local_only=False,
+                    allowed_methods=("POST",),
+                )
+                _LOGGER.info("Registered agent state webhook → /api/webhook/%s", webhook_id)
+            except ValueError as e:
+                if "already defined" in str(e).lower():
+                    _LOGGER.debug("Agent state webhook already registered; skipping (%s)", str(e)[:120])
+                else:
+                    raise
     except Exception:
         _LOGGER.exception("Failed to register agent state webhook")
 
@@ -3928,16 +3935,22 @@ async def async_setup(hass, config):
                 )
                 return web.json_response({"ok": True}, status=200)
 
-            webhook.async_register(
-                hass,
-                DOMAIN,
-                "avatar_push",
-                webhook_id,
-                _handle_avatar_webhook,
-                local_only=False,
-                allowed_methods=("POST",),
-            )
-            _LOGGER.info("Registered avatar webhook → /api/webhook/%s", webhook_id)
+            try:
+                webhook.async_register(
+                    hass,
+                    DOMAIN,
+                    "avatar_push",
+                    webhook_id,
+                    _handle_avatar_webhook,
+                    local_only=False,
+                    allowed_methods=("POST",),
+                )
+                _LOGGER.info("Registered avatar webhook → /api/webhook/%s", webhook_id)
+            except ValueError as e:
+                if "already defined" in str(e).lower():
+                    _LOGGER.debug("Avatar webhook already registered; skipping (%s)", str(e)[:120])
+                else:
+                    raise
     except Exception:
         _LOGGER.exception("Failed to register avatar webhook")
 
@@ -3945,16 +3958,36 @@ async def async_setup(hass, config):
     try:
         from homeassistant.components.frontend import async_register_built_in_panel
 
-        async_register_built_in_panel(
-            hass,
-            component_name="iframe",
-            sidebar_title=title,
-            sidebar_icon=icon,
-            frontend_url_path=DOMAIN,
-            config={"url": panel_url},
-            require_admin=True,
-        )
-        _LOGGER.info("Registered Clawdbot iframe panel → %s", panel_url)
+        try:
+            async_register_built_in_panel(
+                hass,
+                component_name="iframe",
+                sidebar_title=title,
+                sidebar_icon=icon,
+                frontend_url_path=DOMAIN,
+                config={"url": panel_url},
+                require_admin=True,
+            )
+            _LOGGER.info("Registered Clawdbot iframe panel → %s", panel_url)
+        except ValueError as e:
+            if "overwriting panel" in str(e).lower():
+                try:
+                    from homeassistant.components import frontend
+                    frontend.async_remove_panel(hass, DOMAIN)
+                except Exception:
+                    pass
+                async_register_built_in_panel(
+                    hass,
+                    component_name="iframe",
+                    sidebar_title=title,
+                    sidebar_icon=icon,
+                    frontend_url_path=DOMAIN,
+                    config={"url": panel_url},
+                    require_admin=True,
+                )
+                _LOGGER.info("Re-registered Clawdbot iframe panel → %s", panel_url)
+            else:
+                raise
     except Exception:
         _LOGGER.exception("Failed to register Clawdbot panel")
 
