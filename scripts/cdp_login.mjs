@@ -5,9 +5,14 @@
 
 import { setTimeout as delay } from 'node:timers/promises';
 
-const BASE = process.env.HA_BASE || 'http://100.96.0.2:8123';
-const USER = process.env.HA_USER || 'test';
-const PASS = process.env.HA_PASS || '12345';
+// NOTE: Do not hardcode environment-specific URLs or credentials in-repo.
+// Provide these via env vars when running locally.
+const BASE = process.env.HA_BASE || 'http://127.0.0.1:8123';
+const USER = process.env.HA_USER || '';
+const PASS = process.env.HA_PASS || '';
+if (!USER || !PASS) {
+  throw new Error('Missing HA_USER/HA_PASS env vars');
+}
 const PORT = Number(process.env.CDP_PORT || '9222');
 const TIMEOUT_MS = Number(process.env.CDP_TIMEOUT_MS || '60000');
 

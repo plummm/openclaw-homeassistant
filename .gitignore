@@ -18,3 +18,10 @@ out/
 # Secrets
 secrets*
 *.env
+
+# Local automation/recording helpers (not part of the integration release)
+scripts/record_tts_e2e_*.sh
+scripts/screenshot_services_ui*.sh
+scripts/verify_actions_*.sh
+scripts/cdp_ha_actions.mjs
+scripts/cdp_panel_actions.mjs
