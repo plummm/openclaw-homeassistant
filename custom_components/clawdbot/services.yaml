@@ -39,7 +39,7 @@ ha_call_service:
         entity: {}
     service_data:
       required: false
-      description: Optional service data object (JSON). Example for persistent_notification.create -> {"title":"OpenClaw test","message":"ok"}.
+      description: 'Optional service data object (JSON). Example for persistent_notification.create -> {"title":"OpenClaw test","message":"ok"}.'
       selector:
         object: {}
 
@@ -49,7 +49,7 @@ set_connection_overrides:
   fields:
     gateway_url:
       required: false
-      description: Override the OpenClaw Gateway base URL (origin). Example: https://gateway.example.com
+      description: 'Override the OpenClaw Gateway base URL (origin). Example: https://gateway.example.com'
       selector:
         text: {}
     token:
