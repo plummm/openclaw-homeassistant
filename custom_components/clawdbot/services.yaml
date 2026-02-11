@@ -13,12 +13,12 @@ tools_invoke:
 
 ha_get_states:
   name: List Home Assistant entity states
-  description: Lists states locally inside Home Assistant and shows them in a persistent notification.
+  description: Lists states locally inside Home Assistant and shows results in a persistent notification (warning: can be noisy/spammy).
   fields: {}
 
 ha_call_service:
   name: Call a Home Assistant service (guardrailed)
-  description: Calls a limited allowlist of HA services locally (domain/service/optional entity_id + service_data).
+  description: Calls a limited allowlist of HA services locally. This is a safe subset vs tools_invoke. (Allowlist is defined in custom_components/clawdbot/__init__.py handle_ha_call_service.)
   fields:
     domain:
       required: true
@@ -91,6 +91,7 @@ journal_list:
   fields:
     limit:
       required: false
+      default: 20
       selector:
         number:
           min: 1
@@ -124,7 +125,7 @@ tts_vibevoice_health:
 
 tts_vibevoice:
   name: Generate VibeVoice TTS audio
-  description: Generates TTS audio and returns a same-origin audio_url served by HA. Does not automatically play unless media_player_entity_id is provided.
+  description: Generates TTS audio and returns a same-origin audio_url served by HA. If media_player_entity_id is provided, also calls media_player.play_media to play it.
   fields:
     text:
       required: true
@@ -132,11 +133,12 @@ tts_vibevoice:
         text:
     format:
       required: false
+      default: mp3
       selector:
         select:
           options:
-            - wav
             - mp3
+            - wav
     media_player_entity_id:
       required: false
       selector:
