@@ -480,6 +480,88 @@ PANEL_JS = r"""
     }
   }
 
+  async function callInternalApi(path, method='GET', data=null){
+    const cleanPath = String(path || '').replace(/^\/+/, '');
+    const { hass } = await getHass();
+
+    if (hass && typeof hass.callApi === 'function') {
+      if (method === 'GET') return hass.callApi('get', cleanPath);
+      if (method === 'POST') return hass.callApi('post', cleanPath, data || {});
+      return hass.callApi(String(method || 'get').toLowerCase(), cleanPath, data || {});
+    }
+
+    const url = '/api/' + cleanPath;
+    const init = { method, headers: { 'Content-Type': 'application/json' } };
+    if (method !== 'GET' && data != null) init.body = JSON.stringify(data);
+    const res = await fetch(url, init);
+    let body = null;
+    try { body = await res.json(); } catch(_e) {}
+    if (!res.ok) {
+      const err = new Error(`HTTP ${res.status}`);
+      err.status = res.status;
+      err.body = body;
+      throw err;
+    }
+    return body;
+  }
+
+  function unwrapGatewayResult(obj){
+    let raw = obj;
+    for (let i = 0; i < 4; i++) {
+      if (raw && typeof raw === 'object' && raw.result && (typeof raw.result === 'object' || Array.isArray(raw.result))) {
+        raw = raw.result;
+      } else break;
+    }
+    if (raw && typeof raw === 'object' && Array.isArray(raw.content)) {
+      const t = raw.content[0] && raw.content[0].text;
+      if (typeof t === 'string' && t.trim().startsWith('{')) {
+        try { raw = JSON.parse(t); } catch(_e) {}
+      }
+    }
+    return raw;
+  }
+
+  function extractSessionsArray(resp){
+    const raw = unwrapGatewayResult(resp);
+    if (Array.isArray(raw)) return raw;
+    if (!raw || typeof raw !== 'object') return [];
+    const candidates = [raw.sessions, raw.items, raw.result, raw.data && raw.data.sessions, raw.data && raw.data.items];
+    for (const c of candidates){
+      if (Array.isArray(c)) return c;
+      if (c && typeof c === 'object') {
+        if (Array.isArray(c.sessions)) return c.sessions;
+        if (Array.isArray(c.items)) return c.items;
+      }
+    }
+    return [];
+  }
+
+  function extractSessionKey(resp){
+    const walk = (obj) => {
+      if (!obj) return null;
+      if (typeof obj === 'string') return obj || null;
+      if (Array.isArray(obj)) {
+        for (const it of obj) {
+          const k = walk(it);
+          if (k) return k;
+        }
+        return null;
+      }
+      if (typeof obj === 'object') {
+        for (const keyName of ['sessionKey','session_key','key','childSessionKey','child_session_key']) {
+          const v = obj[keyName];
+          if (typeof v === 'string' && v.trim()) return v.trim();
+        }
+        for (const nested of ['result','response','details','data','items','sessions']) {
+          const k = walk(obj[nested]);
+          if (k) return k;
+        }
+      }
+      return null;
+    };
+    return walk(unwrapGatewayResult(resp));
+  }
+
 
   function setTyping(on){
     const el = qs('#chatTyping');
@@ -502,11 +584,10 @@ PANEL_JS = r"""
   async function refreshTokenUsage(){
     try{
       if (!chatSessionKey) { setTokenUsage('—'); return; }
-      const resp = await callServiceResponse('clawdbot','session_status_get', { session_key: chatSessionKey });
-      const data = (resp && resp.response) ? resp.response : resp;
-      const r = data && data.result ? data.result : data;
-      const usage = (r && (r.usage || r.Usage || r.data && r.data.usage)) || null;
-      const total = usage && (usage.totalTokens || usage.total_tokens || usage.tokens || usage.total) ;
+      const resp = await callInternalApi(`clawdbot/session_status?session_key=${encodeURIComponent(chatSessionKey)}`, 'GET');
+      const r = unwrapGatewayResult(resp);
+      const usage = (r && (r.usage || r.Usage || (r.data && r.data.usage))) || null;
+      const total = usage && (usage.totalTokens || usage.total_tokens || usage.tokens || usage.total);
       if (total != null) setTokenUsage(total);
       else setTokenUsage('—');
     } catch(e){
@@ -531,18 +612,11 @@ PANEL_JS = r"""
   async function refreshSessions(){
     const sel = qs('#chatSessionSelect');
     if (!sel) return;
-    // Always show *something* immediately so the control isn't an empty chevron.
     ensureSessionSelectValue();
     try{
-      const apiPath = 'clawdbot/sessions?limit=50';
-      // Use parent callApi when available, otherwise fall back to authenticated fetch
-      const resp = await callServiceResponse('clawdbot','sessions_list', { limit: 50 });
-      const data = (resp && resp.response) ? resp.response : resp;
+      const resp = await callInternalApi('clawdbot/sessions?limit=50', 'GET');
+      const arr = extractSessionsArray(resp);
 
-      const r = data && data.result ? data.result : data;
-      const sessions = (r && (r.sessions || r.items || r.result || r)) || [];
-      const arr = Array.isArray(sessions) ? sessions : (sessions.sessions || sessions.items || []);
-      // Preserve existing selection
       const current = chatSessionKey || sel.value || '';
       sel.innerHTML = '';
       const mkOpt = (value, label) => {
@@ -552,7 +626,6 @@ PANEL_JS = r"""
         return o;
       };
       const seen = new Set();
-      // Ensure there's always a visible value even if sessions_list parse fails.
       const fallback = current || (window.__CLAWDBOT_CONFIG__ && (window.__CLAWDBOT_CONFIG__.session_key)) || 'main';
       if (fallback) { sel.appendChild(mkOpt(fallback, fallback)); seen.add(fallback); }
       for (const s of arr){
@@ -563,8 +636,8 @@ PANEL_JS = r"""
         seen.add(key);
       }
       sel.value = current || fallback;
+      chatSessionKey = sel.value || fallback;
     } catch(e){
-      // best-effort only
       if (DEBUG_UI) console.debug('[clawdbot chat] refreshSessions failed', e);
     }
   }
@@ -580,16 +653,13 @@ PANEL_JS = r"""
 
   async function loadChatLatest(){
     try{
-      const params = new URLSearchParams();
-      params.set('limit', '50');
-      if (chatSessionKey) params.set('session_key', chatSessionKey);
-      const apiPath = 'clawdbot/chat_history?' + params.toString();
-
-      // Use service response to avoid iframe auth/context issues.
-      const resp = await callServiceResponse('clawdbot','chat_history_delta', { session_key: chatSessionKey, limit: CHAT_HISTORY_PAGE_LIMIT });
-      const data = (resp && resp.response) ? resp.response : resp;
-      chatItems = (data && Array.isArray(data.items)) ? data.items : [];
-      chatHasOlder = !!(data && data.has_older);
+      const qs1 = new URLSearchParams();
+      qs1.set('limit', String(CHAT_HISTORY_PAGE_LIMIT || 50));
+      if (chatSessionKey) qs1.set('session_key', chatSessionKey);
+      const resp = await callInternalApi('clawdbot/sessions_history?' + qs1.toString(), 'GET');
+      const items = (resp && Array.isArray(resp.items)) ? resp.items : [];
+      chatItems = items;
+      chatHasOlder = false;
       syncChatSeenIds();
     } catch(e){
       if (DEBUG_UI) console.debug('[clawdbot chat] loadChatLatest failed', e);
@@ -597,46 +667,9 @@ PANEL_JS = r"""
   }
 
   async function loadOlderChat(){
-    if (chatLoadingOlder) return;
-    const beforeId = (() => {
-      for (const it of (chatItems || [])) {
-        if (it && it.id) return it.id;
-      }
-      return null;
-    })();
-    if (!beforeId) {
-      chatHasOlder = false;
-      renderChat({ preserveScroll: true });
-      return;
-    }
-    chatLoadingOlder = true;
+    // sessions_history endpoint currently serves latest window only.
+    chatHasOlder = false;
     renderChat({ preserveScroll: true });
-    try{
-      const params = new URLSearchParams();
-      params.set('limit', '50');
-      params.set('before_id', beforeId);
-      if (chatSessionKey) params.set('session_key', chatSessionKey);
-      // Older paging via service response (no /api auth boundary)
-      const resp = await callServiceResponse('clawdbot','chat_history_delta', { session_key: chatSessionKey, before_id: beforeId, limit: CHAT_HISTORY_PAGE_LIMIT });
-      const data = (resp && resp.response) ? resp.response : resp;
-      const items = (data && Array.isArray(data.items)) ? data.items : [];
-      const existing = new Set((chatItems || []).map((it)=>it && it.id).filter(Boolean));
-      const prepend = [];
-      for (const it of items){
-        if (!it || !it.id || existing.has(it.id)) continue;
-        prepend.push(it);
-      }
-      if (prepend.length) {
-        chatItems = prepend.concat(chatItems || []);
-      }
-      chatHasOlder = !!(data && data.has_older);
-      syncChatSeenIds();
-    } catch(e){
-      console.warn('chat_history fetch failed', e);
-    } finally {
-      chatLoadingOlder = false;
-      renderChat({ preserveScroll: true });
-    }
   }
 
   function stopChatPolling(){
@@ -696,39 +729,33 @@ PANEL_JS = r"""
     const currentSession = chatSessionKey;
     try{
       const seenBefore = chatLastSeenIds ? new Set(Array.from(chatLastSeenIds)) : new Set();
-      await callService('clawdbot','chat_poll',{ session_key: currentSession, limit: CHAT_HISTORY_PAGE_LIMIT });
+      const qs1 = new URLSearchParams();
+      qs1.set('session_key', currentSession);
+      qs1.set('limit', String(CHAT_DELTA_LIMIT || 80));
+      const resp = await callInternalApi('clawdbot/sessions_history?' + qs1.toString(), 'GET');
+      const fetched = (resp && Array.isArray(resp.items)) ? resp.items : [];
+
       chatLastPollTs = Date.now();
       chatLastPollError = null;
 
-      // Incremental refresh: fetch only items newer than current max ts (avoids capped moving-window)
-      const afterTs = maxChatTs();
-      const resp = await callServiceResponse('clawdbot','chat_history_delta', { session_key: currentSession, after_ts: afterTs || null, limit: CHAT_DELTA_LIMIT });
-      const data = (resp && resp.response) ? resp.response : resp;
-      const newer = (data && Array.isArray(data.items)) ? data.items : [];
+      const existing = new Set((chatItems || []).map(chatItemKey));
+      let appendedCount = 0;
+      const nextSeen = new Set(Array.from(seenBefore));
 
-      // Merge new items onto existing list
-      if (newer.length) {
-        const existing = new Set((chatItems || []).map(chatItemKey));
-        for (const it of newer){
-          const k = chatItemKey(it);
-          if (!k || existing.has(k)) continue;
+      for (const it of fetched){
+        const k = chatItemKey(it);
+        if (!k) continue;
+        if (!existing.has(k)) {
           chatItems.push(it);
           existing.add(k);
         }
-        // keep last 200 for UI responsiveness
-        if (chatItems.length > 200) chatItems = chatItems.slice(-200);
+        if (!nextSeen.has(k)) {
+          nextSeen.add(k);
+          if (it && it.role === 'agent') appendedCount += 1;
+        }
       }
 
-      // +N: count newly-seen agent keys among returned items
-      let appendedCount = 0;
-      const nextSeen = new Set(Array.from(seenBefore));
-      for (const it of newer){
-        const key = chatItemKey(it);
-        if (!key) continue;
-        if (nextSeen.has(key)) continue;
-        nextSeen.add(key);
-        if (it && it.role === 'agent') appendedCount += 1;
-      }
+      if (chatItems.length > 200) chatItems = chatItems.slice(-200);
       chatLastSeenIds = nextSeen;
       chatLastPollAppended = appendedCount;
 
@@ -741,8 +768,8 @@ PANEL_JS = r"""
           role: it && it.role,
           ts: it && it.ts,
         }));
-        chatLastPollDebugDetail = `seen:${seenBefore.size} items:${(chatItems||[]).length} new:${newer.length} tailTs:${(tail[tail.length-1]&&tail[tail.length-1].ts)||'—'}`;
-        console.debug('[clawdbot chat] poll ok', {session: currentSession, appended: chatLastPollAppended, afterTs, newerCount: newer.length, tail});
+        chatLastPollDebugDetail = `seen:${seenBefore.size} items:${(chatItems||[]).length} fetched:${fetched.length} tailTs:${(tail[tail.length-1]&&tail[tail.length-1].ts)||'—'}`;
+        console.debug('[clawdbot chat] poll ok', {session: currentSession, appended: chatLastPollAppended, fetchedCount: fetched.length, tail});
       }
     } catch(e){
       chatLastPollTs = Date.now();
@@ -1559,22 +1586,28 @@ async function fetchStatesRest(hass){
     renderSuggestions(null);
 
     async function switchTab(which){
-      const setupTab = qs('#tabSetup');
-      const cockpitTab = qs('#tabCockpit');
-      const chatTab = qs('#tabChat');
-      const viewSetup = qs('#viewSetup');
-      const viewCockpit = qs('#viewCockpit');
-      const viewChat = qs('#viewChat');
-      if (!setupTab || !cockpitTab || !chatTab || !viewSetup || !viewCockpit || !viewChat) return;
+      const tabMap = {
+        agent: qs('#tabAgent'),
+        cockpit: qs('#tabCockpit'),
+        chat: qs('#tabChat'),
+        automations: qs('#tabAutomations'),
+        setup: qs('#tabSetup'),
+      };
+      const viewMap = {
+        agent: qs('#viewAgent'),
+        cockpit: qs('#viewCockpit'),
+        chat: qs('#viewChat'),
+        automations: qs('#viewAutomations'),
+        setup: qs('#viewSetup'),
+      };
+      const keys = ['agent','cockpit','chat','automations','setup'];
 
-      setupTab.classList.toggle('active', which === 'setup');
-      cockpitTab.classList.toggle('active', which === 'cockpit');
-      chatTab.classList.toggle('active', which === 'chat');
-
-      // Hard display toggles (production UI must isolate views)
-      setHidden(viewSetup, which !== 'setup');
-      setHidden(viewCockpit, which !== 'cockpit');
-      setHidden(viewChat, which !== 'chat');
+      for (const k of keys) {
+        const t = tabMap[k];
+        const v = viewMap[k];
+        if (t) t.classList.toggle('active', which === k);
+        if (v) setHidden(v, which !== k);
+      }
 
       if (which === 'cockpit') {
     try{ if (DEBUG_UI) dbgStep('before-getHass');
@@ -1585,7 +1618,6 @@ async function fetchStatesRest(hass){
         loadChatFromConfig();
         ensureSessionSelectValue();
         await refreshSessions();
-        // Prefer live fetch for the selected session (keeps dropdown + history in sync)
         await loadChatLatest();
         renderChat({ autoScroll: true });
         await refreshTokenUsage();
@@ -1606,24 +1638,27 @@ async function fetchStatesRest(hass){
       };
     };
 
+    bindTab('#tabAgent','agent');
     bindTab('#tabSetup','setup');
     bindTab('#tabCockpit','cockpit');
     bindTab('#tabChat','chat');
+    bindTab('#tabAutomations','automations');
 
-    // Extra robustness: event delegation so clicks on child nodes still switch.
     try{
       const tabs = qs('.tabs');
       if (tabs) tabs.addEventListener('click', (ev) => {
         const t = ev.target;
         if (!t) return;
         const id = t.id || (t.closest ? (t.closest('button')||{}).id : '');
+        if (id === 'tabAgent') switchTab('agent');
         if (id === 'tabSetup') switchTab('setup');
         if (id === 'tabCockpit') switchTab('cockpit');
         if (id === 'tabChat') switchTab('chat');
+        if (id === 'tabAutomations') switchTab('automations');
       }, true);
     } catch(e){}
 
-    // Normalize initial state (ensures non-active views are truly hidden).
+    // Normalize initial state.
     switchTab('cockpit');
 
     qs('#refreshBtn').onclick = refreshEntities;
@@ -1639,11 +1674,7 @@ async function fetchStatesRest(hass){
       const resultEl = qs('#gwTestResult');
       if (resultEl) resultEl.textContent = 'running… (via HA backend)';
       try{
-        // This executes inside Home Assistant backend with current runtime overrides.
-        await callService('clawdbot','tools_invoke',{
-          tool: 'sessions_list',
-          args: { limit: 1 },
-        });
+        await callInternalApi('clawdbot/sessions?limit=1', 'GET');
         if (resultEl) resultEl.textContent = 'ok: gateway reachable';
       } catch(e){
         const details = formatError(e);
@@ -1697,10 +1728,8 @@ async function fetchStatesRest(hass){
     if (newSessionBtn) newSessionBtn.onclick = async () => {
       const label = prompt('New session label (optional):', '');
       try{
-        const resp = await callServiceResponse('clawdbot','sessions_spawn', { label: label || undefined });
-        const data = (resp && resp.response) ? resp.response : resp;
-        const r = data && data.result ? data.result : data;
-        const key = r && (r.sessionKey || r.session_key || r.key);
+        const resp = await callInternalApi('clawdbot/sessions_spawn', 'POST', { label: label || undefined });
+        const key = extractSessionKey(resp);
         await refreshSessions();
         if (key && sessionSel) {
           sessionSel.value = key;
@@ -1726,8 +1755,6 @@ async function fetchStatesRest(hass){
       const text = input.value.trim();
       if (!text) return;
 
-      // optimistic append to local history store
-      try{ await callService('clawdbot','chat_append',{ role:'user', text, session_key: chatSessionKey }); } catch(e){}
       const now = new Date();
       const ts = now.toISOString();
       chatItems.push({ role: 'user', text, ts, session_key: chatSessionKey });
@@ -1736,10 +1763,9 @@ async function fetchStatesRest(hass){
       boostChatPolling();
       if (chatPollingActive) scheduleChatPoll(CHAT_POLL_INITIAL_MS);
 
-      // deterministic in-flight indicator while the gateway call is pending
       setTyping(true);
       try{
-        await callService('clawdbot','chat_send',{ session_key: chatSessionKey, message: text });
+        await callInternalApi('clawdbot/sessions_send', 'POST', { session_key: chatSessionKey, message: text });
       } catch(e){
         console.warn('sessions_send failed', e);
       } finally {
@@ -5848,10 +5874,11 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, SERVICE_HA_CALL_SERVICE, handle_ha_call_service)
     # hass.services.async_register(DOMAIN, SERVICE_CREATE_DUMMY_ENTITIES, handle_create_dummy_entities)
     # hass.services.async_register(DOMAIN, SERVICE_CLEAR_DUMMY_ENTITIES, handle_clear_dummy_entities)
-    hass.services.async_register(DOMAIN, "chat_append", handle_chat_append)
+    # Internal runtime functions moved to authenticated API views (not automation actions):
+    # hass.services.async_register(DOMAIN, "chat_append", handle_chat_append)
     # hass.services.async_register(DOMAIN, SERVICE_CHAT_FETCH, handle_chat_fetch)
-    hass.services.async_register(DOMAIN, SERVICE_CHAT_SEND, handle_chat_send)
-    hass.services.async_register(DOMAIN, SERVICE_CHAT_HISTORY_DELTA, handle_chat_history_delta, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, SERVICE_CHAT_SEND, handle_chat_send)
+    # hass.services.async_register(DOMAIN, SERVICE_CHAT_HISTORY_DELTA, handle_chat_history_delta, supports_response=SupportsResponse.ONLY)
 
     # hass.services.async_register(DOMAIN, "chat_new_session", handle_chat_new_session, supports_response=SupportsResponse.ONLY)
     # hass.services.async_register(DOMAIN, "chat_list_sessions", handle_chat_list_sessions, supports_response=SupportsResponse.ONLY)
@@ -7489,11 +7516,11 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, "tts_vibevoice", handle_tts_vibevoice, supports_response=SupportsResponse.OPTIONAL)
 
 
-    # Keep panel/runtime compatibility: expose session helpers + chat poll.
-    hass.services.async_register(DOMAIN, SERVICE_SESSIONS_LIST, handle_sessions_list, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, SERVICE_SESSIONS_SPAWN, handle_sessions_spawn, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, SERVICE_SESSION_STATUS_GET, handle_session_status_get, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, SERVICE_CHAT_POLL, handle_chat_poll)
+    # Internal runtime functions moved to authenticated API views (not automation actions):
+    # hass.services.async_register(DOMAIN, SERVICE_SESSIONS_LIST, handle_sessions_list, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, SERVICE_SESSIONS_SPAWN, handle_sessions_spawn, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, SERVICE_SESSION_STATUS_GET, handle_session_status_get, supports_response=SupportsResponse.ONLY)
+    # hass.services.async_register(DOMAIN, SERVICE_CHAT_POLL, handle_chat_poll)
 
     _LOGGER.info(
         "Clawdbot services registered (%s.%s, %s.%s, %s.%s, %s.%s)",
