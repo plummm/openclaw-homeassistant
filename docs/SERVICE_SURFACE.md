@@ -4,26 +4,19 @@
 Keep Home Assistant **Automation Actions** minimal and stable, while preserving full panel/runtime functionality via internal authenticated API routes.
 
 ## Runtime internals (NOT exposed as HA actions)
-These are used by panel/chat runtime and should stay internal:
+These are used by panel/runtime and stay internal via authenticated API:
 
-- Session list
-  - API: `GET /api/clawdbot/sessions`
-  - Old action (removed): `clawdbot.sessions_list`
-- Session spawn
-  - API: `POST /api/clawdbot/sessions_spawn`
-  - Old action (removed): `clawdbot.sessions_spawn`
-- Session status
-  - API: `GET /api/clawdbot/session_status`
-  - Old action (removed): `clawdbot.session_status_get`
-- Chat send
-  - API: `POST /api/clawdbot/sessions_send`
-  - Old action (removed): `clawdbot.chat_send`
-- Chat poll/history sync
-  - API: `GET /api/clawdbot/sessions_history`
-  - Old actions (removed): `clawdbot.chat_poll`, `clawdbot.chat_history_delta`
-- Chat optimistic append
-  - handled in panel client state (no HA action)
-  - Old action (removed): `clawdbot.chat_append`
+- **Panel service bridge**
+  - API: `POST /api/clawdbot/panel_service`
+  - Purpose: invoke internal runtime handlers (chat/theme/setup/agent/avatar/derived) without registering HA actions.
+- Session list/status/history/send/spawn helper APIs
+  - `GET /api/clawdbot/sessions`
+  - `GET /api/clawdbot/session_status`
+  - `GET /api/clawdbot/sessions_history`
+  - `POST /api/clawdbot/sessions_send`
+  - `POST /api/clawdbot/sessions_spawn`
+
+Old automation-facing actions for these internals remain removed.
 
 ## Automation-visible services (kept)
 Only keep services intended for user automations / explicit ops:

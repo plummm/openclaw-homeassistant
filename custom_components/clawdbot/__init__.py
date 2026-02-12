@@ -176,8 +176,8 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "89337ab.170"
-INTEGRATION_BUILD_ID = "158ee3a"
+PANEL_BUILD_ID = "7e8a2c1.171"
+INTEGRATION_BUILD_ID = "7e8a2c1"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -2596,9 +2596,18 @@ class ClawdbotPanelJsView(HomeAssistantView):
 
     async def get(self, request):
         from aiohttp import web
+        from pathlib import Path
+
+        text = PANEL_JS
+        try:
+            panel_path = Path(__file__).with_name("panel.js")
+            if panel_path.exists():
+                text = panel_path.read_text(encoding="utf-8")
+        except Exception:
+            _LOGGER.exception("Failed loading external panel.js; falling back to embedded PANEL_JS")
 
         return web.Response(
-            text=PANEL_JS,
+            text=text,
             content_type="application/javascript",
             headers={
                 "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
@@ -2607,6 +2616,62 @@ class ClawdbotPanelJsView(HomeAssistantView):
             },
         )
 
+
+class _PanelInternalCall:
+    """Minimal call shim for invoking internal handlers without HA service registration."""
+
+    __slots__ = ("hass", "data")
+
+    def __init__(self, hass, data: dict[str, Any] | None = None):
+        self.hass = hass
+        self.data = data if isinstance(data, dict) else {}
+
+
+class ClawdbotPanelServiceApiView(HomeAssistantView):
+    """Authenticated API bridge for panel-only internal handlers.
+
+    This keeps runtime/UI capabilities off the HA Actions surface while preserving
+    existing handler implementations.
+    """
+
+    url = "/api/clawdbot/panel_service"
+    name = "api:clawdbot:panel_service"
+    requires_auth = True
+
+    async def post(self, request):
+        from aiohttp import web
+
+        hass = request.app["hass"]
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+
+        service = data.get("service")
+        payload = data.get("data") if isinstance(data.get("data"), dict) else {}
+        if not isinstance(service, str) or not service.strip():
+            return web.json_response({"ok": False, "error": "service is required"}, status=400)
+
+        rt = _runtime(hass)
+        handlers = rt.get("panel_service_handlers") if isinstance(rt, dict) else None
+        if not isinstance(handlers, dict):
+            return web.json_response({"ok": False, "error": "panel handlers not initialized"}, status=503)
+
+        fn = handlers.get(service.strip())
+        if not callable(fn):
+            return web.json_response({"ok": False, "error": f"unsupported service: {service}"}, status=404)
+
+        call = _PanelInternalCall(hass, payload)
+        try:
+            result = await fn(call)
+            return web.json_response({"ok": True, "result": result})
+        except HomeAssistantError as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=400)
+        except Exception as e:
+            _LOGGER.exception("panel_service failed: %s", service)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
 
 
 class ClawdbotMappingApiView(HomeAssistantView):
@@ -3482,36 +3547,6 @@ class ClawdbotSessionsSpawnApiView(HomeAssistantView):
         return web.json_response({"ok": True, "result": res})
 
 
-
-    url = "/api/clawdbot/sessions_send"
-    name = "api:clawdbot:sessions_send"
-    requires_auth = True
-
-    async def post(self, request):
-        from aiohttp import web
-
-        hass = request.app["hass"]
-        session, gateway_origin, token, session_key, err = _runtime_gateway_parts_http(hass)
-        if err:
-            return web.json_response({"ok": False, "error": err}, status=400)
-
-        try:
-            data = await request.json()
-        except Exception:
-            data = {}
-        if not isinstance(data, dict):
-            data = {}
-        session_key = data.get("session_key") or data.get("sessionKey")
-        message = data.get("message")
-        if not session_key or not message:
-            return web.json_response({"ok": False, "error": "session_key and message required"}, status=400)
-
-        payload = {"tool": "sessions_send", "args": {"sessionKey": str(session_key), "message": str(message)}}
-        res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
-        return web.json_response({"ok": True, "result": res})
-
-
-
 def _compute_house_memory_from_states(states: dict, mapping: dict | None = None) -> dict:
     """Heuristic summary derived from HA entity ids/names (+ optional user mapping).
 
@@ -3931,6 +3966,7 @@ async def async_setup(hass, config):
     try:
         hass.http.register_view(ClawdbotPanelView)
         hass.http.register_view(ClawdbotPanelJsView)
+        hass.http.register_view(ClawdbotPanelServiceApiView)
         hass.http.register_view(ClawdbotMappingApiView)
         hass.http.register_view(ClawdbotPanelSelfTestApiView)
         hass.http.register_view(ClawdbotHealthApiView)
@@ -4666,12 +4702,93 @@ async def async_setup(hass, config):
         return {"ok": True, "session_key": key, "items": items}
 
     async def handle_chat_list_sessions(call):
+        # Source of truth: gateway sessions_list (not local HA store),
+        # then merge local labels as fallback/augmentation.
+        out: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def _add_item(key: Any, label: Any = None):
+            try:
+                k = str(key or "").strip()
+            except Exception:
+                k = ""
+            if not k or k in seen:
+                return
+            entry: dict[str, Any] = {"key": k}
+            if isinstance(label, str) and label.strip():
+                entry["label"] = label.strip()
+            out.append(entry)
+            seen.add(k)
+
+        # 1) Gateway list (preferred)
+        try:
+            session, gateway_origin, token, _default_session = _runtime_gateway_parts(hass)
+            limit = 50
+            try:
+                limit = int(call.data.get("limit", 50))
+            except Exception:
+                limit = 50
+            limit = max(1, min(limit, 200))
+
+            payload = {"tool": "sessions_list", "args": {"limit": limit, "messageLimit": 1}}
+            res = await _gw_post(session, gateway_origin + "/tools/invoke", token, payload)
+
+            raw = res
+            for _ in range(4):
+                if isinstance(raw, dict) and isinstance(raw.get("result"), (dict, list)):
+                    raw = raw.get("result")
+                else:
+                    break
+
+            if isinstance(raw, dict) and isinstance(raw.get("content"), list):
+                try:
+                    import json
+
+                    txt = raw.get("content")[0].get("text") if raw.get("content") else None
+                    if isinstance(txt, str) and txt.strip().startswith("{"):
+                        parsed = json.loads(txt)
+                        if isinstance(parsed, dict):
+                            raw = parsed
+                except Exception:
+                    pass
+
+            sessions_arr = []
+            if isinstance(raw, list):
+                sessions_arr = raw
+            elif isinstance(raw, dict):
+                for k in ("sessions", "items", "data", "result"):
+                    v = raw.get(k)
+                    if isinstance(v, list):
+                        sessions_arr = v
+                        break
+                    if isinstance(v, dict):
+                        vv = v.get("sessions") or v.get("items")
+                        if isinstance(vv, list):
+                            sessions_arr = vv
+                            break
+
+            for s in sessions_arr:
+                if not isinstance(s, dict):
+                    continue
+                key = s.get("sessionKey") or s.get("session_key") or s.get("key") or s.get("id")
+                label = s.get("label") or s.get("name") or s.get("displayName")
+                _add_item(key, label)
+        except Exception:
+            _LOGGER.debug("chat_list_sessions: gateway listing failed", exc_info=True)
+
+        # 2) Merge local known sessions as fallback
         cfg = hass.data.get(DOMAIN, {})
         sessions = cfg.get("chat_sessions")
         items = sessions.get("items") if isinstance(sessions, dict) else []
-        if not isinstance(items, list):
-            items = []
-        return {"ok": True, "items": items}
+        if isinstance(items, list):
+            for it in items:
+                if isinstance(it, dict):
+                    _add_item(it.get("key") or it.get("session_key") or it.get("sessionKey"), it.get("label") or it.get("name"))
+
+        # 3) Always include configured default session
+        _add_item(_runtime(hass).get("session_key") or DEFAULT_SESSION_KEY)
+
+        return {"ok": True, "items": out}
 
     async def handle_session_status_get(call):
         hass = call.hass
@@ -7509,6 +7626,50 @@ async def async_setup(hass, config):
             "integration_file": __file__,
             "services": sorted(list(services.keys())),
         }
+
+    # Panel-internal bridge handlers (kept off HA Actions surface).
+    runtime["panel_service_handlers"] = {
+        # Setup / connectivity
+        "build_info": handle_build_info,
+        "set_connection_overrides": handle_set_connection_overrides,
+        "reset_connection_overrides": handle_reset_connection_overrides,
+        "set_mapping": handle_set_mapping,
+        "notify_event": handle_notify_event,
+        "gateway_test": handle_gateway_test,
+        # Chat / sessions
+        "chat_append": handle_chat_append,
+        "chat_send": handle_chat_send,
+        "chat_poll": handle_chat_poll,
+        "chat_history_delta": handle_chat_history_delta,
+        "chat_new_session": handle_chat_new_session,
+        "chat_list_sessions": handle_chat_list_sessions,
+        "session_status_get": handle_session_status_get,
+        # Theme / setup options
+        "theme_set": handle_theme_set,
+        "theme_reset": handle_theme_reset,
+        "theme_list": handle_theme_list,
+        "setup_options_list": handle_setup_options_list,
+        "setup_option_set": handle_setup_option_set,
+        "setup_option_reset": handle_setup_option_reset,
+        # Cockpit derived sensors
+        "derived_sensors_status": handle_derived_sensors_status,
+        "derived_sensors_suggest": handle_derived_sensors_suggest,
+        "derived_sensors_set_enabled": handle_derived_sensors_set_enabled,
+        # Agent / avatar
+        "agent_state_get": handle_agent_state_get,
+        "agent_state_set": handle_agent_state_set,
+        "agent_state_reset": handle_agent_state_reset,
+        "agent_prompt": handle_agent_prompt,
+        "journal_list": handle_journal_list,
+        "journal_append": handle_journal_append,
+        "avatar_prompt_set": handle_avatar_prompt_set,
+        "avatar_generate_dispatch": handle_avatar_generate_dispatch,
+        "avatar_apply": handle_avatar_apply,
+        # TTS / HA control
+        "tts_vibevoice_health": handle_tts_vibevoice_health,
+        "tts_vibevoice": handle_tts_vibevoice,
+        "ha_call_service": handle_ha_call_service,
+    }
 
     hass.services.async_register(DOMAIN, "build_info", handle_build_info, supports_response=SupportsResponse.ONLY)
     # TTS (AimlAPI VibeVoice)
