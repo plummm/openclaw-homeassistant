@@ -321,8 +321,7 @@ PANEL_JS = r"""
       for (let i = 0; i < parts.length; i++){
         const seg = escapeHtml(parts[i]);
         if (i % 2 === 0){
-          html += seg.replaceAll('
-', '<br/>');
+          html += seg.replaceAll('\\n', '<br/>');
         } else {
           html += `<pre><code>${seg}</code></pre>`;
         }
