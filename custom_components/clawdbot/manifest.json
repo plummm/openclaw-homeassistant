@@ -1,7 +1,7 @@
 {
   "domain": "clawdbot",
   "name": "OpenClaw",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "documentation": "https://github.com/plummm/openclaw-homeassistant",
   "issue_tracker": "https://github.com/plummm/openclaw-homeassistant/issues",
   "requirements": [],
