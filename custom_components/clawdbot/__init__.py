@@ -6526,14 +6526,17 @@ async def async_setup(hass, config):
 
         mood = call.data.get("mood")
         title = call.data.get("title")
-        body = call.data.get("body")
+        # Back-compat: the service schema calls this field "text".
+        body = call.data.get("text")
+        if body is None:
+            body = call.data.get("body")
         source = call.data.get("source")
 
         if body is None:
-            raise HomeAssistantError("body is required")
+            raise HomeAssistantError("text is required")
         body = str(body)
         if not body.strip():
-            raise HomeAssistantError("body is required")
+            raise HomeAssistantError("text is required")
 
         import datetime as _dt
         now = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
