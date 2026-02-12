@@ -2702,6 +2702,86 @@ class ClawdbotPanelSelfTestApiView(HomeAssistantView):
 
 
 
+
+class ClawdbotHealthApiView(HomeAssistantView):
+    """Public-ish health endpoint for the panel (auth required).
+
+    The panel historically calls /api/clawdbot/health. Keep this for backwards compatibility.
+    """
+
+    url = "/api/clawdbot/health"
+    name = "api:clawdbot:health"
+    requires_auth = True
+
+    async def get(self, request):
+        from aiohttp import web
+        hass = request.app["hass"]
+        rt = _runtime(hass)
+        # minimal, token-safe state for UI gating
+        errors = []
+        if not rt.get("gateway_origin"):
+            errors.append("gateway_url_missing")
+        if not rt.get("token"):
+            errors.append("token_missing")
+        return web.json_response({
+            "ok": True,
+            "configured": bool(rt.get("gateway_origin") and rt.get("token")),
+            "gateway_origin": rt.get("gateway_origin"),
+            "session_key": rt.get("session_key"),
+            "has_token": bool(rt.get("token")),
+            "errors": errors,
+            "panel_build_id": PANEL_BUILD_ID,
+            "integration_build_id": INTEGRATION_BUILD_ID,
+        })
+
+
+class ClawdbotPanelStateApiView(HomeAssistantView):
+    """Panel runtime snapshot for backwards compatibility.
+
+    Existing panel JS expects /api/clawdbot/panel_state.
+    """
+
+    url = "/api/clawdbot/panel_state"
+    name = "api:clawdbot:panel_state"
+    requires_auth = True
+
+    async def get(self, request):
+        from aiohttp import web
+        hass = request.app["hass"]
+        cfg = hass.data.get(DOMAIN, {})
+        rt = _runtime(hass)
+        # Never include token; expose only has_token
+        return web.json_response({
+            "ok": True,
+            "has_token": bool(rt.get("token")),
+            "gateway_origin": rt.get("gateway_origin"),
+            "session_key": rt.get("session_key"),
+            "mapping": cfg.get("mapping", {}) or {},
+            "house_memory": cfg.get("house_memory", {}) or {},
+            "build": {"panel": PANEL_BUILD_ID, "integration": INTEGRATION_BUILD_ID},
+        })
+
+
+class ClawdbotBuildInfoApiView(HomeAssistantView):
+    """HTTP build_info for backwards compatibility (panel sometimes calls this)."""
+
+    url = "/api/clawdbot/build_info"
+    name = "api:clawdbot:build_info"
+    requires_auth = True
+
+    async def get(self, request):
+        from aiohttp import web
+        hass = request.app["hass"]
+        services = hass.services.async_services().get(DOMAIN, {})
+        rt = _runtime(hass)
+        return web.json_response({
+            "ok": True,
+            "panel_build_id": PANEL_BUILD_ID,
+            "integration_build_id": INTEGRATION_BUILD_ID,
+            "gateway_origin": rt.get("gateway_origin"),
+            "session_key": rt.get("session_key"),
+            "services": sorted(list(services.keys())),
+        })
 class ClawdbotTtsVibevoiceApiView(HomeAssistantView):
     """Same-origin authenticated TTS audio fetch for VibeVoice (LocalAI proxy)."""
 
@@ -3796,6 +3876,9 @@ async def async_setup(hass, config):
         hass.http.register_view(ClawdbotPanelJsView)
         hass.http.register_view(ClawdbotMappingApiView)
         hass.http.register_view(ClawdbotPanelSelfTestApiView)
+        hass.http.register_view(ClawdbotHealthApiView)
+        hass.http.register_view(ClawdbotPanelStateApiView)
+        hass.http.register_view(ClawdbotBuildInfoApiView)
         hass.http.register_view(ClawdbotSttWhisperApiView)
         hass.http.register_view(ClawdbotTtsVibevoiceApiView)
         hass.http.register_view(ClawdbotAvatarPngView)
