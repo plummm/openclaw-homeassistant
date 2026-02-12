@@ -455,6 +455,30 @@ PANEL_JS = r"""
     });
   }
 
+  function formatError(err){
+    try {
+      if (err == null) return 'unknown error';
+      if (typeof err === 'string') return err;
+      const parts = [];
+      const message = err.message || (err.error && err.error.message) || '';
+      const status = err.status ?? err.code ?? (err.error && err.error.code);
+      const body = (err.body !== undefined) ? err.body : (err.error && err.error.body);
+      if (message) parts.push(`message=${message}`);
+      if (status !== undefined && status !== null) parts.push(`status=${status}`);
+      if (body !== undefined && body !== null) {
+        if (typeof body === 'string') parts.push(`body=${body}`);
+        else {
+          try { parts.push(`body=${JSON.stringify(body)}`); } catch(_e) {}
+        }
+      }
+      if (!parts.length) {
+        try { return JSON.stringify(err); } catch(_e) {}
+      }
+      return parts.join(' | ');
+    } catch(_e){
+      try { return String(err); } catch(_e2) { return 'unknown error'; }
+    }
+  }
 
 
   function setTyping(on){
@@ -1612,12 +1636,19 @@ async function fetchStatesRest(hass){
     if (btnReset) btnReset.onclick = () => saveConnectionOverrides('reset');
 
     qs('#btnGatewayTest').onclick = async () => {
-      qs('#gwTestResult').textContent = 'running…';
+      const resultEl = qs('#gwTestResult');
+      if (resultEl) resultEl.textContent = 'running… (via HA backend)';
       try{
-        await callService('clawdbot','gateway_test',{});
-        qs('#gwTestResult').textContent = 'triggered';
+        // This executes inside Home Assistant backend with current runtime overrides.
+        await callService('clawdbot','tools_invoke',{
+          tool: 'sessions_list',
+          args: { limit: 1 },
+        });
+        if (resultEl) resultEl.textContent = 'ok: gateway reachable';
       } catch(e){
-        qs('#gwTestResult').textContent = 'error: ' + String(e);
+        const details = formatError(e);
+        if (resultEl) resultEl.textContent = 'error: ' + details;
+        try { console.error('[clawdbot] gateway test failed', e); } catch(_e) {}
       }
     };
 
@@ -2189,9 +2220,10 @@ PANEL_HTML = """<!doctype html>
         </div>
       </div>
       <div class=\"row\" style=\"margin-top:10px\">
-        <button class=\"btn primary\" id=\"btnGatewayTest\">Test gateway</button>
+        <button class=\"btn primary\" id=\"btnGatewayTest\">Test gateway (HA backend)</button>
         <span class=\"muted\" id=\"gwTestResult\"></span>
       </div>
+      <div class=\"muted\" style=\"margin-top:6px\">Uses Home Assistant backend with current gateway_url/session_key overrides (not a direct browser fetch).</div>
 
       <div style=\"margin-top:14px\">
         <h2 style=\"margin:0 0 8px 0;font-size:15px\">Dynamic setup options</h2>
