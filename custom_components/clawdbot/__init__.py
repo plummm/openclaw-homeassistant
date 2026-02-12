@@ -5832,7 +5832,7 @@ async def async_setup(hass, config):
     except Exception:
         _LOGGER.exception("Failed to start agent0 history sampler")
 
-    # NOTE: action-surface reduction (Captain request): removed agent0_* and chat_* services
+    # Keep internal-heavy services off by default, but preserve runtime-required panel/chat services.
     # hass.services.async_register(DOMAIN, "agent0_get_context", handle_agent0_get_context, supports_response=SupportsResponse.ONLY)
     # hass.services.async_register(DOMAIN, "agent0_history_stats", handle_agent0_history_stats, supports_response=SupportsResponse.ONLY)
 
@@ -5848,10 +5848,10 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, SERVICE_HA_CALL_SERVICE, handle_ha_call_service)
     # hass.services.async_register(DOMAIN, SERVICE_CREATE_DUMMY_ENTITIES, handle_create_dummy_entities)
     # hass.services.async_register(DOMAIN, SERVICE_CLEAR_DUMMY_ENTITIES, handle_clear_dummy_entities)
-    # hass.services.async_register(DOMAIN, "chat_append", handle_chat_append)
+    hass.services.async_register(DOMAIN, "chat_append", handle_chat_append)
     # hass.services.async_register(DOMAIN, SERVICE_CHAT_FETCH, handle_chat_fetch)
-    # hass.services.async_register(DOMAIN, SERVICE_CHAT_SEND, handle_chat_send)
-    # hass.services.async_register(DOMAIN, SERVICE_CHAT_HISTORY_DELTA, handle_chat_history_delta, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, SERVICE_CHAT_SEND, handle_chat_send)
+    hass.services.async_register(DOMAIN, SERVICE_CHAT_HISTORY_DELTA, handle_chat_history_delta, supports_response=SupportsResponse.ONLY)
 
     # hass.services.async_register(DOMAIN, "chat_new_session", handle_chat_new_session, supports_response=SupportsResponse.ONLY)
     # hass.services.async_register(DOMAIN, "chat_list_sessions", handle_chat_list_sessions, supports_response=SupportsResponse.ONLY)
@@ -7489,12 +7489,11 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, "tts_vibevoice", handle_tts_vibevoice, supports_response=SupportsResponse.OPTIONAL)
 
 
-    # Action-surface reduction (Captain request): remove session_* and chat_poll services
-    # hass.services.async_register(DOMAIN, SERVICE_SESSIONS_LIST, handle_sessions_list, supports_response=SupportsResponse.ONLY)
-    # hass.services.async_register(DOMAIN, SERVICE_SESSIONS_SPAWN, handle_sessions_spawn, supports_response=SupportsResponse.ONLY)
-    # hass.services.async_register(DOMAIN, SERVICE_SESSION_STATUS_GET, handle_session_status_get, supports_response=SupportsResponse.ONLY)
-    # _LOGGER.info("Registering service: %s.%s", DOMAIN, SERVICE_CHAT_POLL)
-    # hass.services.async_register(DOMAIN, SERVICE_CHAT_POLL, handle_chat_poll)
+    # Keep panel/runtime compatibility: expose session helpers + chat poll.
+    hass.services.async_register(DOMAIN, SERVICE_SESSIONS_LIST, handle_sessions_list, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, SERVICE_SESSIONS_SPAWN, handle_sessions_spawn, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, SERVICE_SESSION_STATUS_GET, handle_session_status_get, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, SERVICE_CHAT_POLL, handle_chat_poll)
 
     _LOGGER.info(
         "Clawdbot services registered (%s.%s, %s.%s, %s.%s, %s.%s)",
