@@ -2101,7 +2101,7 @@ PANEL_HTML = """<!doctype html>
   </div>
 
   <script type=\"application/json\" id=\"clawdbot-config\">__CONFIG_JSON__</script>
-  <script src=\"/local/clawdbot-panel.js?v=__PANEL_BUILD_ID__\"></script>
+  <script src=\"/clawdbot-panel.js?v=__PANEL_BUILD_ID__\"></script>
   </script>
 
   <div class=\"tabs\" style=\"background:linear-gradient(135deg, color-mix(in srgb, var(--claw-bg-1) 80%, transparent), color-mix(in srgb, var(--claw-bg-2) 75%, transparent));border:1px solid color-mix(in srgb, var(--cb-border) 60%, var(--claw-accent-a) 12%);box-shadow:0 14px 34px rgba(0,0,0,.10);backdrop-filter: blur(10px);" >
@@ -7441,7 +7441,7 @@ async def async_setup(hass, config):
         return {
             "ok": True,
             # Build ids:
-            # - panel_build_id: used for /local/clawdbot-panel.js?v=...
+            # - panel_build_id: used for /clawdbot-panel.js?v=...
             # - integration_build_id: python-side build stamp (commit sha)
             "panel_build_id": PANEL_BUILD_ID,
             "integration_build_id": INTEGRATION_BUILD_ID,
