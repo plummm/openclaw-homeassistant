@@ -176,8 +176,8 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "v0.2.16.175"
-INTEGRATION_BUILD_ID = "v0.2.16"
+PANEL_BUILD_ID = "v0.2.17.176"
+INTEGRATION_BUILD_ID = "v0.2.17"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -7000,6 +7000,21 @@ async def async_setup(hass, config):
 
         reasons: list[str] = []
 
+        if isinstance(mood, str) and mood.strip().lower() in {"unknown", "none", "null", "n/a", "-", "—"}:
+            mood = None
+            reasons.append("profile mood is sentinel/unknown; deriving live state")
+
+        # Guard against stale profile text that just mirrors an old journal body.
+        if (
+            isinstance(desc, str)
+            and latest is not None
+            and mood is None
+            and isinstance(latest.get("body"), str)
+            and desc.strip() == str(latest.get("body")).strip()[:200]
+        ):
+            desc = None
+            reasons.append("profile description mirrors stale journal fallback; deriving live state")
+
         rt = _runtime(hass)
         oc = rt.get("openclaw", {}) if isinstance(rt, dict) else {}
         gw_connected = oc.get("gateway_connected")
@@ -7049,9 +7064,11 @@ async def async_setup(hass, config):
             mood = "unknown"
             reasons.append("live mood unavailable")
 
+        mood_raw_live = prof_raw.get("mood") if isinstance(prof_raw.get("mood"), str) else ""
         profile_live = bool(
-            isinstance(prof_raw.get("mood"), str)
-            and prof_raw.get("mood").strip()
+            isinstance(mood_raw_live, str)
+            and mood_raw_live.strip()
+            and mood_raw_live.strip().lower() not in {"unknown", "none", "null", "n/a", "-", "—"}
             and isinstance(prof_raw.get("description"), str)
             and prof_raw.get("description").strip()
         )
