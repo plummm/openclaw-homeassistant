@@ -1607,7 +1607,7 @@ window.__clawdbotPanelInitError = null;
   }
 
   let _agentAutoRefreshTimer = null;
-  let _agentStateSubUnsub = null;
+  let _agentStateSubUnsubs = [];
   let _agentRefreshInFlight = false;
   let _agentLastRefreshMs = 0;
   let _agentLastEventMs = 0;
@@ -1672,6 +1672,7 @@ window.__clawdbotPanelInitError = null;
       const r = data && data.result ? data.result : data;
 
       if (r && r.ok === false) {
+        _agentLastRefreshMs = Date.now();
         const reason = r.error ? String(r.error) : 'live agent state unavailable';
         const prof = (r && r.profile && typeof r.profile === 'object') ? r.profile : {};
         applyProfileUi(prof, reason);
@@ -1686,10 +1687,8 @@ window.__clawdbotPanelInitError = null;
         prof.mood = String(latest.mood).trim().slice(0, 24);
         fallbackReason = fallbackReason || 'profile mood unavailable; using latest journal mood';
       }
-      if ((!prof.description || !String(prof.description).trim()) && latest && latest.body) {
-        prof.description = String(latest.body).trim().slice(0, 200);
-        fallbackReason = fallbackReason || 'profile description unavailable; using latest journal';
-      }
+      // Description fallback should come from backend-derived live/runtime state,
+      // not a stale journal body snapshot.
       if ((!prof.updated_ts || !String(prof.updated_ts).trim()) && latest && latest.ts) {
         prof.updated_ts = String(latest.ts).trim();
         fallbackReason = fallbackReason || 'profile timestamp unavailable; using latest journal ts';
@@ -1702,8 +1701,10 @@ window.__clawdbotPanelInitError = null;
         fallbackReason = fallbackReason || 'live self-description unavailable';
       }
 
+      _agentLastRefreshMs = Date.now();
       applyProfileUi(prof, fallbackReason);
     } catch(e){
+      _agentLastRefreshMs = Date.now();
       const msg = String((e && (e.message || e)) || 'unknown error').slice(0, 140);
       applyProfileUi({}, `refresh failed: ${msg}`);
     }
@@ -1770,18 +1771,13 @@ window.__clawdbotPanelInitError = null;
       }
     }
 
-    // Mood: use the agent-managed profile mood (do NOT override with local heuristics)
+    // Auto theme on mood changes (if enabled)
     let mood = null;
     try{
       const prof = (window.__CLAWDBOT_CONFIG__ || {}).agent_profile || {};
-      if (prof && prof.mood) mood = String(prof.mood);
+      if (prof && prof.mood) mood = String(prof.mood).trim().toLowerCase();
     } catch(e){}
     if (!mood) mood = 'calm';
-
-    const moodEl = document.getElementById('agentMood');
-    if (moodEl) moodEl.textContent = `· mood: ${mood}`;
-
-    // Auto theme on mood changes (if enabled)
     try{
       const cfg2 = (window.__CLAWDBOT_CONFIG__ || {});
       if (cfg2.theme && cfg2.theme.auto) {
@@ -1835,19 +1831,34 @@ window.__clawdbotPanelInitError = null;
     } catch(e){}
 
     try{
-      if (!_agentStateSubUnsub) {
+      if (!_agentStateSubUnsubs || !_agentStateSubUnsubs.length) {
         const { conn } = await getHass();
         if (conn && conn.subscribeEvents) {
-          _agentStateSubUnsub = await conn.subscribeEvents(async (_ev) => {
+          const onAgentSignal = async (_ev) => {
             try{
               _agentEventCount += 1;
               _agentLastEventMs = Date.now();
             } catch(e){}
             try{ await refreshNow(); }catch(e){}
-          }, 'clawdbot_agent_state_changed');
+          };
+          const evTypes = [
+            'clawdbot_agent_state_changed',
+            'openclaw_journal_appended',
+            'openclaw_health_changed',
+          ];
+          _agentStateSubUnsubs = [];
+          for (const evType of evTypes) {
+            try{
+              const unsub = await conn.subscribeEvents(onAgentSignal, evType);
+              if (typeof unsub === 'function') _agentStateSubUnsubs.push(unsub);
+            } catch(e){}
+          }
         }
       }
     } catch(e){}
+
+    // Mark one post-bind refresh immediately so live meta reflects current timestamp.
+    try{ await refreshNow(); } catch(e){}
 
     // Visualizer
     try{ vizInit(); if (_vizOn) vizDraw(); } catch(e){}

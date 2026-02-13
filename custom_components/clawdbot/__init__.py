@@ -176,8 +176,8 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "v0.2.15.174"
-INTEGRATION_BUILD_ID = "v0.2.15"
+PANEL_BUILD_ID = "v0.2.16.175"
+INTEGRATION_BUILD_ID = "v0.2.16"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -7000,22 +7000,38 @@ async def async_setup(hass, config):
 
         reasons: list[str] = []
 
+        rt = _runtime(hass)
+        oc = rt.get("openclaw", {}) if isinstance(rt, dict) else {}
+        gw_connected = oc.get("gateway_connected")
+        gw_latency = oc.get("gateway_latency_ms")
+
         if not mood and latest is not None:
             jm = latest.get("mood")
             if isinstance(jm, str) and jm.strip():
                 mood = jm.strip()[:24]
                 reasons.append("profile mood unavailable; using latest journal mood")
 
-        if not desc and latest is not None:
-            jb = latest.get("body")
-            if isinstance(jb, str) and jb.strip():
-                desc = jb.strip()[:200]
-                reasons.append("profile description unavailable; using latest journal body")
+        if not mood:
+            if gw_connected is False:
+                mood = "degraded"
+                reasons.append("profile mood unavailable; derived from gateway health (offline)")
+            elif gw_connected is True:
+                mood = "calm"
+                reasons.append("profile mood unavailable; derived from gateway health (online)")
+
+        if not desc:
+            status_text = "gateway offline" if gw_connected is False else ("gateway online" if gw_connected is True else "gateway status unknown")
+            lat_text = f"{int(gw_latency)}ms" if isinstance(gw_latency, int) else "—"
+            desc = f"Live self-description unavailable; {status_text} · latency {lat_text} · journal entries {len(items)}"
+            reasons.append("profile description unavailable; derived from runtime health")
 
         if not source and latest is not None:
             js = latest.get("source")
             if isinstance(js, str) and js.strip():
                 source = js.strip()[:40]
+
+        if not source:
+            source = "derived.runtime"
 
         if not updated_ts and latest is not None:
             jt = latest.get("ts")
@@ -7023,19 +7039,15 @@ async def async_setup(hass, config):
                 updated_ts = jt.strip()
                 reasons.append("profile updated_ts unavailable; using latest journal ts")
 
+        if not updated_ts:
+            import datetime as _dt
+
+            updated_ts = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+            reasons.append("profile updated_ts unavailable; using current timestamp")
+
         if not mood:
             mood = "unknown"
             reasons.append("live mood unavailable")
-
-        if not desc:
-            desc = "No live self-description yet."
-            reasons.append("live self-description unavailable")
-
-        if not source:
-            source = "unknown"
-
-        if not updated_ts:
-            updated_ts = "unknown"
 
         profile_live = bool(
             isinstance(prof_raw.get("mood"), str)
