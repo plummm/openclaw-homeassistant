@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import json
 import logging
+import re
 import time
 from typing import Any
 
@@ -177,7 +179,7 @@ OVERRIDES_STORE_VERSION = 1
 
 
 PANEL_BUILD_ID = "v0.2.20.179"
-INTEGRATION_BUILD_ID = "v0.2.20"
+INTEGRATION_BUILD_ID = "v0.2.21"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -4005,12 +4007,64 @@ async def async_setup(hass, config):
                 hass.data[DOMAIN]["agent_state_webhook"] = data
 
             async def _handle_agent_state_webhook(hass, webhook_id, request):
+                raw_body = ""
+                payload = None
+
+                def _extract_marker(payload_obj: Any, raw: str) -> str | None:
+                    try:
+                        if isinstance(payload_obj, dict):
+                            j = payload_obj.get("journal")
+                            if isinstance(j, dict):
+                                t = j.get("title")
+                                b = j.get("body")
+                                if isinstance(t, str) and t.strip():
+                                    if "AUTOFWD" in t or "marker=" in t:
+                                        return t.strip()[:120]
+                                if isinstance(b, str) and b.strip():
+                                    m = re.search(r"marker=([^\s]+)", b)
+                                    if m:
+                                        return str(m.group(1))[:120]
+                    except Exception:
+                        pass
+                    if isinstance(raw, str) and raw:
+                        m = re.search(r"marker=([^\s\"]+)", raw)
+                        if m:
+                            return str(m.group(1))[:120]
+                    return None
+
                 try:
-                    payload = await request.json()
+                    raw_body = await request.text()
                 except Exception:
+                    raw_body = ""
+
+                try:
+                    payload = json.loads(raw_body or "{}")
+                except Exception as e:
+                    marker = _extract_marker(None, raw_body)
+                    _LOGGER.warning(
+                        "agent_state_webhook ingress marker=%s decision=drop reason=invalid_json err=%s raw=%s",
+                        marker,
+                        str(e)[:160],
+                        (raw_body or "")[:1200],
+                    )
                     return Response(status=200)
+
                 if not isinstance(payload, dict):
+                    marker = _extract_marker(payload, raw_body)
+                    _LOGGER.warning(
+                        "agent_state_webhook ingress marker=%s decision=drop reason=payload_not_dict type=%s raw=%s",
+                        marker,
+                        type(payload).__name__,
+                        (raw_body or "")[:1200],
+                    )
                     return Response(status=200)
+
+                marker = _extract_marker(payload, raw_body)
+                _LOGGER.warning(
+                    "agent_state_webhook ingress marker=%s raw=%s",
+                    marker,
+                    (raw_body or "")[:1200],
+                )
 
                 call_data = {
                     "mood": payload.get("mood"),
@@ -4019,6 +4073,18 @@ async def async_setup(hass, config):
                     "source": payload.get("source") or "agent0",
                 }
 
+                journal_attempted = False
+                j = payload.get("journal")
+                if isinstance(j, dict):
+                    b = j.get("body")
+                    journal_attempted = isinstance(b, str) and bool(b.strip())
+
+                _LOGGER.warning(
+                    "agent_state_webhook decision marker=%s decision=accept reason=payload_dict keys=%s",
+                    marker,
+                    sorted(list(payload.keys())),
+                )
+
                 try:
                     class _Call:
                         __slots__ = ("data",)
@@ -4026,8 +4092,21 @@ async def async_setup(hass, config):
                         def __init__(self, data):
                             self.data = data
 
-                    await handle_agent_state_set(_Call(call_data))
-                except Exception:
+                    result = await handle_agent_state_set(_Call(call_data))
+                    appended = bool(isinstance(result, dict) and result.get("journal_appended"))
+                    _LOGGER.warning(
+                        "agent_state_webhook journal_write marker=%s attempted=%s result=%s",
+                        marker,
+                        journal_attempted,
+                        "ok_appended" if appended else "ok_not_appended",
+                    )
+                except Exception as e:
+                    _LOGGER.warning(
+                        "agent_state_webhook journal_write marker=%s attempted=%s result=error err=%s",
+                        marker,
+                        journal_attempted,
+                        str(e)[:240],
+                    )
                     return Response(status=200)
                 return Response(status=200)
 
