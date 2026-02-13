@@ -179,7 +179,7 @@ OVERRIDES_STORE_VERSION = 1
 
 
 PANEL_BUILD_ID = "v0.2.20.179"
-INTEGRATION_BUILD_ID = "v0.2.21"
+INTEGRATION_BUILD_ID = "v0.2.22"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -6945,8 +6945,39 @@ async def async_setup(hass, config):
         import datetime as _dt
         ts = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
+        def _json_safe(v, depth: int = 0):
+            """Convert arbitrary values into JSON-serializable primitives."""
+            if depth > 8:
+                try:
+                    return str(v)
+                except Exception:
+                    return "<unserializable>"
+            if v is None or isinstance(v, (str, int, float, bool)):
+                return v
+            if isinstance(v, (_dt.datetime, _dt.date, _dt.time)):
+                try:
+                    return v.isoformat()
+                except Exception:
+                    return str(v)
+            if isinstance(v, dict):
+                out = {}
+                for k, vv in v.items():
+                    try:
+                        kk = str(k)
+                    except Exception:
+                        kk = "<key>"
+                    out[kk] = _json_safe(vv, depth + 1)
+                return out
+            if isinstance(v, (list, tuple, set)):
+                return [_json_safe(x, depth + 1) for x in v]
+            try:
+                return str(v)
+            except Exception:
+                return "<unserializable>"
+
         # Call HA Assist
         res = None
+        call_error = None
         try:
             # return_response supported on modern HA; fall back if not.
             res = await hass.services.async_call(
@@ -6960,22 +6991,30 @@ async def async_setup(hass, config):
             # Older HA without return_response
             await hass.services.async_call("conversation", "process", svc_data, blocking=True)
             res = {"ok": True}
+        except Exception as e:
+            # Keep side-effect execution/reporting decoupled from response shaping.
+            call_error = str(e)
+            _LOGGER.exception("agent_prompt conversation.process failed")
+            res = {"error": call_error}
 
         # Best-effort extraction
         response_type = None
         speech = None
-        targets = None
+        targets = []
         success_count = 0
         failed_count = 0
+        response_conversation_id = None
         try:
             # Common shapes:
             # {"response": {"response_type": ..., "speech": {"plain": {"speech": "..."}}, "data": {...}}}
             root = res or {}
             r0 = root.get("response") if isinstance(root, dict) else None
+            if isinstance(root, dict) and isinstance(root.get("conversation_id"), str):
+                response_conversation_id = root.get("conversation_id")
             if isinstance(r0, dict):
                 response_type = r0.get("response_type")
                 data = r0.get("data") if isinstance(r0.get("data"), dict) else {}
-                targets = data.get("targets")
+                targets = data.get("targets") if isinstance(data.get("targets"), list) else []
                 sc = data.get("success")
                 fc = data.get("failed")
                 if isinstance(sc, list):
@@ -6992,19 +7031,28 @@ async def async_setup(hass, config):
 
         if not isinstance(response_type, str) or not response_type:
             # fallback heuristics
-            response_type = "error" if (isinstance(res, dict) and res.get("error")) else "action_done"
+            response_type = "error" if (call_error or (isinstance(res, dict) and res.get("error"))) else "action_done"
 
-        attrs = {
-            "text": text_in,
-            "agent_id": (str(agent_id) if isinstance(agent_id, str) else None),
-            "conversation_id": (str(conversation_id) if isinstance(conversation_id, str) else None),
-            "language": (str(language) if isinstance(language, str) else None),
-            "speech": (str(speech)[:800] if isinstance(speech, str) else None),
-            "targets": targets,
-            "success_count": int(success_count),
-            "failed_count": int(failed_count),
-            "ts": ts,
-        }
+        intent_executed = bool(success_count > 0 and failed_count == 0 and response_type != "error")
+
+        attrs = _json_safe(
+            {
+                "text": text_in,
+                "agent_id": (str(agent_id) if isinstance(agent_id, str) else None),
+                "conversation_id": (
+                    response_conversation_id
+                    if isinstance(response_conversation_id, str)
+                    else (str(conversation_id) if isinstance(conversation_id, str) else None)
+                ),
+                "language": (str(language) if isinstance(language, str) else None),
+                "speech": (str(speech)[:800] if isinstance(speech, str) else None),
+                "targets": targets,
+                "success_count": int(success_count),
+                "failed_count": int(failed_count),
+                "intent_executed": intent_executed,
+                "ts": ts,
+            }
+        )
         try:
             _oc_set("sensor.openclaw_last_assist_result", str(response_type)[:40], attrs)
             _oc_fire(
@@ -7017,7 +7065,32 @@ async def async_setup(hass, config):
         except Exception:
             pass
 
-        return {"ok": True, "result": res}
+        # Deterministic response shape for HA response_variable and panel callers.
+        safe_raw = _json_safe(res)
+        error_text = call_error
+        if not error_text and isinstance(safe_raw, dict) and isinstance(safe_raw.get("error"), str):
+            error_text = safe_raw.get("error")
+
+        return {
+            "ok": bool(response_type != "error" and not error_text),
+            "text": text_in,
+            "response_type": str(response_type)[:40],
+            "speech": (str(speech) if isinstance(speech, str) else ""),
+            "intent_executed": intent_executed,
+            "success_count": int(success_count),
+            "failed_count": int(failed_count),
+            "targets": (_json_safe(targets) if isinstance(targets, list) else []),
+            "agent_id": (str(agent_id) if isinstance(agent_id, str) else None),
+            "conversation_id": (
+                response_conversation_id
+                if isinstance(response_conversation_id, str)
+                else (str(conversation_id) if isinstance(conversation_id, str) else None)
+            ),
+            "error": (str(error_text) if isinstance(error_text, str) and error_text else None),
+            "ts": ts,
+            # Compatibility: retain a stable, JSON-safe raw payload for advanced consumers.
+            "result": safe_raw,
+        }
 
     hass.services.async_register(DOMAIN, "journal_list", handle_journal_list, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "agent_prompt", handle_agent_prompt, supports_response=SupportsResponse.OPTIONAL)
