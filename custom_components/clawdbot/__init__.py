@@ -176,8 +176,8 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "a6651c9.173"
-INTEGRATION_BUILD_ID = "a6651c9"
+PANEL_BUILD_ID = "v0.2.14.173"
+INTEGRATION_BUILD_ID = "v0.2.14"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
