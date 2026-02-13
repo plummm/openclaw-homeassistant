@@ -176,8 +176,8 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "v0.2.18.177"
-INTEGRATION_BUILD_ID = "v0.2.18"
+PANEL_BUILD_ID = "v0.2.19.178"
+INTEGRATION_BUILD_ID = "v0.2.19"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -7769,6 +7769,7 @@ async def async_setup(hass, config):
         "agent_state_get": handle_agent_state_get,
         "agent_state_set": handle_agent_state_set,
         "agent_state_reset": handle_agent_state_reset,
+        "agent_state_webhook_get": handle_agent_state_webhook_get,
         "agent_prompt": handle_agent_prompt,
         "journal_list": handle_journal_list,
         "journal_append": handle_journal_append,
