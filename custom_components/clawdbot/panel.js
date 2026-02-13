@@ -1781,15 +1781,6 @@ window.__clawdbotPanelInitError = null;
     const moodEl = document.getElementById('agentMood');
     if (moodEl) moodEl.textContent = `· mood: ${mood}`;
 
-    // Apply mood styling to hero card
-    try{
-      const hero = document.getElementById('agentHeroCard');
-      if (hero) {
-        hero.classList.remove('mood-calm','mood-alert','mood-focused','mood-degraded','mood-lost','mood-playful','mood-tired');
-        hero.classList.add('mood-' + mood);
-      }
-    } catch(e){}
-
     // Auto theme on mood changes (if enabled)
     try{
       const cfg2 = (window.__CLAWDBOT_CONFIG__ || {});
