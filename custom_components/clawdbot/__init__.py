@@ -176,8 +176,8 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "v0.2.19.178"
-INTEGRATION_BUILD_ID = "v0.2.19"
+PANEL_BUILD_ID = "v0.2.20.179"
+INTEGRATION_BUILD_ID = "v0.2.20"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -7020,6 +7020,33 @@ async def async_setup(hass, config):
         gw_connected = oc.get("gateway_connected")
         gw_latency = oc.get("gateway_latency_ms")
 
+        opts = cfg.get("setup_options") if isinstance(cfg.get("setup_options"), dict) else {}
+
+        def _opt_value(key: str, default=None):
+            o = opts.get(key)
+            if isinstance(o, dict) and "value" in o:
+                v = o.get("value")
+                if v is not None:
+                    return v
+            if isinstance(o, dict) and "default" in o:
+                return o.get("default")
+            return default
+
+        target_env = str(_opt_value("clawdbot.target_env", "prod") or "prod").strip().lower()
+        if target_env not in {"prod", "test"}:
+            target_env = "prod"
+        base_key = "ha.base_url.prod" if target_env == "prod" else "ha.base_url.test"
+        base_url = _opt_value(base_key)
+        if isinstance(base_url, str):
+            base_url = base_url.strip().rstrip("/")
+        else:
+            base_url = None
+
+        wh = cfg.get("agent_state_webhook") if isinstance(cfg.get("agent_state_webhook"), dict) else {}
+        webhook_id = wh.get("webhook_id") if isinstance(wh.get("webhook_id"), str) else None
+        webhook_hint = f"/api/webhook/{(webhook_id[:8] + '…') if webhook_id else 'missing'}"
+        endpoint_hint = f"{base_url}{webhook_hint}" if base_url else f"{webhook_hint} (set {base_key})"
+
         if not mood and latest is not None:
             jm = latest.get("mood")
             if isinstance(jm, str) and jm.strip():
@@ -7037,8 +7064,31 @@ async def async_setup(hass, config):
         if not desc:
             status_text = "gateway offline" if gw_connected is False else ("gateway online" if gw_connected is True else "gateway status unknown")
             lat_text = f"{int(gw_latency)}ms" if isinstance(gw_latency, int) else "—"
-            desc = f"Live self-description unavailable; {status_text} · latency {lat_text} · journal entries {len(items)}"
+
+            stale_s = None
+            try:
+                import datetime as _dt
+
+                cand_ts = None
+                if isinstance(updated_ts, str) and updated_ts.strip():
+                    cand_ts = updated_ts.strip()
+                elif latest is not None and isinstance(latest.get("ts"), str) and latest.get("ts").strip():
+                    cand_ts = str(latest.get("ts")).strip()
+
+                if cand_ts:
+                    dt_obj = _dt.datetime.fromisoformat(cand_ts.replace("Z", "+00:00"))
+                    now_dt = _dt.datetime.now(tz=_dt.timezone.utc)
+                    stale_s = max(0, int((now_dt - dt_obj).total_seconds()))
+            except Exception:
+                stale_s = None
+
+            stale_txt = f"{stale_s}s" if isinstance(stale_s, int) else "unknown"
+            desc = (
+                f"Live self-description unavailable; source stale {stale_txt}; "
+                f"endpoint {endpoint_hint}; {status_text} · latency {lat_text} · journal entries {len(items)}"
+            )
             reasons.append("profile description unavailable; derived from runtime health")
+            reasons.append(f"sync_hint: source_stale={stale_txt}; endpoint={endpoint_hint}")
 
         if not source and latest is not None:
             js = latest.get("source")
@@ -7086,6 +7136,17 @@ async def async_setup(hass, config):
 
         fallback_reason = "; ".join(dict.fromkeys(reasons)) if reasons else None
 
+        sync_stale_s = None
+        try:
+            import datetime as _dt
+
+            if isinstance(profile.get("updated_ts"), str) and profile.get("updated_ts").strip():
+                dt_obj = _dt.datetime.fromisoformat(str(profile.get("updated_ts")).replace("Z", "+00:00"))
+                now_dt = _dt.datetime.now(tz=_dt.timezone.utc)
+                sync_stale_s = max(0, int((now_dt - dt_obj).total_seconds()))
+        except Exception:
+            sync_stale_s = None
+
         return {
             "ok": True,
             "profile": profile,
@@ -7093,6 +7154,11 @@ async def async_setup(hass, config):
             "fallback_reason": fallback_reason,
             "last_update_ts": profile.get("updated_ts"),
             "latest_journal": latest,
+            "sync_hint": {
+                "target_env": target_env,
+                "endpoint_hint": endpoint_hint,
+                "source_stale_seconds": sync_stale_s,
+            },
         }
 
     async def handle_agent_state_set(call):

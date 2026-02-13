@@ -1619,7 +1619,7 @@ window.__clawdbotPanelInitError = null;
     const metaEl = document.getElementById('agentMeta');
     const liveEl = document.getElementById('agentLiveMeta');
 
-    const applyProfileUi = (prof, fallbackReason = null) => {
+    const applyProfileUi = (prof, fallbackReason = null, syncHint = null) => {
       const p = (prof && typeof prof === 'object') ? prof : {};
       const moodRaw = (typeof p.mood === 'string' && p.mood.trim()) ? p.mood.trim().toLowerCase() : 'unknown';
       const knownMood = ['calm','alert','focused','degraded','lost','playful','tired'].includes(moodRaw) ? moodRaw : 'lost';
@@ -1641,7 +1641,19 @@ window.__clawdbotPanelInitError = null;
       if (descEl) descEl.textContent = descText;
       if (metaEl) {
         const suffix = fallbackReason ? ` · fallback: ${fallbackReason}` : '';
-        metaEl.textContent = `source: ${source} · updated: ${ts}${suffix}`;
+        let syncSuffix = '';
+        try{
+          if (syncHint && typeof syncHint === 'object') {
+            const stale = (syncHint.source_stale_seconds != null && Number.isFinite(Number(syncHint.source_stale_seconds)))
+              ? `${Number(syncHint.source_stale_seconds)}s`
+              : null;
+            const ep = (typeof syncHint.endpoint_hint === 'string' && syncHint.endpoint_hint.trim())
+              ? syncHint.endpoint_hint.trim()
+              : null;
+            if (stale || ep) syncSuffix = ` · sync: ${stale || 'stale ?'}${ep ? ` @ ${ep}` : ''}`;
+          }
+        } catch(e){}
+        metaEl.textContent = `source: ${source} · updated: ${ts}${suffix}${syncSuffix}`;
       }
       if (liveEl) {
         const lr = _agentLastRefreshMs ? new Date(_agentLastRefreshMs).toISOString().slice(11,19) : '—';
@@ -1675,12 +1687,13 @@ window.__clawdbotPanelInitError = null;
         _agentLastRefreshMs = Date.now();
         const reason = r.error ? String(r.error) : 'live agent state unavailable';
         const prof = (r && r.profile && typeof r.profile === 'object') ? r.profile : {};
-        applyProfileUi(prof, reason);
+        applyProfileUi(prof, reason, (r && r.sync_hint && typeof r.sync_hint === 'object') ? r.sync_hint : null);
         return;
       }
 
       const prof = (r && r.profile && typeof r.profile === 'object') ? { ...r.profile } : {};
       const latest = (r && r.latest_journal && typeof r.latest_journal === 'object') ? r.latest_journal : null;
+      const syncHint = (r && r.sync_hint && typeof r.sync_hint === 'object') ? r.sync_hint : null;
       let fallbackReason = (r && typeof r.fallback_reason === 'string' && r.fallback_reason.trim()) ? r.fallback_reason.trim() : null;
 
       if ((!prof.mood || !String(prof.mood).trim()) && latest && latest.mood) {
@@ -1702,7 +1715,7 @@ window.__clawdbotPanelInitError = null;
       }
 
       _agentLastRefreshMs = Date.now();
-      applyProfileUi(prof, fallbackReason);
+      applyProfileUi(prof, fallbackReason, syncHint);
     } catch(e){
       _agentLastRefreshMs = Date.now();
       const msg = String((e && (e.message || e)) || 'unknown error').slice(0, 140);
