@@ -176,8 +176,8 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "7e8a2c1.171"
-INTEGRATION_BUILD_ID = "7e8a2c1"
+PANEL_BUILD_ID = "a6651c9.173"
+INTEGRATION_BUILD_ID = "a6651c9"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -6975,15 +6975,92 @@ async def async_setup(hass, config):
         return {"ok": True, "profile": prof}
 
     async def handle_agent_state_get(call):
+        """Return normalized agent card state with explicit fallback contract.
+
+        Contract:
+        - Never return an empty/broken profile payload.
+        - If live mood/description missing, include fallback reason + last_update_ts.
+        """
         cfg = hass.data.get(DOMAIN, {})
-        prof = cfg.get("agent_profile", {})
-        if not isinstance(prof, dict):
-            prof = {}
+        prof_raw = cfg.get("agent_profile", {})
+        if not isinstance(prof_raw, dict):
+            prof_raw = {}
+
         items = cfg.get("journal", []) or []
         if not isinstance(items, list):
             items = []
         latest = items[-1] if items else None
-        return {"ok": True, "profile": prof, "latest_journal": latest}
+        if not isinstance(latest, dict):
+            latest = None
+
+        mood = prof_raw.get("mood") if isinstance(prof_raw.get("mood"), str) and prof_raw.get("mood").strip() else None
+        desc = prof_raw.get("description") if isinstance(prof_raw.get("description"), str) and prof_raw.get("description").strip() else None
+        source = prof_raw.get("source") if isinstance(prof_raw.get("source"), str) and prof_raw.get("source").strip() else None
+        updated_ts = prof_raw.get("updated_ts") if isinstance(prof_raw.get("updated_ts"), str) and prof_raw.get("updated_ts").strip() else None
+
+        reasons: list[str] = []
+
+        if not mood and latest is not None:
+            jm = latest.get("mood")
+            if isinstance(jm, str) and jm.strip():
+                mood = jm.strip()[:24]
+                reasons.append("profile mood unavailable; using latest journal mood")
+
+        if not desc and latest is not None:
+            jb = latest.get("body")
+            if isinstance(jb, str) and jb.strip():
+                desc = jb.strip()[:200]
+                reasons.append("profile description unavailable; using latest journal body")
+
+        if not source and latest is not None:
+            js = latest.get("source")
+            if isinstance(js, str) and js.strip():
+                source = js.strip()[:40]
+
+        if not updated_ts and latest is not None:
+            jt = latest.get("ts")
+            if isinstance(jt, str) and jt.strip():
+                updated_ts = jt.strip()
+                reasons.append("profile updated_ts unavailable; using latest journal ts")
+
+        if not mood:
+            mood = "unknown"
+            reasons.append("live mood unavailable")
+
+        if not desc:
+            desc = "No live self-description yet."
+            reasons.append("live self-description unavailable")
+
+        if not source:
+            source = "unknown"
+
+        if not updated_ts:
+            updated_ts = "unknown"
+
+        profile_live = bool(
+            isinstance(prof_raw.get("mood"), str)
+            and prof_raw.get("mood").strip()
+            and isinstance(prof_raw.get("description"), str)
+            and prof_raw.get("description").strip()
+        )
+
+        profile = {
+            "mood": str(mood)[:24],
+            "description": str(desc)[:200],
+            "source": str(source)[:40],
+            "updated_ts": str(updated_ts),
+        }
+
+        fallback_reason = "; ".join(dict.fromkeys(reasons)) if reasons else None
+
+        return {
+            "ok": True,
+            "profile": profile,
+            "profile_live": profile_live,
+            "fallback_reason": fallback_reason,
+            "last_update_ts": profile.get("updated_ts"),
+            "latest_journal": latest,
+        }
 
     async def handle_agent_state_set(call):
         """Write agent-managed mood/description and optionally append a journal entry.

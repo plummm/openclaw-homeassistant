@@ -1614,46 +1614,99 @@ window.__clawdbotPanelInitError = null;
   let _agentEventCount = 0;
 
   async function refreshAgentState(){
+    const moodEl = document.getElementById('agentMood');
+    const descEl = document.getElementById('agentDesc');
+    const metaEl = document.getElementById('agentMeta');
+    const liveEl = document.getElementById('agentLiveMeta');
+
+    const applyProfileUi = (prof, fallbackReason = null) => {
+      const p = (prof && typeof prof === 'object') ? prof : {};
+      const moodRaw = (typeof p.mood === 'string' && p.mood.trim()) ? p.mood.trim().toLowerCase() : 'unknown';
+      const knownMood = ['calm','alert','focused','degraded','lost','playful','tired'].includes(moodRaw) ? moodRaw : 'lost';
+      const moodLabel = (knownMood === 'lost' && moodRaw !== 'lost') ? `${moodRaw} (unmapped)` : knownMood;
+
+      const descText = (typeof p.description === 'string' && p.description.trim())
+        ? p.description.trim()
+        : 'No live self-description yet.';
+      const source = (typeof p.source === 'string' && p.source.trim()) ? p.source.trim() : 'unknown';
+      const ts = (typeof p.updated_ts === 'string' && p.updated_ts.trim()) ? p.updated_ts.trim() : 'unknown';
+
+      if (moodEl) {
+        moodEl.textContent = `· mood: ${moodLabel}`;
+        try{
+          moodEl.classList.remove('mood-calm','mood-alert','mood-focused','mood-degraded','mood-lost','mood-playful','mood-tired');
+          moodEl.classList.add('mood-' + knownMood);
+        } catch(e){}
+      }
+      if (descEl) descEl.textContent = descText;
+      if (metaEl) {
+        const suffix = fallbackReason ? ` · fallback: ${fallbackReason}` : '';
+        metaEl.textContent = `source: ${source} · updated: ${ts}${suffix}`;
+      }
+      if (liveEl) {
+        const lr = _agentLastRefreshMs ? new Date(_agentLastRefreshMs).toISOString().slice(11,19) : '—';
+        const le = _agentLastEventMs ? new Date(_agentLastEventMs).toISOString().slice(11,19) : '—';
+        liveEl.textContent = `live: event=${_agentEventCount} (last ${le}) · refresh ${lr} · poll 15s`;
+      }
+
+      try{
+        const hero = document.getElementById('agentHeroCard');
+        if (hero) {
+          hero.classList.remove('mood-calm','mood-alert','mood-focused','mood-degraded','mood-lost','mood-playful','mood-tired');
+          hero.classList.add('mood-' + knownMood);
+        }
+      } catch(e){}
+
+      window.__CLAWDBOT_CONFIG__.agent_profile = {
+        ...(window.__CLAWDBOT_CONFIG__.agent_profile || {}),
+        mood: knownMood,
+        description: descText,
+        source,
+        updated_ts: ts,
+      };
+    };
+
     try{
       const resp = await callServiceResponse('clawdbot','agent_state_get', {});
       const data = (resp && resp.response) ? resp.response : resp;
       const r = data && data.result ? data.result : data;
-      const prof = r && r.profile ? r.profile : null;
-      if (prof) {
-        window.__CLAWDBOT_CONFIG__.agent_profile = prof;
-        const moodEl = document.getElementById('agentMood');
-        const descEl = document.getElementById('agentDesc');
-        const metaEl = document.getElementById('agentMeta');
-        const liveEl = document.getElementById('agentLiveMeta');
-        if (moodEl) {
-          const mood = prof.mood || 'calm';
-          moodEl.textContent = `· mood: ${mood}`;
-          try{
-            moodEl.classList.remove('mood-calm','mood-alert','mood-focused','mood-degraded','mood-lost','mood-playful','mood-tired');
-            moodEl.classList.add('mood-' + mood);
-          } catch(e){}
-        }
-        if (descEl) descEl.textContent = prof.description || '—';
-        if (metaEl) {
-          const src = prof.source ? String(prof.source) : '—';
-          const ts = prof.updated_ts ? String(prof.updated_ts) : '—';
-          metaEl.textContent = `source: ${src} · updated: ${ts}`;
-        }
-        if (liveEl) {
-          const lr = _agentLastRefreshMs ? new Date(_agentLastRefreshMs).toISOString().slice(11,19) : '—';
-          const le = _agentLastEventMs ? new Date(_agentLastEventMs).toISOString().slice(11,19) : '—';
-          liveEl.textContent = `live: event=${_agentEventCount} (last ${le}) · refresh ${lr} · poll 15s`;
-        }
-        try{
-          const hero = document.getElementById('agentHeroCard');
-          const mood = prof.mood ? String(prof.mood) : 'calm';
-          if (hero) {
-            hero.classList.remove('mood-calm','mood-alert','mood-focused','mood-degraded','mood-lost','mood-playful','mood-tired');
-            hero.classList.add('mood-' + mood);
-          }
-        } catch(e){}
+
+      if (r && r.ok === false) {
+        const reason = r.error ? String(r.error) : 'live agent state unavailable';
+        const prof = (r && r.profile && typeof r.profile === 'object') ? r.profile : {};
+        applyProfileUi(prof, reason);
+        return;
       }
-    } catch(e){}
+
+      const prof = (r && r.profile && typeof r.profile === 'object') ? { ...r.profile } : {};
+      const latest = (r && r.latest_journal && typeof r.latest_journal === 'object') ? r.latest_journal : null;
+      let fallbackReason = (r && typeof r.fallback_reason === 'string' && r.fallback_reason.trim()) ? r.fallback_reason.trim() : null;
+
+      if ((!prof.mood || !String(prof.mood).trim()) && latest && latest.mood) {
+        prof.mood = String(latest.mood).trim().slice(0, 24);
+        fallbackReason = fallbackReason || 'profile mood unavailable; using latest journal mood';
+      }
+      if ((!prof.description || !String(prof.description).trim()) && latest && latest.body) {
+        prof.description = String(latest.body).trim().slice(0, 200);
+        fallbackReason = fallbackReason || 'profile description unavailable; using latest journal';
+      }
+      if ((!prof.updated_ts || !String(prof.updated_ts).trim()) && latest && latest.ts) {
+        prof.updated_ts = String(latest.ts).trim();
+        fallbackReason = fallbackReason || 'profile timestamp unavailable; using latest journal ts';
+      }
+      if ((!prof.source || !String(prof.source).trim()) && latest && latest.source) {
+        prof.source = String(latest.source).trim().slice(0, 40);
+      }
+
+      if (!prof.description || !String(prof.description).trim()) {
+        fallbackReason = fallbackReason || 'live self-description unavailable';
+      }
+
+      applyProfileUi(prof, fallbackReason);
+    } catch(e){
+      const msg = String((e && (e.message || e)) || 'unknown error').slice(0, 140);
+      applyProfileUi({}, `refresh failed: ${msg}`);
+    }
   }
 
   async function renderAgentView(){
@@ -1679,20 +1732,7 @@ window.__clawdbotPanelInitError = null;
       const r = await callServiceResponse('clawdbot','derived_sensors_status',{});
       const data = (r && r.response) ? r.response : r;
       const rr = data && data.result ? data.result : data;
-          if (rr && rr.ok === false) {
-            const st = qs('#chatVoiceStatus');
-            const cls = rr.error_class || 'unknown';
-            let msg = rr.message || '';
-            if (cls === 'auth_failed') msg = 'TTS authentication failed';
-            else if (cls === 'out_of_credits') msg = 'Provider out of credits';
-            else if (cls === 'verification_required') msg = 'Provider account requires verification';
-            else if (cls === 'bad_request') msg = 'TTS request rejected';
-            else msg = 'TTS unavailable';
-            if (st) st.textContent = msg;
-            _chatVoiceLoading = false;
-            try{ if (speakBtn) speakBtn.disabled = false; }catch(e){}
-            return;
-          }
+      if (rr && rr.ok === false) throw new Error(String(rr.error || rr.reason || 'derived sensors status unavailable'));
 
       derivedOn = !!(rr && rr.enabled);
       if (derivedPill) {
@@ -1712,20 +1752,7 @@ window.__clawdbotPanelInitError = null;
       const r = await callServiceResponse('clawdbot','gateway_test',{});
       const data = (r && r.response) ? r.response : r;
       const rr = data && data.result ? data.result : data;
-          if (rr && rr.ok === false) {
-            const st = qs('#chatVoiceStatus');
-            const cls = rr.error_class || 'unknown';
-            let msg = rr.message || '';
-            if (cls === 'auth_failed') msg = 'TTS authentication failed';
-            else if (cls === 'out_of_credits') msg = 'Provider out of credits';
-            else if (cls === 'verification_required') msg = 'Provider account requires verification';
-            else if (cls === 'bad_request') msg = 'TTS request rejected';
-            else msg = 'TTS unavailable';
-            if (st) st.textContent = msg;
-            _chatVoiceLoading = false;
-            try{ if (speakBtn) speakBtn.disabled = false; }catch(e){}
-            return;
-          }
+      if (rr && rr.ok === false) throw new Error(String(rr.error || rr.reason || 'gateway test unavailable'));
 
       const ms = rr && rr.latency_ms != null ? Number(rr.latency_ms) : null;
       gatewayOk = true;
@@ -2401,9 +2428,10 @@ window.__clawdbotPanelInitError = null;
     const btn = document.getElementById('btnListen');
     const btnStop = document.getElementById('btnStopListen');
     const statusEl = document.getElementById('listenStatus');
+    const statusElOld = document.getElementById('listenStatusOld');
     const outEl = document.getElementById('transcript');
     if (!btn || !outEl) return;
-    try{ if (statusEl) statusEl.style.display = 'none'; }catch(e){}
+    try{ if (statusEl) statusEl.style.display = 'none'; if (statusElOld) statusElOld.style.display = 'none'; }catch(e){}
 
     let _lastSpeechText = '';
     let _sttClearTimer = null;
@@ -2420,9 +2448,24 @@ window.__clawdbotPanelInitError = null;
     // Hide stop button (single-toggle UX)
     try{ if (btnStop) btnStop.style.display = 'none'; }catch(e){}
 
-    const setCaption = (_txt, _kind='ok') => {
-      // intentionally no-op (Captain requested removing the green listening/status line)
-      try{ if (statusEl) { statusEl.textContent=''; statusEl.style.display='none'; } }catch(e){}
+    const setCaption = (txt, kind='ok') => {
+      const t = String(txt || '').trim();
+      const paint = (el) => {
+        if (!el) return;
+        if (!t) {
+          el.textContent = '';
+          el.style.display = 'none';
+          return;
+        }
+        el.textContent = t;
+        el.style.display = '';
+        el.style.color = (kind === 'bad') ? '#ff6b6b' : (kind === 'warn' ? '#ffb703' : 'var(--secondary-text-color)');
+      };
+      try{ paint(statusEl); paint(statusElOld); } catch(e){}
+      try{
+        const btnOld = document.getElementById('btnListenOld');
+        if (btnOld) btnOld.textContent = btn.textContent || 'Listen';
+      } catch(e){}
     };
 
     const setLine = (txt) => {
@@ -2490,7 +2533,8 @@ window.__clawdbotPanelInitError = null;
             if (_speechActive) {
               _speechActive = false;
               btn.textContent = 'Listen';
-              setCaption('');
+              try{ if (statusElOld) statusElOld.textContent = ''; }catch(e){}
+              setCaption('idle');
               sttReleaseMic();
               vizReleaseMic();
               setTimeout(sttWatchdog, 350);
@@ -2499,7 +2543,8 @@ window.__clawdbotPanelInitError = null;
             }
             _speechActive = true;
             btn.textContent = 'Listening…';
-            setCaption('');
+            try{ if (statusElOld) statusElOld.textContent = 'Listening…'; }catch(e){}
+            setCaption('listening');
 
             // Record a short chunk and send to HA
             sttReleaseMic();
@@ -2607,7 +2652,7 @@ window.__clawdbotPanelInitError = null;
             _speechActive = false;
             try{ _speechRec.stop(); }catch(e){}
             btn.textContent = 'Listen';
-            setCaption('');
+            setCaption('idle');
             const t = _lastSpeechText || getSpeechText();
             if (t) agentAddActivity('voice', t);
             // Ensure mic is released (visualizer/analyser)
@@ -2619,7 +2664,7 @@ window.__clawdbotPanelInitError = null;
           }
 
           setLine('');
-          setCaption('');
+          setCaption('listening');
           _speechActive = true;
           btn.textContent = 'Listening…';
           _speechRec.start();
@@ -2634,6 +2679,18 @@ window.__clawdbotPanelInitError = null;
         }
       };
     }
+
+    // Keep legacy/mobile listen button in sync with main header listen control.
+    try{
+      const btnOld = document.getElementById('btnListenOld');
+      if (btnOld) {
+        btnOld.textContent = btn.textContent || 'Listen';
+        if (!btnOld.__boundMirror) {
+          btnOld.__boundMirror = true;
+          btnOld.onclick = () => { try{ btn.click(); } catch(e){} };
+        }
+      }
+    } catch(e){}
   }
 
   // Release mic if user leaves/locks page
