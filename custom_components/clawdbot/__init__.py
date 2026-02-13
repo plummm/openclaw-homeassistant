@@ -176,8 +176,8 @@ OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
 
-PANEL_BUILD_ID = "v0.2.17.176"
-INTEGRATION_BUILD_ID = "v0.2.17"
+PANEL_BUILD_ID = "v0.2.18.177"
+INTEGRATION_BUILD_ID = "v0.2.18"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -7059,6 +7059,10 @@ async def async_setup(hass, config):
 
             updated_ts = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
             reasons.append("profile updated_ts unavailable; using current timestamp")
+
+        if not mood and source and str(source).strip().lower() not in {"", "unknown", "none", "null", "n/a", "-", "—"}:
+            mood = "calm"
+            reasons.append("live mood unavailable; using source-presence default")
 
         if not mood:
             mood = "unknown"
