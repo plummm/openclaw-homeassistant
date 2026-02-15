@@ -2213,6 +2213,34 @@ PANEL_HTML = """<!doctype html>
         <span class=\"muted\" id=\"autoYamlCopyResult\"></span>
       </div>
     </div>
+
+    <div class=\"card\">
+      <h2>Create a new entity (Draft → Confirm → Install)</h2>
+      <div class=\"muted\">Describe the entity you want, clarify details, preview the spec, then install.</div>
+      <div id=\"createdEntityChat\" class=\"entities\" style=\"margin-top:10px;max-height:220px\"><div class=\"muted\">Start by describing the entity you want to create.</div></div>
+      <div class=\"row\" style=\"margin-top:10px\">
+        <input id=\"createdEntityInput\" placeholder=\"Describe the entity you want to create\"/>
+        <button class=\"btn primary\" id=\"createdEntitySend\">Send</button>
+      </div>
+      <div id=\"createdEntityOptions\" class=\"row\" style=\"margin-top:10px;gap:8px;flex-wrap:wrap\"></div>
+      <div style=\"margin-top:10px\">
+        <div class=\"muted\">YAML preview (install only after confirm):</div>
+        <pre id=\"createdEntityYaml\" style=\"margin:8px 0 0 0;padding:10px 12px;border-radius:12px;border:1px solid var(--cb-border);background:color-mix(in srgb, var(--primary-background-color) 70%, var(--cb-card-bg));overflow:auto;max-height:260px\"><code></code></pre>
+      </div>
+      <div class=\"row\" style=\"margin-top:10px;gap:10px\">
+        <button class=\"btn primary\" id=\"createdEntityConfirm\" disabled>Confirm & Install</button>
+        <span class=\"muted\" id=\"createdEntityStatus\"></span>
+      </div>
+      <div class=\"muted\" id=\"createdEntityResult\" style=\"margin-top:6px\"></div>
+    </div>
+
+    <div class=\"card\">
+      <div class=\"row\" style=\"justify-content:space-between;align-items:center\">
+        <h2 style=\"margin:0\">Installed created entities</h2>
+        <button class=\"btn\" id=\"createdEntityRefresh\">Refresh</button>
+      </div>
+      <div id=\"createdEntityList\" class=\"entities\" style=\"margin-top:10px\"><div class=\"muted\">No created entities yet.</div></div>
+    </div>
   </div>
 
   <div id=\"viewSetup\" class=\"hidden\">
@@ -6239,6 +6267,171 @@ async def async_setup(hass, config):
 
         return {"ok": True, "removed": removed, "ts": _created_entities_now_iso()}
 
+    async def handle_created_entity_compose(call):
+        """Compose a created-entity spec (draft only, no install)."""
+        messages_in = call.data.get("messages")
+        if not isinstance(messages_in, list):
+            raise HomeAssistantError("messages is required")
+
+        # Prepare gateway request
+        session, gateway_origin, token, _default_session_key = _runtime_gateway_parts(hass)
+
+        tool_name = "compose_created_entity"
+        system_msg = (
+            "You are composing a Home Assistant created-entity spec for OpenClaw. "
+            "Do not install or execute anything. "
+            "Return a single tool call with a JSON object matching the EntitySpec schema. "
+            "If information is missing, include clarifications_needed as an array of objects {question, options, recommended?}. "
+            "If nothing is missing, omit clarifications_needed or set it to an empty array."
+        )
+
+        input_msgs = [{"type": "message", "role": "system", "content": system_msg}]
+        for it in messages_in:
+            if not isinstance(it, dict):
+                continue
+            role = it.get("role")
+            content = it.get("content")
+            if not isinstance(role, str) or not isinstance(content, str):
+                continue
+            role = role.strip().lower()
+            if role not in ("user", "assistant", "system"):
+                continue
+            input_msgs.append({"type": "message", "role": role, "content": content})
+
+        payload = {
+            "model": "ignored",
+            "input": input_msgs,
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "description": "Compose a created-entity EntitySpec draft for OpenClaw (no execution).",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string"},
+                                "kind": {"type": "string"},
+                                "entity_id": {"type": "string"},
+                                "inputs": {
+                                    "type": "object",
+                                    "properties": {
+                                        "source_entity_id": {"type": "string"},
+                                        "method": {"type": "string"},
+                                        "window_days": {"type": "number"},
+                                        "unit": {"type": "string"},
+                                    },
+                                    "required": ["source_entity_id", "method"],
+                                    "additionalProperties": False,
+                                },
+                                "clarifications_needed": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "question": {"type": "string"},
+                                            "options": {
+                                                "type": "array",
+                                                "items": {"type": "string"},
+                                            },
+                                            "recommended": {"type": "string"},
+                                        },
+                                        "required": ["question", "options"],
+                                        "additionalProperties": False,
+                                    },
+                                },
+                                "rationale": {"type": "string"},
+                            },
+                            "required": ["title", "kind", "inputs"],
+                            "additionalProperties": False,
+                        },
+                    },
+                }
+            ],
+            "tool_choice": {"type": "function", "function": {"name": tool_name}},
+        }
+
+        res = None
+        call_error = None
+        try:
+            res = await _gw_post(session, gateway_origin + "/v1/responses", token, payload)
+        except Exception as e:
+            call_error = str(e)
+            _LOGGER.exception("created_entity_compose /v1/responses failed")
+            res = {"error": call_error}
+
+        status = res.get("status") if isinstance(res, dict) else None
+        output = res.get("output") if isinstance(res, dict) else None
+
+        spec = None
+        parse_error = None
+
+        if status == "incomplete" and isinstance(output, list):
+            fc = None
+            for item in output:
+                if (
+                    isinstance(item, dict)
+                    and item.get("type") == "function_call"
+                    and item.get("name") == tool_name
+                ):
+                    fc = item
+                    break
+            if fc is None:
+                parse_error = "missing_function_call"
+            else:
+                args_raw = fc.get("arguments")
+                if not isinstance(args_raw, str) or not args_raw.strip():
+                    parse_error = "missing_arguments"
+                else:
+                    try:
+                        args = json.loads(args_raw)
+                    except Exception as e:
+                        args = None
+                        parse_error = f"arguments_json_parse_error: {e}"
+                    if isinstance(args, dict):
+                        spec = args
+                    else:
+                        parse_error = "arguments_not_object"
+        else:
+            if status == "completed":
+                parse_error = "no_tool_call"
+            elif isinstance(status, str) and status:
+                parse_error = f"unexpected_status:{status}"
+            else:
+                parse_error = "invalid_gateway_response"
+
+        def _json_safe(v, depth: int = 0):
+            if depth > 4:
+                return None
+            if v is None or isinstance(v, (str, int, float, bool)):
+                return v
+            if isinstance(v, list):
+                return [_json_safe(x, depth + 1) for x in v[:40]]
+            if isinstance(v, dict):
+                out = {}
+                for k in list(v.keys())[:60]:
+                    try:
+                        out[str(k)] = _json_safe(v.get(k), depth + 1)
+                    except Exception:
+                        out[str(k)] = None
+                return out
+            try:
+                return str(v)
+            except Exception:
+                return None
+
+        ts = dt.datetime.now(tz=dt.timezone.utc).isoformat().replace("+00:00", "Z")
+        ok = bool(spec) and not call_error and not parse_error
+        error = call_error or parse_error
+        return {
+            "ok": ok,
+            "spec": spec,
+            "error": error,
+            "ts": ts,
+            "raw_status": status,
+            "raw_output": _json_safe(output),
+        }
+
     # Auto-start on boot if any created entities exist
     if _created_entities_get_items() and runtime.get("created_entities_task") is None:
         runtime["created_entities_task"] = hass.async_create_task(_created_entities_loop())
@@ -8650,6 +8843,8 @@ async def async_setup(hass, config):
         "tts_vibevoice_health": handle_tts_vibevoice_health,
         "tts_vibevoice": handle_tts_vibevoice,
         "ha_call_service": handle_ha_call_service,
+        # Created entities (panel-only compose)
+        "created_entity_compose": handle_created_entity_compose,
     }
 
     hass.services.async_register(DOMAIN, "build_info", handle_build_info, supports_response=SupportsResponse.ONLY)
