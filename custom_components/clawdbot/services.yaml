@@ -146,6 +146,36 @@ agent_compose_prompt:
       selector:
         text: {}
 
+created_entity_install:
+  name: Install a created entity (spec-driven)
+  description: 'Validate + install a created entity from a strict JSON EntitySpec (safe whitelist). Stores spec in HA storage and registers a state-only sensor entity.'
+  fields:
+    spec:
+      required: true
+      description: 'EntitySpec JSON object (from compose_created_entity tool). Install is gated until clarifications_needed is empty.'
+      selector:
+        object: {}
+
+created_entity_list:
+  name: List created entities
+  description: 'List installed created entities and their current state/attributes.'
+  fields: {}
+
+created_entity_remove:
+  name: Remove a created entity
+  description: 'Remove a created entity by entity_id or spec id.'
+  fields:
+    entity_id:
+      required: false
+      description: 'Entity id to remove (e.g. sensor.clawdbot_pv_next_day_prediction_foo).'
+      selector:
+        entity: {}
+    id:
+      required: false
+      description: 'Spec id to remove (alternative to entity_id).'
+      selector:
+        text: {}
+
 tts_vibevoice_health:
   name: VibeVoice TTS health
   description: 'Check whether the VibeVoice TTS provider is configured and reachable.'

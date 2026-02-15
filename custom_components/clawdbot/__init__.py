@@ -74,6 +74,10 @@ SERVICE_SESSIONS_LIST = "sessions_list"
 SERVICE_SESSIONS_SPAWN = "sessions_spawn"
 SERVICE_SESSION_STATUS_GET = "session_status_get"
 
+SERVICE_CREATED_ENTITY_INSTALL = "created_entity_install"
+SERVICE_CREATED_ENTITY_LIST = "created_entity_list"
+SERVICE_CREATED_ENTITY_REMOVE = "created_entity_remove"
+
 
 async def _gw_post(session: aiohttp.ClientSession, url: str, token: str, payload: dict[str, Any]) -> dict[str, Any]:
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -177,9 +181,12 @@ AVATAR_WEBHOOK_STORE_VERSION = 1
 OVERRIDES_STORE_KEY = "clawdbot_connection_overrides"
 OVERRIDES_STORE_VERSION = 1
 
+CREATED_ENTITIES_STORE_KEY = "clawdbot_created_entities"
+CREATED_ENTITIES_STORE_VERSION = 1
+
 
 PANEL_BUILD_ID = "v0.2.20.179"
-INTEGRATION_BUILD_ID = "v0.2.23"
+INTEGRATION_BUILD_ID = "v0.2.24"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -3849,6 +3856,26 @@ async def async_setup(hass, config):
         }
     )
 
+
+    # Load created entities (Store-backed)
+    created_entities_store = Store(hass, CREATED_ENTITIES_STORE_VERSION, CREATED_ENTITIES_STORE_KEY)
+    created_entities_blob = await created_entities_store.async_load() or {}
+    if not isinstance(created_entities_blob, dict):
+        created_entities_blob = {}
+    created_entities_items = created_entities_blob.get("items")
+    if not isinstance(created_entities_items, list):
+        created_entities_items = []
+
+    runtime.update(
+        {
+            "created_entities_store": created_entities_store,
+            "created_entities_items": created_entities_items,
+            "created_entities_task": None,
+            "created_entities_state": {},
+            "created_entities_last_update": None,
+        }
+    )
+
     # Agent0 history ring-buffer (no recorder dependency)
     agent0_hist_store = Store(hass, AGENT0_HIST_STORE_VERSION, AGENT0_HIST_STORE_KEY)
     agent0_hist_blob = await agent0_hist_store.async_load() or {}
@@ -5748,6 +5775,474 @@ async def async_setup(hass, config):
     # hass.services.async_register(DOMAIN, "derived_sensors_status", handle_derived_sensors_status, supports_response=SupportsResponse.ONLY)
     # hass.services.async_register(DOMAIN, "derived_sensors_suggest", handle_derived_sensors_suggest, supports_response=SupportsResponse.ONLY)
 
+    # --- Created entities (Agent-built Entities) ---
+
+    CREATED_ENTITY_ALLOWED_KINDS = {"pv_next_day_prediction"}
+    CREATED_ENTITY_PV_ALLOWED_METHODS = {"mean_last_n_days", "weighted_mean_last_n_days", "yesterday"}
+    CREATED_ENTITY_PV_DEFAULT_WINDOW_DAYS = 7
+
+    def _created_entities_now_iso() -> str:
+        import datetime as _dt
+
+        return _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+    def _created_entities_slug(text: str) -> str:
+        try:
+            from homeassistant.util import slugify as _slugify
+
+            return _slugify(text)
+        except Exception:
+            import re as _re
+
+            t = str(text or "").strip().lower()
+            t = _re.sub(r"[^a-z0-9_]+", "_", t)
+            t = _re.sub(r"_+", "_", t).strip("_")
+            return t or "item"
+
+    def _created_entities_to_float(val):
+        try:
+            if val is None:
+                return None
+            s = str(val).strip()
+            if s in ("unknown", "unavailable", "None", ""):
+                return None
+            return float(s)
+        except Exception:
+            return None
+
+    async def _created_entities_save(items: list[dict[str, Any]]):
+        rt = _runtime(hass)
+        store: Store = rt.get("created_entities_store")
+        if store is None:
+            raise HomeAssistantError("created entities store not initialized")
+        await store.async_save({"items": items})
+        rt["created_entities_items"] = items
+
+    def _created_entities_get_items() -> list[dict[str, Any]]:
+        rt = _runtime(hass)
+        items = rt.get("created_entities_items")
+        if not isinstance(items, list):
+            return []
+        out: list[dict[str, Any]] = []
+        for it in items:
+            if isinstance(it, dict):
+                out.append(it)
+        return out
+
+    def _created_entities_pick_entity_id(kind: str, title: str, suggested: str | None = None) -> str:
+        # Always generate in our namespace if not explicitly provided.
+        if isinstance(suggested, str) and suggested.strip():
+            eid = suggested.strip()
+            if eid.startswith("sensor."):
+                return eid
+        slug = _created_entities_slug(title or kind)
+        return f"sensor.clawdbot_{kind}_{slug}"[:255]
+
+    def _created_entities_normalize_spec(spec_in: Any) -> tuple[dict[str, Any] | None, str | None]:
+        """Validate + normalize a created-entity spec.
+
+        Returns: (normalized_spec, error)
+        """
+        if not isinstance(spec_in, dict):
+            return None, "spec must be an object"
+
+        clar = spec_in.get("clarifications_needed")
+        if isinstance(clar, list) and len(clar) > 0:
+            # Gate install until clarifications are resolved.
+            return None, "clarifications_needed"
+
+        title = spec_in.get("title")
+        if not isinstance(title, str) or not title.strip():
+            return None, "title is required"
+        title = title.strip()[:120]
+
+        kind = spec_in.get("kind")
+        if not isinstance(kind, str) or not kind.strip():
+            return None, "kind is required"
+        kind = kind.strip()
+        if kind not in CREATED_ENTITY_ALLOWED_KINDS:
+            return None, "kind_not_allowed"
+
+        inputs = spec_in.get("inputs")
+        if not isinstance(inputs, dict):
+            return None, "inputs must be an object"
+
+        if kind == "pv_next_day_prediction":
+            src = inputs.get("source_entity_id")
+            if not isinstance(src, str) or not src.strip():
+                return None, "inputs.source_entity_id is required"
+            src = src.strip()
+            if not src.startswith("sensor."):
+                return None, "source_entity_id must be a sensor.* entity"
+
+            method = inputs.get("method")
+            if not isinstance(method, str) or not method.strip():
+                return None, "inputs.method is required"
+            method = method.strip()
+            if method not in CREATED_ENTITY_PV_ALLOWED_METHODS:
+                return None, "method_not_allowed"
+
+            window_days = inputs.get("window_days", CREATED_ENTITY_PV_DEFAULT_WINDOW_DAYS)
+            try:
+                window_days = int(window_days)
+            except Exception:
+                window_days = CREATED_ENTITY_PV_DEFAULT_WINDOW_DAYS
+            if window_days < 1:
+                window_days = 1
+            if window_days > 30:
+                window_days = 30
+
+            unit = inputs.get("unit")
+            if unit is None:
+                unit = "kWh"
+            if not isinstance(unit, str) or unit.strip() not in {"kWh", "Wh"}:
+                return None, "unit_not_allowed"
+            unit = unit.strip()
+
+            # Validate source entity exists + is numeric-ish.
+            st = hass.states.get(src)
+            if st is None:
+                return None, "source_entity_not_found"
+            if _created_entities_to_float(st.state) is None:
+                return None, "source_entity_not_numeric"
+            sc = st.attributes.get("state_class") if isinstance(st.attributes, dict) else None
+            if isinstance(sc, str) and sc.strip() and sc not in {"measurement", "total", "total_increasing"}:
+                return None, "source_entity_state_class_not_supported"
+
+            suggested_eid = spec_in.get("entity_id") if isinstance(spec_in.get("entity_id"), str) else None
+            entity_id = _created_entities_pick_entity_id(kind, title, suggested=suggested_eid)
+
+            # Stable-ish id
+            import hashlib as _hashlib
+
+            raw_id = f"{kind}|{entity_id}|{src}|{method}|{window_days}|{unit}"
+            spec_id = spec_in.get("id") if isinstance(spec_in.get("id"), str) else None
+            if not spec_id:
+                spec_id = _hashlib.sha1(raw_id.encode("utf-8")).hexdigest()[:12]
+
+            rationale = spec_in.get("rationale") if isinstance(spec_in.get("rationale"), str) else None
+            if isinstance(rationale, str):
+                rationale = rationale.strip()[:1200]
+
+            now = _created_entities_now_iso()
+            created_ts = spec_in.get("created_ts") if isinstance(spec_in.get("created_ts"), str) else None
+            if not created_ts:
+                created_ts = now
+
+            return (
+                {
+                    "id": spec_id,
+                    "title": title,
+                    "kind": kind,
+                    "entity_id": entity_id,
+                    "inputs": {
+                        "source_entity_id": src,
+                        "method": method,
+                        "window_days": window_days,
+                        "unit": unit,
+                    },
+                    "rationale": rationale,
+                    "created_ts": created_ts,
+                    "updated_ts": now,
+                },
+                None,
+            )
+
+        return None, "unsupported_kind"
+
+    async def _created_entities_compute_pv_next_day(spec: dict[str, Any]) -> tuple[float | None, dict[str, Any]]:
+        """Return (prediction, meta)."""
+        from datetime import timedelta
+        from homeassistant.util import dt as dt_util
+        import math
+
+        inputs = spec.get("inputs") if isinstance(spec.get("inputs"), dict) else {}
+        src = inputs.get("source_entity_id")
+        method = inputs.get("method")
+        window_days = int(inputs.get("window_days") or CREATED_ENTITY_PV_DEFAULT_WINDOW_DAYS)
+        unit = inputs.get("unit")
+
+        st = hass.states.get(src) if isinstance(src, str) else None
+        src_device_class = st.attributes.get("device_class") if st and isinstance(st.attributes, dict) else None
+
+        # Query full-day stats for the most recent N completed days.
+        now_local = dt_util.now()
+        end_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_local = end_local - timedelta(days=max(1, window_days))
+
+        data: dict[str, Any] = {
+            "statistic_ids": [src],
+            "start_time": start_local,
+            "end_time": end_local,
+            "period": "day",
+            "types": ["sum"],
+        }
+        if unit in {"kWh", "Wh"} and src_device_class == "energy":
+            data["units"] = {"energy": unit}
+
+        res = None
+        err = None
+        try:
+            res = await hass.services.async_call(
+                "recorder",
+                "get_statistics",
+                data,
+                blocking=True,
+                return_response=True,
+            )
+        except TypeError:
+            err = "recorder.get_statistics does not support return_response"
+        except Exception as e:
+            err = str(e)
+
+        if err:
+            return None, {"error": err}
+
+        series = None
+        if isinstance(res, dict):
+            if isinstance(src, str) and isinstance(res.get(src), list):
+                series = res.get(src)
+            elif len(res) == 1:
+                v = next(iter(res.values()))
+                if isinstance(v, list):
+                    series = v
+
+        if not isinstance(series, list) or not series:
+            return None, {"error": "no_statistics"}
+
+        sums: list[float] = []
+        for row in series:
+            if not isinstance(row, dict):
+                continue
+            v = row.get("sum")
+            try:
+                fv = float(v)
+            except Exception:
+                continue
+            if math.isfinite(fv):
+                sums.append(fv)
+
+        if not sums:
+            return None, {"error": "no_sum_samples"}
+
+        pred = None
+        if method == "yesterday":
+            pred = sums[-1]
+        elif method == "weighted_mean_last_n_days":
+            weights = list(range(1, len(sums) + 1))
+            denom = float(sum(weights))
+            pred = sum(w * x for w, x in zip(weights, sums)) / denom if denom else sums[-1]
+        else:
+            pred = sum(sums) / float(len(sums))
+
+        meta = {
+            "samples": len(sums),
+            "start": start_local.isoformat(),
+            "end": end_local.isoformat(),
+            "unit": unit,
+            "source_device_class": src_device_class,
+        }
+        return pred, meta
+
+    async def _created_entities_update_one(spec: dict[str, Any], force: bool = False):
+        from homeassistant.util import dt as dt_util
+
+        entity_id = spec.get("entity_id") if isinstance(spec.get("entity_id"), str) else None
+        kind = spec.get("kind") if isinstance(spec.get("kind"), str) else None
+        title = spec.get("title") if isinstance(spec.get("title"), str) else "Created Entity"
+        if not entity_id or not kind:
+            return
+
+        rt = _runtime(hass)
+        st = rt.get("created_entities_state")
+        if not isinstance(st, dict):
+            st = {}
+            rt["created_entities_state"] = st
+
+        today = dt_util.now().date().isoformat()
+        prev = st.get(entity_id) if isinstance(st.get(entity_id), dict) else {}
+        if not force and prev.get("last_calc_day") == today:
+            return
+
+        val = None
+        meta: dict[str, Any] = {}
+        err = None
+        try:
+            if kind == "pv_next_day_prediction":
+                val, meta = await _created_entities_compute_pv_next_day(spec)
+            else:
+                err = "unsupported_kind"
+        except Exception as e:
+            err = str(e)
+
+        # Set/update state-only entity.
+        unit = None
+        try:
+            inputs = spec.get("inputs") if isinstance(spec.get("inputs"), dict) else {}
+            unit = inputs.get("unit")
+        except Exception:
+            unit = None
+
+        attrs = {
+            "friendly_name": title,
+            "icon": "mdi:robot",
+            "clawdbot_kind": kind,
+            "clawdbot_spec_id": spec.get("id"),
+            "inputs": spec.get("inputs") if isinstance(spec.get("inputs"), dict) else {},
+            "rationale": spec.get("rationale") if isinstance(spec.get("rationale"), str) else None,
+            "updated_ts": _created_entities_now_iso(),
+            "meta": meta,
+            "error": err or (meta.get("error") if isinstance(meta, dict) else None),
+        }
+        if isinstance(unit, str) and unit.strip():
+            attrs["unit_of_measurement"] = unit.strip()
+
+        if val is None:
+            hass.states.async_set(entity_id, "unknown", attrs)
+        else:
+            try:
+                hass.states.async_set(entity_id, str(round(float(val), 3)), attrs)
+            except Exception:
+                hass.states.async_set(entity_id, str(val), attrs)
+
+        st[entity_id] = {
+            "last_calc_day": today,
+            "last_error": attrs.get("error"),
+            "last_ts": attrs.get("updated_ts"),
+        }
+        rt["created_entities_last_update"] = dt_util.utcnow().isoformat().replace("+00:00", "Z")
+
+    async def _created_entities_tick(force: bool = False):
+        for spec in _created_entities_get_items():
+            await _created_entities_update_one(spec, force=force)
+
+    async def _created_entities_loop():
+        import asyncio
+
+        rt = _runtime(hass)
+        while True:
+            items = _created_entities_get_items()
+            if not items:
+                rt["created_entities_task"] = None
+                return
+            try:
+                await _created_entities_tick()
+            except Exception:
+                _LOGGER.exception("created entities tick failed")
+            await asyncio.sleep(3600)
+
+    async def handle_created_entity_install(call):
+        spec_in = call.data.get("spec")
+        if spec_in is None:
+            raise HomeAssistantError("spec is required")
+
+        if isinstance(spec_in, dict) and isinstance(spec_in.get("clarifications_needed"), list) and len(spec_in.get("clarifications_needed")):
+            return {
+                "ok": False,
+                "error": "clarifications_needed",
+                "clarifications_needed": spec_in.get("clarifications_needed"),
+            }
+
+        spec, err = _created_entities_normalize_spec(spec_in)
+        if err:
+            return {"ok": False, "error": err}
+
+        assert spec is not None
+
+        items = _created_entities_get_items()
+        # Upsert by entity_id or id.
+        replaced = False
+        for i, it in enumerate(items):
+            if not isinstance(it, dict):
+                continue
+            if it.get("entity_id") == spec.get("entity_id") or it.get("id") == spec.get("id"):
+                items[i] = spec
+                replaced = True
+                break
+        if not replaced:
+            # Refuse collision with existing non-clawdbot entity_id that isn't ours.
+            eid = spec.get("entity_id")
+            if isinstance(eid, str):
+                existing = hass.states.get(eid)
+                if existing is not None and not any(isinstance(it, dict) and it.get("entity_id") == eid for it in items):
+                    return {"ok": False, "error": "entity_id_already_exists"}
+            items.append(spec)
+
+        await _created_entities_save(items)
+
+        # Ensure loop running.
+        rt = _runtime(hass)
+        task = rt.get("created_entities_task")
+        if task is None or getattr(task, "done", lambda: True)():
+            rt["created_entities_task"] = hass.async_create_task(_created_entities_loop())
+
+        # Force immediate compute for this spec.
+        try:
+            await _created_entities_update_one(spec, force=True)
+        except Exception:
+            pass
+
+        return {"ok": True, "spec": spec}
+
+    async def handle_created_entity_list(call):
+        items = _created_entities_get_items()
+        out = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            eid = it.get("entity_id")
+            st = hass.states.get(eid) if isinstance(eid, str) else None
+            out.append(
+                {
+                    **it,
+                    "state": (st.state if st else None),
+                    "attributes": (dict(st.attributes) if st else None),
+                }
+            )
+        return {"ok": True, "items": out, "ts": _created_entities_now_iso()}
+
+    async def handle_created_entity_remove(call):
+        entity_id = call.data.get("entity_id")
+        spec_id = call.data.get("id")
+        if not isinstance(entity_id, str) and not isinstance(spec_id, str):
+            raise HomeAssistantError("entity_id or id is required")
+
+        items = _created_entities_get_items()
+        kept: list[dict[str, Any]] = []
+        removed = None
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            if (isinstance(entity_id, str) and it.get("entity_id") == entity_id) or (isinstance(spec_id, str) and it.get("id") == spec_id):
+                removed = it
+                continue
+            kept.append(it)
+
+        await _created_entities_save(kept)
+
+        if removed and isinstance(removed.get("entity_id"), str):
+            try:
+                hass.states.async_remove(str(removed.get("entity_id")))
+            except Exception:
+                pass
+
+        # Stop loop if empty.
+        rt = _runtime(hass)
+        if not kept:
+            task = rt.get("created_entities_task")
+            if task is not None:
+                try:
+                    task.cancel()
+                except Exception:
+                    pass
+            rt["created_entities_task"] = None
+
+        return {"ok": True, "removed": removed, "ts": _created_entities_now_iso()}
+
+    # Auto-start on boot if any created entities exist
+    if _created_entities_get_items() and runtime.get("created_entities_task") is None:
+        runtime["created_entities_task"] = hass.async_create_task(_created_entities_loop())
+
     # --- Agent 0 analysis services (token-safe) ---
     AGENT0_MAX_ENTITIES = 12
     AGENT0_MAX_HOURS = 72
@@ -7246,6 +7741,10 @@ async def async_setup(hass, config):
     hass.services.async_register(DOMAIN, "journal_list", handle_journal_list, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "agent_prompt", handle_agent_prompt, supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, "agent_compose_prompt", handle_agent_compose_prompt, supports_response=SupportsResponse.OPTIONAL)
+
+    hass.services.async_register(DOMAIN, SERVICE_CREATED_ENTITY_INSTALL, handle_created_entity_install, supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(DOMAIN, SERVICE_CREATED_ENTITY_LIST, handle_created_entity_list, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, SERVICE_CREATED_ENTITY_REMOVE, handle_created_entity_remove, supports_response=SupportsResponse.OPTIONAL)
 
     async def handle_agent_profile_get(call):
         cfg = hass.data.get(DOMAIN, {})

@@ -43,6 +43,29 @@ If UI automation is flaky (Xvfb / no window manager), use this 2-minute manual v
 3. Click **Run**
 4. Proof (side-effect): Developer Tools → **States** → search `sensor.openclaw_agent_journal_updated` and screenshot its updated timestamp/state.
 
+## 5) Created entities (v1 whitelist: pv_next_day_prediction)
+1. Open **Developer Tools → Actions**
+2. Select action: `clawdbot.created_entity_install`
+3. Fill `spec` (object) with a real energy sensor that has long-term statistics (state_class measurement/total/total_increasing), e.g.:
+   ```yaml
+   id: demo
+   title: "PV next-day prediction (7d mean)"
+   kind: pv_next_day_prediction
+   inputs:
+     source_entity_id: sensor.pv_energy_today
+     method: mean_last_n_days
+     window_days: 7
+     unit: kWh
+   ```
+4. Click **Run**
+5. Proof: screenshot showing `{ ok: true }` and returned `spec.entity_id`.
+6. In **Developer Tools → States**, search for the returned `spec.entity_id` (e.g. `sensor.clawdbot_pv_next_day_prediction_*`).
+   - Proof: screenshot showing the entity exists (state may be `unknown` if recorder stats are not available yet).
+7. Select action: `clawdbot.created_entity_list` and click **Run**.
+   - Proof: screenshot showing the created entity in `items`.
+8. Cleanup: call `clawdbot.created_entity_remove` with `entity_id` set to the created entity.
+   - Proof: screenshot showing `{ ok: true }`.
+
 ## Notes
 - If any action fails, screenshot the error/toast and include returned payload text (redact secrets if present).
 - `clawdbot.ha_call_service` is guardrailed via an allowlist; `persistent_notification.create` is expected to be allowed.
