@@ -136,6 +136,16 @@ agent_prompt:
       selector:
         text: {}
 
+agent_compose_prompt:
+  name: Compose an Assist command (no execute)
+  description: 'Uses OpenClaw Gateway /v1/responses to compose a deterministic Assist utterance; side-effect free (no execution).'
+  fields:
+    text:
+      required: true
+      description: 'Prompt text to compose into an Assist command.'
+      selector:
+        text: {}
+
 tts_vibevoice_health:
   name: VibeVoice TTS health
   description: 'Check whether the VibeVoice TTS provider is configured and reachable.'

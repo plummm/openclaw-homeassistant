@@ -7092,8 +7092,160 @@ async def async_setup(hass, config):
             "result": safe_raw,
         }
 
+    
+
+    async def handle_agent_compose_prompt(call):
+        """Compose an Assist utterance (side-effect free).
+
+        Uses OpenClaw Gateway OpenResponses endpoint (POST /v1/responses) with a forced tool-call.
+        Returns JSON-safe data for HA response_variable.
+        """
+        text_in = call.data.get("text")
+        if text_in is None:
+            raise HomeAssistantError("text is required")
+        text_in = str(text_in)
+        if not text_in.strip():
+            raise HomeAssistantError("text is required")
+
+        import datetime as _dt
+
+        ts = _dt.datetime.now(tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+        session, gateway_origin, token, _default_session_key = _runtime_gateway_parts(hass)
+
+        tool_name = "compose_conversation_process"
+
+        payload = {
+            # Required by schema; gateway currently treats this as informational.
+            "model": "ignored",
+            "input": [
+                {
+                    "type": "message",
+                    "role": "system",
+                    "content": (
+                        "You are composing a Home Assistant Assist command. "
+                        "Do not execute anything. "
+                        "Return a tool call with composed_text only (no surrounding quotes)."
+                    ),
+                },
+                {"type": "message", "role": "user", "content": text_in},
+            ],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "description": (
+                            "Compose the exact natural-language utterance to pass to Home Assistant Assist "
+                            "(conversation.process.text). Side-effect free: only return structured args."
+                        ),
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "composed_text": {
+                                    "type": "string",
+                                    "description": "The exact Assist text to execute in step 2.",
+                                },
+                                "rationale": {
+                                    "type": "string",
+                                    "description": "Optional short explanation of how the composed_text was derived.",
+                                },
+                            },
+                            "required": ["composed_text"],
+                            "additionalProperties": False,
+                        },
+                    },
+                }
+            ],
+            "tool_choice": {"type": "function", "function": {"name": tool_name}},
+        }
+
+        res = None
+        call_error = None
+        try:
+            res = await _gw_post(session, gateway_origin + "/v1/responses", token, payload)
+        except Exception as e:
+            call_error = str(e)
+            _LOGGER.exception("agent_compose_prompt /v1/responses failed")
+            res = {"error": call_error}
+
+        status = res.get("status") if isinstance(res, dict) else None
+        output = res.get("output") if isinstance(res, dict) else None
+
+        composed_text = None
+        rationale = None
+        parse_error = None
+
+        if status == "incomplete" and isinstance(output, list):
+            fc = None
+            for item in output:
+                if (
+                    isinstance(item, dict)
+                    and item.get("type") == "function_call"
+                    and item.get("name") == tool_name
+                ):
+                    fc = item
+                    break
+
+            if fc is None:
+                parse_error = "missing_function_call"
+            else:
+                args_raw = fc.get("arguments")
+                if not isinstance(args_raw, str) or not args_raw.strip():
+                    parse_error = "missing_arguments"
+                else:
+                    args = None
+                    try:
+                        args = json.loads(args_raw)
+                    except Exception as e:
+                        parse_error = f"arguments_json_parse_error: {e}"
+
+                    if isinstance(args, dict):
+                        ct = args.get("composed_text")
+                        if isinstance(ct, str) and ct.strip():
+                            composed_text = ct.strip()
+                            if len(composed_text) > 2000:
+                                composed_text = composed_text[:2000]
+                        else:
+                            parse_error = "missing_composed_text"
+
+                        rr = args.get("rationale")
+                        if isinstance(rr, str) and rr.strip():
+                            rationale = rr.strip()
+                            if len(rationale) > 1200:
+                                rationale = rationale[:1200]
+        else:
+            if status == "completed":
+                parse_error = "no_tool_call"
+            elif isinstance(status, str) and status:
+                parse_error = f"unexpected_status:{status}"
+            else:
+                parse_error = "invalid_gateway_response"
+
+        ok = bool(composed_text) and not call_error and not parse_error
+        error = call_error or parse_error
+
+        raw_output = None
+        if not ok:
+            if isinstance(output, list):
+                raw_output = output[:3]
+            elif output is not None:
+                raw_output = output
+
+        return {
+            "ok": ok,
+            "text": text_in,
+            "composed_text": composed_text or "",
+            "rationale": rationale,
+            "error": (str(error) if isinstance(error, str) and error else None),
+            "ts": ts,
+            # Debug hints (small, JSON-safe)
+            "raw_status": (str(status) if isinstance(status, str) else None),
+            "raw_output": raw_output,
+        }
     hass.services.async_register(DOMAIN, "journal_list", handle_journal_list, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "agent_prompt", handle_agent_prompt, supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(DOMAIN, "agent_compose_prompt", handle_agent_compose_prompt, supports_response=SupportsResponse.OPTIONAL)
 
     async def handle_agent_profile_get(call):
         cfg = hass.data.get(DOMAIN, {})
@@ -7988,6 +8140,7 @@ async def async_setup(hass, config):
         "agent_state_set": handle_agent_state_set,
         "agent_state_reset": handle_agent_state_reset,
         "agent_state_webhook_get": handle_agent_state_webhook_get,
+        "agent_compose_prompt": handle_agent_compose_prompt,
         "agent_prompt": handle_agent_prompt,
         "journal_list": handle_journal_list,
         "journal_append": handle_journal_append,
