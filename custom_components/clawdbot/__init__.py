@@ -6311,13 +6311,13 @@ async def async_setup(hass, config):
                             "type": "object",
                             "properties": {
                                 "title": {"type": "string"},
-                                "kind": {"type": "string"},
+                                "kind": {"type": "string", "enum": ["pv_next_day_prediction"]},
                                 "entity_id": {"type": "string"},
                                 "inputs": {
                                     "type": "object",
                                     "properties": {
                                         "source_entity_id": {"type": "string"},
-                                        "method": {"type": "string"},
+                                        "method": {"type": "string", "enum": ["mean_last_n_days", "yesterday", "weighted_mean_last_n_days"]},
                                         "window_days": {"type": "number"},
                                         "unit": {"type": "string"},
                                     },
