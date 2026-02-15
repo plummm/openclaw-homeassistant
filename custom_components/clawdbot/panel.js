@@ -3876,9 +3876,8 @@ async function fetchStatesRest(hass){
     if (v === null || v === undefined) return 'null';
     if (typeof v === 'number' || typeof v === 'boolean') return String(v);
     if (typeof v === 'string') {
-      const s = v;
-      if (s === '' || /[\n\r\t:#]/.test(s) || s.trim() !== s) return JSON.stringify(s);
-      return s;
+      // Always quote strings to avoid misleading YAML (preview-only, but should be copy-safe).
+      return JSON.stringify(v);
     }
     return JSON.stringify(String(v));
   }
@@ -3922,6 +3921,38 @@ async function fetchStatesRest(hass){
     ];
     lines.push(..._yamlLines(spec, 4));
     return lines.join('\n');
+  }
+
+  function _stripCreatedEntitySpec(spec){
+    if (!spec || typeof spec !== 'object') return null;
+
+    const out = {};
+
+    if (typeof spec.title === 'string') out.title = spec.title.trim();
+    if (typeof spec.kind === 'string') out.kind = spec.kind.trim();
+    if (typeof spec.entity_id === 'string' && spec.entity_id.trim()) out.entity_id = spec.entity_id.trim();
+
+    const inp = (spec.inputs && typeof spec.inputs === 'object') ? spec.inputs : {};
+    const inputsOut = {};
+    if (typeof inp.source_entity_id === 'string') inputsOut.source_entity_id = inp.source_entity_id.trim();
+    if (typeof inp.method === 'string') inputsOut.method = inp.method.trim();
+
+    // Optional numeric fields (accept number or numeric string)
+    if (typeof inp.window_days === 'number' && Number.isFinite(inp.window_days)) {
+      inputsOut.window_days = inp.window_days;
+    } else if (typeof inp.window_days === 'string' && inp.window_days.trim()) {
+      const n = Number(inp.window_days);
+      if (Number.isFinite(n)) inputsOut.window_days = n;
+    }
+    if (typeof inp.unit === 'string' && inp.unit.trim()) inputsOut.unit = inp.unit.trim();
+
+    out.inputs = inputsOut;
+
+    if (typeof spec.rationale === 'string' && spec.rationale.trim()) out.rationale = spec.rationale.trim();
+
+    // Only allow known top-level keys; do NOT forward any other model fields.
+    if (!out.title || !out.kind || !out.inputs.source_entity_id || !out.inputs.method) return null;
+    return out;
   }
 
   function _renderCreatedEntityChat(){
@@ -4012,6 +4043,14 @@ async function fetchStatesRest(hass){
     if (el) el.textContent = msg || '';
   }
 
+  function _setCreatedEntityBadge(kind, text){
+    const el = document.getElementById('createdEntityBadge');
+    if (!el) return;
+    const k = String(kind || '').toLowerCase();
+    el.className = 'pill' + (k === 'ok' ? ' ok' : (k === 'bad' ? ' bad' : ''));
+    el.textContent = text || '';
+  }
+
   function _setCreatedEntityResult(msg, href, text){
     const el = document.getElementById('createdEntityResult');
     if (!el) return;
@@ -4086,6 +4125,7 @@ async function fetchStatesRest(hass){
     if (_createdEntityLoading) return;
     _createdEntityLoading = true;
     _setCreatedEntityStatus('Composing…');
+    _setCreatedEntityBadge('', 'Composing…');
     _renderCreatedEntityPreview();
     try{
       const payload = { messages: _createdEntityMessages.map(m => ({ role: m.role, content: m.content })) };
@@ -4108,20 +4148,24 @@ async function fetchStatesRest(hass){
           const msg = 'I need a quick clarification before drafting the final spec.';
           _createdEntityAddMessage('assistant', msg);
           _setCreatedEntityStatus('Clarifications needed.');
+          _setCreatedEntityBadge('bad', 'Needs clarification');
         } else {
           const msg = (spec && spec.rationale) ? String(spec.rationale) : 'Draft ready. Review the YAML preview and confirm to install.';
           _createdEntityAddMessage('assistant', msg);
           _setCreatedEntityStatus('Draft ready.');
+          _setCreatedEntityBadge('ok', 'Draft ready');
         }
       } else {
         const msg = err ? `Compose failed: ${err}` : 'Compose failed.';
         _createdEntityAddMessage('assistant', msg);
         _setCreatedEntityStatus('Compose failed.');
+        _setCreatedEntityBadge('bad', 'Error');
       }
     } catch(e){
       const msg = String(e && (e.message || e) || e);
       _createdEntityAddMessage('assistant', 'Compose failed: ' + msg);
       _setCreatedEntityStatus('Compose failed.');
+      _setCreatedEntityBadge('bad', 'Error');
     } finally {
       _createdEntityLoading = false;
       _renderCreatedEntityOptions();
@@ -4237,24 +4281,34 @@ async function fetchStatesRest(hass){
         if (Array.isArray(_createdEntityClarifications) && _createdEntityClarifications.length) return;
         confirm.disabled = true;
         _setCreatedEntityStatus('Installing…');
+        _setCreatedEntityBadge('', 'Installing…');
         _setCreatedEntityResult('');
         try{
-          const resp = await _callHaServiceResponse('clawdbot','created_entity_install',{ spec: _createdEntitySpec });
+          const specToInstall = _stripCreatedEntitySpec(_createdEntitySpec);
+          if (!specToInstall) {
+            _setCreatedEntityStatus('Invalid draft (missing required fields).');
+            _setCreatedEntityBadge('bad', 'Error');
+            return;
+          }
+          const resp = await _callHaServiceResponse('clawdbot','created_entity_install',{ spec: specToInstall });
           const data = (resp && resp.response) ? resp.response : resp;
           const r = data && data.result ? data.result : data;
           if (!r || r.ok === false) {
             const err = r && r.error ? String(r.error) : 'Install failed';
             _setCreatedEntityStatus('Install failed.');
+            _setCreatedEntityBadge('bad', 'Error');
             _setCreatedEntityResult(err);
             return;
           }
           const spec = r && r.spec ? r.spec : _createdEntitySpec;
           const eid = spec && spec.entity_id ? String(spec.entity_id) : '';
           _setCreatedEntityStatus('Installed.');
+          _setCreatedEntityBadge('ok', 'Installed');
           _setCreatedEntityResultEntity(eid);
           await _refreshCreatedEntityList();
         } catch(e){
           _setCreatedEntityStatus('Install failed.');
+          _setCreatedEntityBadge('bad', 'Error');
           _setCreatedEntityResult(String(e && (e.message || e) || e));
         } finally {
           _renderCreatedEntityPreview();
@@ -4265,6 +4319,13 @@ async function fetchStatesRest(hass){
       refresh.__bound = true;
       refresh.onclick = () => _refreshCreatedEntityList();
     }
+
+    // Default badge state
+    try{
+      if (!_createdEntityMessages.length && !_createdEntitySpec) {
+        _setCreatedEntityBadge('', 'Draft');
+      }
+    }catch(e){}
   }
 
   function _autoAddEvent(ev){

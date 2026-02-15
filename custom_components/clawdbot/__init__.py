@@ -2227,8 +2227,9 @@ PANEL_HTML = """<!doctype html>
         <div class=\"muted\">YAML preview (install only after confirm):</div>
         <pre id=\"createdEntityYaml\" style=\"margin:8px 0 0 0;padding:10px 12px;border-radius:12px;border:1px solid var(--cb-border);background:color-mix(in srgb, var(--primary-background-color) 70%, var(--cb-card-bg));overflow:auto;max-height:260px\"><code></code></pre>
       </div>
-      <div class=\"row\" style=\"margin-top:10px;gap:10px\">
+      <div class=\"row\" style=\"margin-top:10px;gap:10px;align-items:center\">
         <button class=\"btn primary\" id=\"createdEntityConfirm\" disabled>Confirm & Install</button>
+        <span id=\"createdEntityBadge\" class=\"pill\">Draft</span>
         <span class=\"muted\" id=\"createdEntityStatus\"></span>
       </div>
       <div class=\"muted\" id=\"createdEntityResult\" style=\"margin-top:6px\"></div>
