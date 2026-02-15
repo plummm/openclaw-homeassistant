@@ -179,7 +179,7 @@ OVERRIDES_STORE_VERSION = 1
 
 
 PANEL_BUILD_ID = "v0.2.20.179"
-INTEGRATION_BUILD_ID = "v0.2.22"
+INTEGRATION_BUILD_ID = "v0.2.23"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
