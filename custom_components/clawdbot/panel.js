@@ -3865,6 +3865,469 @@ async function fetchStatesRest(hass){
   let _autoLastRenderMs = 0;
   let _autoUnsubs = [];
 
+  // Created entities composer (panel-only)
+  let _createdEntityMessages = [];
+  let _createdEntitySpec = null;
+  let _createdEntityClarifications = [];
+  let _createdEntityLoading = false;
+  let _createdEntityLastRefreshMs = 0;
+
+  function _yamlScalar(v){
+    if (v === null || v === undefined) return 'null';
+    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+    if (typeof v === 'string') {
+      // Always quote strings to avoid misleading YAML (preview-only, but should be copy-safe).
+      return JSON.stringify(v);
+    }
+    return JSON.stringify(String(v));
+  }
+
+  function _yamlLines(v, indent){
+    const pad = ' '.repeat(indent);
+    if (v === null || typeof v !== 'object') return [pad + _yamlScalar(v)];
+    if (Array.isArray(v)) {
+      if (!v.length) return [pad + '[]'];
+      const out = [];
+      for (const item of v) {
+        if (item !== null && typeof item === 'object') {
+          out.push(pad + '-');
+          out.push(..._yamlLines(item, indent + 2));
+        } else {
+          out.push(pad + '- ' + _yamlScalar(item));
+        }
+      }
+      return out;
+    }
+    const keys = Object.keys(v);
+    if (!keys.length) return [pad + '{}'];
+    const out = [];
+    for (const key of keys) {
+      const val = v[key];
+      if (val !== null && typeof val === 'object') {
+        out.push(pad + key + ':');
+        out.push(..._yamlLines(val, indent + 2));
+      } else {
+        out.push(pad + key + ': ' + _yamlScalar(val));
+      }
+    }
+    return out;
+  }
+
+  function _renderCreatedEntityYaml(spec){
+    const lines = [
+      'service: clawdbot.created_entity_install',
+      'data:',
+      '  spec:',
+    ];
+    lines.push(..._yamlLines(spec, 4));
+    return lines.join('\n');
+  }
+
+  function _stripCreatedEntitySpec(spec){
+    if (!spec || typeof spec !== 'object') return null;
+
+    const out = {};
+
+    if (typeof spec.title === 'string') out.title = spec.title.trim();
+    if (typeof spec.kind === 'string') out.kind = spec.kind.trim();
+    if (typeof spec.entity_id === 'string' && spec.entity_id.trim()) out.entity_id = spec.entity_id.trim();
+
+    const inp = (spec.inputs && typeof spec.inputs === 'object') ? spec.inputs : {};
+    const inputsOut = {};
+    if (typeof inp.source_entity_id === 'string') inputsOut.source_entity_id = inp.source_entity_id.trim();
+    if (typeof inp.method === 'string') inputsOut.method = inp.method.trim();
+
+    // Optional numeric fields (accept number or numeric string)
+    if (typeof inp.window_days === 'number' && Number.isFinite(inp.window_days)) {
+      inputsOut.window_days = inp.window_days;
+    } else if (typeof inp.window_days === 'string' && inp.window_days.trim()) {
+      const n = Number(inp.window_days);
+      if (Number.isFinite(n)) inputsOut.window_days = n;
+    }
+    if (typeof inp.unit === 'string' && inp.unit.trim()) inputsOut.unit = inp.unit.trim();
+
+    out.inputs = inputsOut;
+
+    if (typeof spec.rationale === 'string' && spec.rationale.trim()) out.rationale = spec.rationale.trim();
+
+    // Only allow known top-level keys; do NOT forward any other model fields.
+    if (!out.title || !out.kind || !out.inputs.source_entity_id || !out.inputs.method) return null;
+    return out;
+  }
+
+  function _renderCreatedEntityChat(){
+    const el = document.getElementById('createdEntityChat');
+    if (!el) return;
+    if (!_createdEntityMessages.length){
+      el.innerHTML = '<div class="muted">Start by describing the entity you want to create.</div>';
+      return;
+    }
+    el.innerHTML = '';
+    for (const msg of _createdEntityMessages){
+      if (!msg) continue;
+      const row = document.createElement('div');
+      row.className = 'ent';
+      const role = msg.role || 'user';
+      const content = msg.content || '';
+      row.innerHTML = `<div class="ent-id">${escapeHtml(role)}</div><div class="ent-state" style="white-space:pre-wrap">${escapeHtml(String(content))}</div>`;
+      el.appendChild(row);
+    }
+    try{ el.scrollTop = el.scrollHeight; }catch(e){}
+  }
+
+  function _renderCreatedEntityOptions(){
+    const el = document.getElementById('createdEntityOptions');
+    if (!el) return;
+    el.innerHTML = '';
+
+    const items = Array.isArray(_createdEntityClarifications) ? _createdEntityClarifications : [];
+    if (!items.length) return;
+
+    const head = document.createElement('span');
+    head.className = 'muted';
+    head.textContent = 'Clarify:';
+    el.appendChild(head);
+
+    const addOptionBtn = (label, isRecommended=false) => {
+      const txt = String(label || '').trim();
+      if (!txt) return;
+      const btn = document.createElement('button');
+      btn.className = isRecommended ? 'btn primary' : 'btn';
+      btn.textContent = txt;
+      btn.onclick = () => {
+        _createdEntityAddMessage('user', txt);
+        _createdEntityCompose();
+      };
+      el.appendChild(btn);
+    };
+
+    for (const c of items){
+      if (typeof c === 'string') {
+        addOptionBtn(c, false);
+        continue;
+      }
+      if (c && typeof c === 'object') {
+        const q = (c.question != null) ? String(c.question) : '';
+        const opts = Array.isArray(c.options) ? c.options.map(String) : [];
+        const rec = (c.recommended != null) ? String(c.recommended) : '';
+
+        if (q.trim()) {
+          const qEl = document.createElement('div');
+          qEl.className = 'muted';
+          qEl.style.flexBasis = '100%';
+          qEl.textContent = q.trim();
+          el.appendChild(qEl);
+        }
+        for (const opt of opts){
+          addOptionBtn(opt, rec && String(opt) === rec);
+        }
+      }
+    }
+  }
+
+  function _renderCreatedEntityPreview(){
+    const pre = document.getElementById('createdEntityYaml');
+    const btn = document.getElementById('createdEntityConfirm');
+    if (!pre) return;
+    const ready = _createdEntitySpec && (!Array.isArray(_createdEntityClarifications) || !_createdEntityClarifications.length);
+    if (btn) btn.disabled = !ready || _createdEntityLoading;
+    if (!ready) {
+      pre.textContent = '# Waiting for a complete draft…';
+      return;
+    }
+    pre.textContent = _renderCreatedEntityYaml(_createdEntitySpec);
+  }
+
+  function _setCreatedEntityStatus(msg){
+    const el = document.getElementById('createdEntityStatus');
+    if (el) el.textContent = msg || '';
+  }
+
+  function _setCreatedEntityBadge(kind, text){
+    const el = document.getElementById('createdEntityBadge');
+    if (!el) return;
+    const k = String(kind || '').toLowerCase();
+    el.className = 'pill' + (k === 'ok' ? ' ok' : (k === 'bad' ? ' bad' : ''));
+    el.textContent = text || '';
+  }
+
+  function _setCreatedEntityResult(msg, href, text){
+    const el = document.getElementById('createdEntityResult');
+    if (!el) return;
+    if (!href) {
+      el.textContent = msg || '';
+      return;
+    }
+    el.innerHTML = '';
+    const span = document.createElement('span');
+    span.textContent = msg ? (msg + ' ') : '';
+    const a = document.createElement('a');
+    a.href = href;
+    a.target = '_parent';
+    a.rel = 'noopener';
+    a.textContent = text || href;
+    el.appendChild(span);
+    el.appendChild(a);
+  }
+
+  function _setCreatedEntityResultEntity(entityId){
+    const eid = String(entityId || '').trim();
+    if (!eid) {
+      _setCreatedEntityResult('Entity created.');
+      return;
+    }
+    const el = document.getElementById('createdEntityResult');
+    if (!el) return;
+    el.innerHTML = '';
+
+    const label = document.createElement('span');
+    label.textContent = 'Entity created: ';
+
+    const a = document.createElement('a');
+    a.href = '/config/entities/entity/' + encodeURIComponent(eid);
+    a.target = '_parent';
+    a.rel = 'noopener';
+    a.textContent = eid;
+
+    const btn = document.createElement('button');
+    btn.className = 'btn';
+    btn.style.marginLeft = '10px';
+    btn.textContent = 'Remove';
+    btn.onclick = async () => {
+      try{
+        btn.disabled = true;
+        await _callHaServiceResponse('clawdbot','created_entity_remove',{ entity_id: eid });
+        _setCreatedEntityStatus('Removed.');
+        _setCreatedEntityResult('Removed.');
+        _createdEntitySpec = null;
+        _createdEntityClarifications = [];
+        _renderCreatedEntityPreview();
+        await _refreshCreatedEntityList();
+      } catch(e){
+        toast('Remove failed: ' + String(e));
+      } finally {
+        btn.disabled = false;
+      }
+    };
+
+    el.appendChild(label);
+    el.appendChild(a);
+    el.appendChild(btn);
+  }
+
+  function _createdEntityAddMessage(role, content){
+    _createdEntityMessages.push({ role, content });
+    if (_createdEntityMessages.length > 14) _createdEntityMessages = _createdEntityMessages.slice(-14);
+    _renderCreatedEntityChat();
+  }
+
+  async function _createdEntityCompose(){
+    if (_createdEntityLoading) return;
+    _createdEntityLoading = true;
+    _setCreatedEntityStatus('Composing…');
+    _setCreatedEntityBadge('', 'Composing…');
+    _renderCreatedEntityPreview();
+    try{
+      const payload = { messages: _createdEntityMessages.map(m => ({ role: m.role, content: m.content })) };
+      const resp = await callInternalApi('clawdbot/panel_service', 'POST', { service: 'created_entity_compose', data: payload });
+      const data = resp && resp.result ? resp.result : resp;
+      const ok = data && data.ok;
+      const spec = data && data.spec ? data.spec : null;
+      const err = data && data.error ? String(data.error) : null;
+
+      if (spec) {
+        _createdEntitySpec = spec;
+        _createdEntityClarifications = Array.isArray(spec.clarifications_needed) ? spec.clarifications_needed : [];
+      } else {
+        _createdEntitySpec = null;
+        _createdEntityClarifications = [];
+      }
+
+      if (ok && spec) {
+        if (_createdEntityClarifications.length) {
+          const msg = 'I need a quick clarification before drafting the final spec.';
+          _createdEntityAddMessage('assistant', msg);
+          _setCreatedEntityStatus('Clarifications needed.');
+          _setCreatedEntityBadge('bad', 'Needs clarification');
+        } else {
+          const msg = (spec && spec.rationale) ? String(spec.rationale) : 'Draft ready. Review the YAML preview and confirm to install.';
+          _createdEntityAddMessage('assistant', msg);
+          _setCreatedEntityStatus('Draft ready.');
+          _setCreatedEntityBadge('ok', 'Draft ready');
+        }
+      } else {
+        const msg = err ? `Compose failed: ${err}` : 'Compose failed.';
+        _createdEntityAddMessage('assistant', msg);
+        _setCreatedEntityStatus('Compose failed.');
+        _setCreatedEntityBadge('bad', 'Error');
+      }
+    } catch(e){
+      const msg = String(e && (e.message || e) || e);
+      _createdEntityAddMessage('assistant', 'Compose failed: ' + msg);
+      _setCreatedEntityStatus('Compose failed.');
+      _setCreatedEntityBadge('bad', 'Error');
+    } finally {
+      _createdEntityLoading = false;
+      _renderCreatedEntityOptions();
+      _renderCreatedEntityPreview();
+    }
+  }
+
+  async function _callHaServiceResponse(domain, service, data){
+    const { conn } = await getHass();
+    if (!conn || typeof conn.sendMessagePromise !== 'function') {
+      throw new Error('No HA websocket connection available');
+    }
+    return conn.sendMessagePromise({
+      type: 'call_service',
+      domain,
+      service,
+      service_data: data || {},
+      return_response: true,
+    });
+  }
+
+  async function _refreshCreatedEntityList(){
+    const root = document.getElementById('createdEntityList');
+    if (!root) return;
+    _createdEntityLastRefreshMs = Date.now();
+    root.innerHTML = '<div class="muted">Loading…</div>';
+    try{
+      const resp = await _callHaServiceResponse('clawdbot','created_entity_list',{});
+      const data = (resp && resp.response) ? resp.response : resp;
+      const r = data && data.result ? data.result : data;
+      if (!r || r.ok === false) {
+        const err = r && r.error ? String(r.error) : 'Error';
+        root.innerHTML = `<div class="muted">Failed to load: ${escapeHtml(err)}</div>`;
+        return;
+      }
+      const items = Array.isArray(r.items) ? r.items : [];
+      if (!items.length) {
+        root.innerHTML = '<div class="muted">No created entities yet.</div>';
+        return;
+      }
+      root.innerHTML = '';
+      for (const it of items){
+        if (!it) continue;
+        const row = document.createElement('div');
+        row.className = 'ent';
+        const left = document.createElement('div');
+        left.style.minWidth = '0';
+        const title = it.title || it.entity_id || it.id || 'created_entity';
+        const sub = it.entity_id || it.id || '';
+        left.innerHTML = `<div class="ent-id">${escapeHtml(String(title))}</div><div class="ent-state" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(String(sub))}</div>`;
+        const right = document.createElement('div');
+        right.style.display = 'flex';
+        right.style.alignItems = 'center';
+        right.style.gap = '8px';
+        const st = document.createElement('div');
+        st.className = 'ent-state';
+        st.textContent = (it.state != null) ? String(it.state) : '—';
+        const btn = document.createElement('button');
+        btn.className = 'btn';
+        btn.textContent = 'Remove';
+        btn.onclick = async () => {
+          try{
+            btn.disabled = true;
+            const payload = it.entity_id ? { entity_id: it.entity_id } : { id: it.id };
+            await _callHaServiceResponse('clawdbot','created_entity_remove', payload);
+            await _refreshCreatedEntityList();
+          } catch(e){
+            toast('Remove failed: ' + String(e));
+          } finally {
+            btn.disabled = false;
+          }
+        };
+        right.appendChild(st);
+        right.appendChild(btn);
+        row.appendChild(left);
+        row.appendChild(right);
+        root.appendChild(row);
+      }
+    } catch(e){
+      const msg = String(e && (e.message || e) || e);
+      root.innerHTML = `<div class="muted">Failed to load: ${escapeHtml(msg)}</div>`;
+    }
+  }
+
+  function _bindCreatedEntityComposer(){
+    const input = document.getElementById('createdEntityInput');
+    const send = document.getElementById('createdEntitySend');
+    const confirm = document.getElementById('createdEntityConfirm');
+    const refresh = document.getElementById('createdEntityRefresh');
+    if (send && !send.__bound){
+      send.__bound = true;
+      send.onclick = () => {
+        const text = input ? String(input.value || '').trim() : '';
+        if (!text) return;
+        if (input) input.value = '';
+        _createdEntityAddMessage('user', text);
+        _createdEntityCompose();
+      };
+    }
+    if (input && !input.__bound){
+      input.__bound = true;
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          if (send) send.click();
+        }
+      });
+    }
+    if (confirm && !confirm.__bound){
+      confirm.__bound = true;
+      confirm.onclick = async () => {
+        if (!_createdEntitySpec) return;
+        if (Array.isArray(_createdEntityClarifications) && _createdEntityClarifications.length) return;
+        confirm.disabled = true;
+        _setCreatedEntityStatus('Installing…');
+        _setCreatedEntityBadge('', 'Installing…');
+        _setCreatedEntityResult('');
+        try{
+          const specToInstall = _stripCreatedEntitySpec(_createdEntitySpec);
+          if (!specToInstall) {
+            _setCreatedEntityStatus('Invalid draft (missing required fields).');
+            _setCreatedEntityBadge('bad', 'Error');
+            return;
+          }
+          const resp = await _callHaServiceResponse('clawdbot','created_entity_install',{ spec: specToInstall });
+          const data = (resp && resp.response) ? resp.response : resp;
+          const r = data && data.result ? data.result : data;
+          if (!r || r.ok === false) {
+            const err = r && r.error ? String(r.error) : 'Install failed';
+            _setCreatedEntityStatus('Install failed.');
+            _setCreatedEntityBadge('bad', 'Error');
+            _setCreatedEntityResult(err);
+            return;
+          }
+          const spec = r && r.spec ? r.spec : _createdEntitySpec;
+          const eid = spec && spec.entity_id ? String(spec.entity_id) : '';
+          _setCreatedEntityStatus('Installed.');
+          _setCreatedEntityBadge('ok', 'Installed');
+          _setCreatedEntityResultEntity(eid);
+          await _refreshCreatedEntityList();
+        } catch(e){
+          _setCreatedEntityStatus('Install failed.');
+          _setCreatedEntityBadge('bad', 'Error');
+          _setCreatedEntityResult(String(e && (e.message || e) || e));
+        } finally {
+          _renderCreatedEntityPreview();
+        }
+      };
+    }
+    if (refresh && !refresh.__bound){
+      refresh.__bound = true;
+      refresh.onclick = () => _refreshCreatedEntityList();
+    }
+
+    // Default badge state
+    try{
+      if (!_createdEntityMessages.length && !_createdEntitySpec) {
+        _setCreatedEntityBadge('', 'Draft');
+      }
+    }catch(e){}
+  }
+
   function _autoAddEvent(ev){
     try{
       if (!ev) return;
@@ -4044,6 +4507,14 @@ async function fetchStatesRest(hass){
       try{ renderAutoYaml(); }catch(e){}
       try{ bindAutoTests(); }catch(e){}
       try{ renderAutoEvents(); }catch(e){}
+      try{ _bindCreatedEntityComposer(); }catch(e){}
+      try{ _renderCreatedEntityChat(); _renderCreatedEntityOptions(); _renderCreatedEntityPreview(); }catch(e){}
+      try{
+        const now = Date.now();
+        if (!_createdEntityLastRefreshMs || (now - _createdEntityLastRefreshMs) > 5000) {
+          await _refreshCreatedEntityList();
+        }
+      } catch(e){}
 
       // Subscribe once (catch-all subscription; filter for our event types)
       if (!_autoUnsubs.length) {
@@ -4149,6 +4620,10 @@ async function init(){
       if (which === 'setup') {
         try{ const { hass } = await getHass(); await refreshEntities(); renderEntityConfig(hass); } catch(e){}
         try{ await refreshSetupOptions(); } catch(e){}
+      }
+      if (which === 'automations') {
+        try{ await renderAutomationsView(); } catch(e){}
+        try{ await _refreshCreatedEntityList(); } catch(e){}
       }
       // Update hash (deep link)
       try{
