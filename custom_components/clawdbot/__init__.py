@@ -186,7 +186,7 @@ CREATED_ENTITIES_STORE_VERSION = 1
 
 
 PANEL_BUILD_ID = "v0.2.20.179"
-INTEGRATION_BUILD_ID = "v0.2.26"
+INTEGRATION_BUILD_ID = "v0.2.27"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -6390,6 +6390,82 @@ async def async_setup(hass, config):
 
             return "completed", []
 
+        def _build_chat_payload(*, strict_no_tool_call_retry: bool = False) -> dict[str, Any]:
+            chat_messages = []
+            for m in input_msgs:
+                if not isinstance(m, dict):
+                    continue
+                role = m.get("role")
+                content = m.get("content")
+                if not isinstance(role, str) or not isinstance(content, str):
+                    continue
+                chat_messages.append({"role": role, "content": content})
+
+            if strict_no_tool_call_retry:
+                chat_messages.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            "STRICT RETRY: You must call the function compose_created_entity exactly once. "
+                            "Do not answer with plain text. Return only a function tool call."
+                        ),
+                    }
+                )
+
+            return {
+                "model": "ignored",
+                "messages": chat_messages,
+                "tools": payload.get("tools", []),
+                "tool_choice": payload.get("tool_choice"),
+            }
+
+        def _parse_compose_output(raw_status: Any, raw_output: Any) -> tuple[dict[str, Any] | None, str | None, str | None]:
+            spec_local = None
+            parse_error_local = None
+            function_call_name_local = None
+
+            if raw_status == "incomplete" and isinstance(raw_output, list):
+                fc = None
+                for item in raw_output:
+                    if not isinstance(item, dict) or item.get("type") != "function_call":
+                        continue
+
+                    item_name = item.get("name")
+                    if function_call_name_local is None and isinstance(item_name, str):
+                        function_call_name_local = item_name
+
+                    if item_name == tool_name and fc is None:
+                        fc = item
+
+                if fc is None:
+                    if function_call_name_local:
+                        parse_error_local = f"unexpected_function_call_name:{function_call_name_local}"
+                    else:
+                        parse_error_local = "missing_function_call"
+                else:
+                    args_raw = fc.get("arguments")
+                    if not isinstance(args_raw, str) or not args_raw.strip():
+                        parse_error_local = "missing_arguments"
+                    else:
+                        try:
+                            args = json.loads(args_raw)
+                        except Exception as e:
+                            args = None
+                            parse_error_local = f"arguments_json_parse_error: {e}"
+                        if isinstance(args, dict):
+                            spec_local = args
+                        else:
+                            parse_error_local = "arguments_not_object"
+            else:
+                if raw_status == "completed":
+                    parse_error_local = "no_tool_call"
+                elif isinstance(raw_status, str) and raw_status:
+                    parse_error_local = f"unexpected_status:{raw_status}"
+                else:
+                    parse_error_local = "invalid_gateway_response"
+
+            return spec_local, parse_error_local, function_call_name_local
+
         endpoint_used = "responses"
         endpoint_http_status = 200
         res = None
@@ -6404,25 +6480,13 @@ async def async_setup(hass, config):
 
             if first_status in (404, 405, 501):
                 endpoint_used = "chat_completions_fallback"
-                chat_messages = []
-                for m in input_msgs:
-                    if not isinstance(m, dict):
-                        continue
-                    role = m.get("role")
-                    content = m.get("content")
-                    if not isinstance(role, str) or not isinstance(content, str):
-                        continue
-                    chat_messages.append({"role": role, "content": content})
-
-                chat_payload = {
-                    "model": "ignored",
-                    "messages": chat_messages,
-                    "tools": payload.get("tools", []),
-                    "tool_choice": payload.get("tool_choice"),
-                }
-
                 try:
-                    cc_res = await _gw_post(session, gateway_origin + "/v1/chat/completions", token, chat_payload)
+                    cc_res = await _gw_post(
+                        session,
+                        gateway_origin + "/v1/chat/completions",
+                        token,
+                        _build_chat_payload(strict_no_tool_call_retry=False),
+                    )
                     endpoint_http_status = 200
                     cc_status, cc_output = _normalize_chat_completions_output(cc_res if isinstance(cc_res, dict) else {})
                     res = {
@@ -6441,49 +6505,40 @@ async def async_setup(hass, config):
         status = res.get("status") if isinstance(res, dict) else None
         output = res.get("output") if isinstance(res, dict) else None
 
+        spec, parse_error, function_call_name = _parse_compose_output(status, output)
+
+        # Controlled single retry when /v1/responses returns completed/no_tool_call.
+        if not call_error and endpoint_used == "responses" and parse_error == "no_tool_call":
+            endpoint_used = "chat_completions_retry_no_tool_call"
+            try:
+                cc_res = await _gw_post(
+                    session,
+                    gateway_origin + "/v1/chat/completions",
+                    token,
+                    _build_chat_payload(strict_no_tool_call_retry=True),
+                )
+                endpoint_http_status = 200
+                cc_status, cc_output = _normalize_chat_completions_output(cc_res if isinstance(cc_res, dict) else {})
+                status = cc_status
+                output = cc_output
+                spec, parse_error, function_call_name = _parse_compose_output(status, output)
+            except Exception as e3:
+                call_error = f"no_tool_call_retry_failed: {e3}"
+                _LOGGER.exception("created_entity_compose no_tool_call retry via chat_completions failed")
+                status = None
+                output = None
+                spec = None
+                parse_error = "invalid_gateway_response"
+                function_call_name = None
+
         _LOGGER.info(
-            "created_entity_compose endpoint=%s http_status=%s raw_status=%s",
+            "created_entity_compose endpoint=%s http_status=%s raw_status=%s function_call_name=%s parse_error=%s",
             endpoint_used,
             endpoint_http_status if endpoint_http_status is not None else "unknown",
             status if status is not None else "none",
+            function_call_name if function_call_name else "none",
+            parse_error if parse_error else "none",
         )
-
-        spec = None
-        parse_error = None
-
-        if status == "incomplete" and isinstance(output, list):
-            fc = None
-            for item in output:
-                if (
-                    isinstance(item, dict)
-                    and item.get("type") == "function_call"
-                    and item.get("name") == tool_name
-                ):
-                    fc = item
-                    break
-            if fc is None:
-                parse_error = "missing_function_call"
-            else:
-                args_raw = fc.get("arguments")
-                if not isinstance(args_raw, str) or not args_raw.strip():
-                    parse_error = "missing_arguments"
-                else:
-                    try:
-                        args = json.loads(args_raw)
-                    except Exception as e:
-                        args = None
-                        parse_error = f"arguments_json_parse_error: {e}"
-                    if isinstance(args, dict):
-                        spec = args
-                    else:
-                        parse_error = "arguments_not_object"
-        else:
-            if status == "completed":
-                parse_error = "no_tool_call"
-            elif isinstance(status, str) and status:
-                parse_error = f"unexpected_status:{status}"
-            else:
-                parse_error = "invalid_gateway_response"
 
         def _json_safe(v, depth: int = 0):
             if depth > 4:
@@ -6505,6 +6560,18 @@ async def async_setup(hass, config):
             except Exception:
                 return None
 
+        safe_output = _json_safe(output)
+
+        def _raw_preview(v: Any, max_len: int = 220) -> str:
+            try:
+                txt = json.dumps(v, ensure_ascii=False)
+            except Exception:
+                txt = str(v)
+            txt = txt.replace("\n", " ").strip()
+            if len(txt) > max_len:
+                txt = txt[:max_len] + "…"
+            return txt
+
         ts = dt.datetime.now(tz=dt.timezone.utc).isoformat().replace("+00:00", "Z")
         ok = bool(spec) and not call_error and not parse_error
         error = call_error or parse_error
@@ -6514,7 +6581,10 @@ async def async_setup(hass, config):
             "error": error,
             "ts": ts,
             "raw_status": status,
-            "raw_output": _json_safe(output),
+            "raw_output": safe_output,
+            "endpoint_used": endpoint_used,
+            "function_call_name": function_call_name,
+            "raw_preview": _raw_preview(safe_output),
         }
 
     # Auto-start on boot if any created entities exist
