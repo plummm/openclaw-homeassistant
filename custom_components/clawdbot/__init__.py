@@ -186,7 +186,7 @@ CREATED_ENTITIES_STORE_VERSION = 1
 
 
 PANEL_BUILD_ID = "v0.2.20.179"
-INTEGRATION_BUILD_ID = "v0.2.28"
+INTEGRATION_BUILD_ID = "v0.2.29"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -6534,6 +6534,177 @@ async def async_setup(hass, config):
 
             return spec_local, parse_error_local, function_call_name_local
 
+        def _deterministic_candidate_sensors(limit: int = 8) -> list[dict[str, str]]:
+            scored: list[tuple[int, str, str]] = []
+            numeric: list[tuple[int, str, str]] = []
+
+            for st in hass.states.async_all():
+                eid = st.entity_id if isinstance(getattr(st, "entity_id", None), str) else ""
+                if not eid.startswith("sensor."):
+                    continue
+
+                if _created_entities_to_float(st.state) is None:
+                    continue
+
+                attrs = st.attributes if isinstance(st.attributes, dict) else {}
+                friendly = attrs.get("friendly_name") if isinstance(attrs.get("friendly_name"), str) else eid
+                device_class = attrs.get("device_class") if isinstance(attrs.get("device_class"), str) else ""
+                state_class = attrs.get("state_class") if isinstance(attrs.get("state_class"), str) else ""
+                unit = attrs.get("unit_of_measurement") if isinstance(attrs.get("unit_of_measurement"), str) else ""
+                low = f"{eid} {friendly}".lower()
+
+                base = 0
+                if device_class == "energy":
+                    base += 100
+                if unit in {"kWh", "Wh", "MWh", "GJ"}:
+                    base += 40
+                if state_class in {"total", "total_increasing"}:
+                    base += 20
+                if any(k in low for k in ("pv", "solar", "generation", "produced", "production")):
+                    base += 20
+                if any(k in low for k in ("today", "daily")):
+                    base += 15
+
+                item = (base, eid, str(friendly))
+                if base > 0:
+                    scored.append(item)
+                else:
+                    # Fallback numeric sensor pool (very low score)
+                    numeric.append((1, eid, str(friendly)))
+
+            scored.sort(key=lambda x: (-x[0], x[1]))
+            if not scored:
+                scored = sorted(numeric, key=lambda x: x[1])
+
+            out: list[dict[str, str]] = []
+            for _, eid, friendly in scored[: max(1, int(limit))]:
+                out.append({"entity_id": eid, "friendly_name": friendly})
+            return out
+
+        def _deterministic_pick_source(user_lines: list[str], candidates: list[dict[str, str]]) -> str | None:
+            candidate_ids = {str(c.get("entity_id")) for c in candidates if isinstance(c, dict) and isinstance(c.get("entity_id"), str)}
+
+            # Strongest signal: explicit sensor.entity_id mention in user text.
+            for line in reversed(user_lines):
+                for m in re.findall(r"\bsensor\.[a-z0-9_]+\b", line.lower()):
+                    st = hass.states.get(m)
+                    if st is None:
+                        continue
+                    if _created_entities_to_float(st.state) is None:
+                        continue
+                    if candidate_ids and m not in candidate_ids:
+                        # Allow explicit valid sensors outside candidate shortlist too.
+                        return m
+                    return m
+
+            # Secondary signal: friendly-name mention.
+            joined = "\n".join(user_lines).lower()
+            for c in candidates:
+                if not isinstance(c, dict):
+                    continue
+                eid = c.get("entity_id")
+                name = c.get("friendly_name")
+                if not isinstance(eid, str):
+                    continue
+                if isinstance(name, str) and name.strip() and name.lower() in joined:
+                    return eid
+
+            return None
+
+        def _deterministic_pick_method(text_l: str) -> tuple[str, bool]:
+            if "weighted_mean_last_n_days" in text_l or "weighted mean" in text_l:
+                return "weighted_mean_last_n_days", True
+            if "mean_last_n_days" in text_l:
+                return "mean_last_n_days", True
+            if "yesterday" in text_l:
+                return "yesterday", True
+            if "average" in text_l or "mean" in text_l:
+                return "mean_last_n_days", True
+            return "mean_last_n_days", False
+
+        def _deterministic_pick_window_days(text_l: str) -> int:
+            m = re.search(r"(?:last|past)\s+(\d{1,2})\s+days?", text_l)
+            if not m:
+                m = re.search(r"\b(\d{1,2})d\b", text_l)
+            try:
+                n = int(m.group(1)) if m else CREATED_ENTITY_PV_DEFAULT_WINDOW_DAYS
+            except Exception:
+                n = CREATED_ENTITY_PV_DEFAULT_WINDOW_DAYS
+            if n < 1:
+                n = 1
+            if n > 30:
+                n = 30
+            return n
+
+        def _deterministic_pick_unit(text_l: str) -> str:
+            if " kwh" in f" {text_l}" or "kwh" in text_l:
+                return "kWh"
+            if " wh" in f" {text_l}" and "kwh" not in text_l:
+                return "Wh"
+            return "kWh"
+
+        def _build_deterministic_compose_spec() -> dict[str, Any]:
+            user_lines: list[str] = []
+            for it in messages_in:
+                if not isinstance(it, dict):
+                    continue
+                role = it.get("role")
+                content = it.get("content")
+                if isinstance(role, str) and role.strip().lower() == "user" and isinstance(content, str) and content.strip():
+                    user_lines.append(content.strip())
+
+            text_l = "\n".join(user_lines).lower()
+            kind = "pv_next_day_prediction"
+            title = "Tomorrow PV Energy Prediction"
+            window_days = _deterministic_pick_window_days(text_l)
+            unit = _deterministic_pick_unit(text_l)
+            method, method_explicit = _deterministic_pick_method(text_l)
+
+            candidates = _deterministic_candidate_sensors(limit=8)
+            selected_source = _deterministic_pick_source(user_lines, candidates)
+            default_source = selected_source or (candidates[0].get("entity_id") if candidates else None) or "sensor.solar_generation_today"
+
+            clarifications: list[dict[str, Any]] = []
+            if not selected_source:
+                source_options = [str(c.get("entity_id")) for c in candidates if isinstance(c.get("entity_id"), str)][:6]
+                if not source_options:
+                    source_options = ["sensor.solar_generation_today", "sensor.total_pv_input_daily", "sensor.your_pv_energy_sensor"]
+                clarifications.append(
+                    {
+                        "question": "Which source sensor should I use for historical PV energy?",
+                        "options": source_options,
+                        "recommended": source_options[0],
+                    }
+                )
+
+            if not method_explicit:
+                method_options = ["mean_last_n_days", "yesterday"]
+                clarifications.append(
+                    {
+                        "question": "Which prediction method should I use?",
+                        "options": method_options,
+                        "recommended": "mean_last_n_days",
+                    }
+                )
+
+            entity_id = _created_entities_pick_entity_id(kind, title)
+            return {
+                "title": title,
+                "kind": kind,
+                "entity_id": entity_id,
+                "inputs": {
+                    "source_entity_id": str(default_source),
+                    "method": method,
+                    "window_days": window_days,
+                    "unit": unit,
+                },
+                "clarifications_needed": clarifications,
+                "rationale": (
+                    "Deterministic fallback draft (v1): inferred pv_next_day_prediction from user intent. "
+                    "This keeps compose reliable when the model does not return a valid tool call or JSON object."
+                ),
+            }
+
         endpoint_used = "responses"
         endpoint_http_status = 200
         res = None
@@ -6631,6 +6802,27 @@ async def async_setup(hass, config):
                 parse_error = "invalid_json_fallback"
                 if fallback_source:
                     json_fallback_preview = fallback_source[:220]
+
+        # Deterministic fallback composer (v1) when model output is unusable.
+        if spec is None:
+            det_spec = _build_deterministic_compose_spec()
+            det_clar = det_spec.get("clarifications_needed") if isinstance(det_spec, dict) else None
+            has_clar = isinstance(det_clar, list) and len(det_clar) > 0
+
+            if has_clar:
+                spec = det_spec
+                call_error = None
+                parse_error = None
+                endpoint_used = endpoint_used + "+deterministic_fallback"
+            elif isinstance(det_spec, dict):
+                normalized_spec, norm_err = _created_entities_normalize_spec(det_spec)
+                if normalized_spec is not None and not norm_err:
+                    spec = normalized_spec
+                    call_error = None
+                    parse_error = None
+                    endpoint_used = endpoint_used + "+deterministic_fallback"
+                else:
+                    parse_error = parse_error or f"deterministic_invalid:{norm_err or 'validation_failed'}"
 
         _LOGGER.info(
             "created_entity_compose endpoint=%s http_status=%s raw_status=%s function_call_name=%s parse_error=%s",
