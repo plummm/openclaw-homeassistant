@@ -186,7 +186,7 @@ CREATED_ENTITIES_STORE_VERSION = 1
 
 
 PANEL_BUILD_ID = "v0.2.20.179"
-INTEGRATION_BUILD_ID = "v0.2.27"
+INTEGRATION_BUILD_ID = "v0.2.28"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -6282,6 +6282,7 @@ async def async_setup(hass, config):
             "You are composing a Home Assistant created-entity spec for OpenClaw. "
             "Do not install or execute anything. "
             "Return a single tool call with a JSON object matching the EntitySpec schema. "
+            "Return ONLY a JSON object matching schema; no prose. "
             "If information is missing, include clarifications_needed as an array of objects {question, options, recommended?}. "
             "If nothing is missing, omit clarifications_needed or set it to an empty array."
         )
@@ -6390,6 +6391,73 @@ async def async_setup(hass, config):
 
             return "completed", []
 
+        def _extract_assistant_text_from_responses_output(raw_output: Any) -> list[str]:
+            out: list[str] = []
+            if not isinstance(raw_output, list):
+                return out
+            for item in raw_output:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") != "message":
+                    continue
+                if item.get("role") != "assistant":
+                    continue
+                content = item.get("content")
+                if isinstance(content, str) and content.strip():
+                    out.append(content.strip())
+                    continue
+                if isinstance(content, list):
+                    for c in content:
+                        if not isinstance(c, dict):
+                            continue
+                        txt = c.get("text")
+                        if isinstance(txt, str) and txt.strip():
+                            out.append(txt.strip())
+            return out
+
+        def _extract_assistant_text_from_chat_completion(raw_cc: Any) -> list[str]:
+            out: list[str] = []
+            if not isinstance(raw_cc, dict):
+                return out
+            choices = raw_cc.get("choices")
+            if not isinstance(choices, list) or not choices:
+                return out
+            first = choices[0] if isinstance(choices[0], dict) else {}
+            msg = first.get("message") if isinstance(first, dict) else None
+            msg = msg if isinstance(msg, dict) else {}
+            content = msg.get("content")
+            if isinstance(content, str) and content.strip():
+                out.append(content.strip())
+            elif isinstance(content, list):
+                for c in content:
+                    if isinstance(c, dict):
+                        txt = c.get("text")
+                        if isinstance(txt, str) and txt.strip():
+                            out.append(txt.strip())
+            return out
+
+        def _extract_json_object_from_text(raw_text: str) -> dict[str, Any] | None:
+            txt = str(raw_text or "").strip()
+            if not txt:
+                return None
+
+            m = re.match(r"^\s*```(?:json)?\s*(\{[\s\S]*\})\s*```\s*$", txt, re.IGNORECASE)
+            if m:
+                txt = m.group(1).strip()
+
+            # Accept only a raw JSON object (no prose prefix/suffix).
+            if not (txt.startswith("{") and txt.endswith("}")):
+                return None
+
+            try:
+                val = json.loads(txt)
+            except Exception:
+                return None
+
+            if isinstance(val, dict):
+                return val
+            return None
+
         def _build_chat_payload(*, strict_no_tool_call_retry: bool = False) -> dict[str, Any]:
             chat_messages = []
             for m in input_msgs:
@@ -6470,9 +6538,14 @@ async def async_setup(hass, config):
         endpoint_http_status = 200
         res = None
         call_error = None
+        assistant_text_candidates: list[str] = []
+        json_fallback_preview: str | None = None
 
         try:
             res = await _gw_post(session, gateway_origin + "/v1/responses", token, payload)
+            assistant_text_candidates.extend(
+                _extract_assistant_text_from_responses_output(res.get("output") if isinstance(res, dict) else None)
+            )
         except Exception as e:
             first_error = str(e)
             first_status = _extract_http_status(first_error)
@@ -6487,6 +6560,7 @@ async def async_setup(hass, config):
                         token,
                         _build_chat_payload(strict_no_tool_call_retry=False),
                     )
+                    assistant_text_candidates.extend(_extract_assistant_text_from_chat_completion(cc_res))
                     endpoint_http_status = 200
                     cc_status, cc_output = _normalize_chat_completions_output(cc_res if isinstance(cc_res, dict) else {})
                     res = {
@@ -6517,6 +6591,7 @@ async def async_setup(hass, config):
                     token,
                     _build_chat_payload(strict_no_tool_call_retry=True),
                 )
+                assistant_text_candidates.extend(_extract_assistant_text_from_chat_completion(cc_res))
                 endpoint_http_status = 200
                 cc_status, cc_output = _normalize_chat_completions_output(cc_res if isinstance(cc_res, dict) else {})
                 status = cc_status
@@ -6530,6 +6605,32 @@ async def async_setup(hass, config):
                 spec = None
                 parse_error = "invalid_gateway_response"
                 function_call_name = None
+
+        # Strict JSON-text fallback only when no tool call is returned.
+        if not call_error and parse_error == "no_tool_call":
+            parsed_spec = None
+            fallback_source = None
+            for cand in assistant_text_candidates:
+                spec_obj = _extract_json_object_from_text(cand)
+                if spec_obj is None:
+                    continue
+                parsed_spec = spec_obj
+                fallback_source = cand
+                break
+
+            if isinstance(parsed_spec, dict):
+                normalized_spec, norm_err = _created_entities_normalize_spec(parsed_spec)
+                if normalized_spec is not None and not norm_err:
+                    spec = normalized_spec
+                    parse_error = None
+                    endpoint_used = endpoint_used + "+json_text_fallback"
+                else:
+                    parse_error = "invalid_json_fallback"
+                    json_fallback_preview = str(norm_err or "validation_failed")
+            else:
+                parse_error = "invalid_json_fallback"
+                if fallback_source:
+                    json_fallback_preview = fallback_source[:220]
 
         _LOGGER.info(
             "created_entity_compose endpoint=%s http_status=%s raw_status=%s function_call_name=%s parse_error=%s",
@@ -6584,7 +6685,7 @@ async def async_setup(hass, config):
             "raw_output": safe_output,
             "endpoint_used": endpoint_used,
             "function_call_name": function_call_name,
-            "raw_preview": _raw_preview(safe_output),
+            "raw_preview": (json_fallback_preview if isinstance(json_fallback_preview, str) and json_fallback_preview else _raw_preview(safe_output)),
         }
 
     # Auto-start on boot if any created entities exist
