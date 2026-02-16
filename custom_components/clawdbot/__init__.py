@@ -186,7 +186,7 @@ CREATED_ENTITIES_STORE_VERSION = 1
 
 
 PANEL_BUILD_ID = "v0.2.20.179"
-INTEGRATION_BUILD_ID = "v0.2.24"
+INTEGRATION_BUILD_ID = "v0.2.26"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -6352,17 +6352,101 @@ async def async_setup(hass, config):
             "tool_choice": {"type": "function", "function": {"name": tool_name}},
         }
 
+        def _extract_http_status(err_text: str) -> int | None:
+            m = re.search(r"Gateway HTTP\s+(\d{3})\b", str(err_text or ""))
+            if not m:
+                return None
+            try:
+                return int(m.group(1))
+            except Exception:
+                return None
+
+        def _normalize_chat_completions_output(raw_cc: dict[str, Any]) -> tuple[str | None, list[Any] | None]:
+            choices = raw_cc.get("choices") if isinstance(raw_cc, dict) else None
+            if not isinstance(choices, list) or not choices:
+                return None, None
+
+            first = choices[0] if isinstance(choices[0], dict) else {}
+            msg = first.get("message") if isinstance(first, dict) else None
+            msg = msg if isinstance(msg, dict) else {}
+            tool_calls = msg.get("tool_calls")
+
+            if isinstance(tool_calls, list) and tool_calls:
+                out = []
+                for tc in tool_calls:
+                    if not isinstance(tc, dict):
+                        continue
+                    fn = tc.get("function")
+                    if not isinstance(fn, dict):
+                        continue
+                    out.append(
+                        {
+                            "type": "function_call",
+                            "name": fn.get("name"),
+                            "arguments": fn.get("arguments"),
+                        }
+                    )
+                return "incomplete", out
+
+            return "completed", []
+
+        endpoint_used = "responses"
+        endpoint_http_status = 200
         res = None
         call_error = None
+
         try:
             res = await _gw_post(session, gateway_origin + "/v1/responses", token, payload)
         except Exception as e:
-            call_error = str(e)
-            _LOGGER.exception("created_entity_compose /v1/responses failed")
-            res = {"error": call_error}
+            first_error = str(e)
+            first_status = _extract_http_status(first_error)
+            endpoint_http_status = first_status
+
+            if first_status in (404, 405, 501):
+                endpoint_used = "chat_completions_fallback"
+                chat_messages = []
+                for m in input_msgs:
+                    if not isinstance(m, dict):
+                        continue
+                    role = m.get("role")
+                    content = m.get("content")
+                    if not isinstance(role, str) or not isinstance(content, str):
+                        continue
+                    chat_messages.append({"role": role, "content": content})
+
+                chat_payload = {
+                    "model": "ignored",
+                    "messages": chat_messages,
+                    "tools": payload.get("tools", []),
+                    "tool_choice": payload.get("tool_choice"),
+                }
+
+                try:
+                    cc_res = await _gw_post(session, gateway_origin + "/v1/chat/completions", token, chat_payload)
+                    endpoint_http_status = 200
+                    cc_status, cc_output = _normalize_chat_completions_output(cc_res if isinstance(cc_res, dict) else {})
+                    res = {
+                        "status": cc_status,
+                        "output": cc_output,
+                    }
+                except Exception as e2:
+                    call_error = f"{first_error}; fallback_error: {e2}"
+                    _LOGGER.exception("created_entity_compose responses->chat_completions fallback failed")
+                    res = {"error": call_error}
+            else:
+                call_error = first_error
+                _LOGGER.exception("created_entity_compose /v1/responses failed")
+                res = {"error": call_error}
 
         status = res.get("status") if isinstance(res, dict) else None
         output = res.get("output") if isinstance(res, dict) else None
+
+        _LOGGER.info(
+            "created_entity_compose endpoint=%s http_status=%s raw_status=%s",
+            endpoint_used,
+            endpoint_http_status if endpoint_http_status is not None else "unknown",
+            status if status is not None else "none",
+        )
 
         spec = None
         parse_error = None
