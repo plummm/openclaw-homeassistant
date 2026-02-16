@@ -186,7 +186,7 @@ CREATED_ENTITIES_STORE_VERSION = 1
 
 
 PANEL_BUILD_ID = "v0.2.20.179"
-INTEGRATION_BUILD_ID = "v0.2.29"
+INTEGRATION_BUILD_ID = "v0.2.30"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -6029,9 +6029,35 @@ async def async_setup(hass, config):
 
         series = None
         if isinstance(res, dict):
+            # Shape A: {"sensor.xxx": [...]} (legacy/direct)
             if isinstance(src, str) and isinstance(res.get(src), list):
                 series = res.get(src)
-            elif len(res) == 1:
+
+            # Shape B: {"statistics": {"sensor.xxx": [...]}} (common recorder response)
+            if series is None:
+                stats_obj = res.get("statistics") if isinstance(res.get("statistics"), dict) else None
+                if isinstance(stats_obj, dict):
+                    if isinstance(src, str) and isinstance(stats_obj.get(src), list):
+                        series = stats_obj.get(src)
+                    elif len(stats_obj) == 1:
+                        v = next(iter(stats_obj.values()))
+                        if isinstance(v, list):
+                            series = v
+
+            # Shape C: {"service_response": {"statistics": {...}}}
+            if series is None:
+                srv = res.get("service_response") if isinstance(res.get("service_response"), dict) else None
+                stats_obj2 = srv.get("statistics") if isinstance(srv, dict) and isinstance(srv.get("statistics"), dict) else None
+                if isinstance(stats_obj2, dict):
+                    if isinstance(src, str) and isinstance(stats_obj2.get(src), list):
+                        series = stats_obj2.get(src)
+                    elif len(stats_obj2) == 1:
+                        v = next(iter(stats_obj2.values()))
+                        if isinstance(v, list):
+                            series = v
+
+            # Fallback: single-key list value
+            if series is None and len(res) == 1:
                 v = next(iter(res.values()))
                 if isinstance(v, list):
                     series = v
