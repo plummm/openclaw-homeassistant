@@ -186,7 +186,7 @@ CREATED_ENTITIES_STORE_VERSION = 1
 
 
 PANEL_BUILD_ID = "v0.2.20.179"
-INTEGRATION_BUILD_ID = "v0.2.33"
+INTEGRATION_BUILD_ID = "v0.2.34"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -7898,10 +7898,10 @@ async def async_setup(hass, config):
                         ],
                     }
                 else:
-                    # Compatibility fallback: non-Vibe models use a simpler payload contract.
+                    # Compatibility fallback: non-Vibe models use 'text' (not 'input' or 'script') for AimlAPI /v1/tts
                     payload = {
                         "model": model,
-                        "script": script,
+                        "text": script,
                     }
 
                 # Step 1: request generation (JSON with audio URL, or direct audio bytes)
