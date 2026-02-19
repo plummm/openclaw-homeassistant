@@ -186,7 +186,7 @@ CREATED_ENTITIES_STORE_VERSION = 1
 
 
 PANEL_BUILD_ID = "v0.2.20.179"
-INTEGRATION_BUILD_ID = "v0.2.31"
+INTEGRATION_BUILD_ID = "v0.2.32"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -7862,7 +7862,8 @@ async def async_setup(hass, config):
 
                 # simple rate limit: one request per 2s per user
                 rt = _runtime(hass)
-                bucket = str(call.context.user_id or 'anon')
+                ctx = getattr(call, 'context', None)
+                bucket = str(getattr(ctx, 'user_id', None) or 'anon')
                 last_map = rt.get('tts_vibevoice_last_ts') or {}
                 last = float(last_map.get(bucket) or 0)
                 now = time.time()
@@ -7881,20 +7882,34 @@ async def async_setup(hass, config):
 
                 t0 = time.monotonic()
                 headers = {"Authorization": f"Bearer {api_key}"}
-                url = 'https://api.aimlapi.com/v1/tts'
+                model_l = str(model).strip().lower()
+                vibe_mode = model_l.startswith('microsoft/vibevoice')
+                url = 'https://api.aimlapi.com/v1/tts' if vibe_mode else 'https://api.aimlapi.com/v1/audio/speech'
 
-                payload = {
-                    "model": model,
-                    "script": script,
-                    # Optional speakers array (best-effort; docs show this shape)
-                    "speakers": [
-                        {"preset": preset1},
-                        {"preset": preset2},
-                    ],
-                }
+                if vibe_mode:
+                    payload = {
+                        "model": model,
+                        "script": script,
+                        # Optional speakers array (best-effort; docs show this shape)
+                        "speakers": [
+                            {"preset": preset1},
+                            {"preset": preset2},
+                        ],
+                    }
+                else:
+                    # Compatibility fallback: OpenAI-style TTS endpoint/payload for non-Vibe models.
+                    voice = _opt('tts.vibevoice_voice', 'alloy')
+                    payload = {
+                        "model": model,
+                        "input": script,
+                        "voice": voice,
+                        "response_format": fmt,
+                    }
 
-                # Step 1: request generation → returns JSON with audio.url
+                # Step 1: request generation (JSON with audio URL, or direct audio bytes)
                 j = None
+                data = None
+                t_dl_ms = None
                 for attempt in range(2):
                     try:
                         t_post0 = time.monotonic()
@@ -7905,6 +7920,7 @@ async def async_setup(hass, config):
                             timeout=float(int(timeout_ms)) / 1000.0,
                         ) as resp:
                             raw = await resp.read()
+                            ctype = (resp.headers.get('content-type') or '').lower()
                             if resp.status not in (200, 201):
                                 body_snip = ''
                                 try:
@@ -7912,12 +7928,26 @@ async def async_setup(hass, config):
                                 except Exception:
                                     body_snip = ''
                                 raise HomeAssistantError(f"aimlapi http {resp.status} ({len(raw)} bytes) {body_snip}")
+
+                            t_post_ms = int((time.monotonic()-t_post0)*1000)
+
+                            # Non-Vibe fallback endpoint may return audio bytes directly.
+                            if (not vibe_mode) and (ctype.startswith('audio/') or ctype in ('application/octet-stream',)):
+                                data = raw
+                                if ctype.endswith('/wav'):
+                                    fmt = 'wav'
+                                elif ctype.endswith('/mpeg') or 'mp3' in ctype:
+                                    fmt = 'mp3'
+                                break
+
                             try:
                                 import json
-
                                 j = json.loads(raw.decode('utf-8', errors='ignore'))
-                                t_post_ms = int((time.monotonic()-t_post0)*1000)
                             except Exception:
+                                # Some providers return raw bytes without proper content-type.
+                                if (not vibe_mode) and raw:
+                                    data = raw
+                                    break
                                 raise HomeAssistantError('aimlapi returned non-json')
                             break
                     except Exception:
@@ -7925,31 +7955,52 @@ async def async_setup(hass, config):
                             raise
                         await asyncio.sleep(0.35)
 
-                audio_src = None
-                file_name = None
-                try:
-                    audio = j.get('audio') if isinstance(j, dict) else None
-                    if isinstance(audio, dict):
-                        audio_src = audio.get('url')
-                        file_name = audio.get('file_name')
-                except Exception:
-                    pass
-                if not audio_src or not isinstance(audio_src, str):
-                    raise HomeAssistantError('aimlapi response missing audio.url')
+                if data is None:
+                    audio_src = None
+                    file_name = None
+                    try:
+                        audio = j.get('audio') if isinstance(j, dict) else None
+                        if isinstance(audio, dict):
+                            audio_src = audio.get('url')
+                            file_name = audio.get('file_name')
+                        elif isinstance(audio, str):
+                            # Some providers may return base64 audio or a URL string.
+                            if audio.startswith('http'):
+                                audio_src = audio
+                            elif audio.startswith('data:audio'):
+                                import base64
+                                comma = audio.find(',')
+                                if comma > 0:
+                                    data = base64.b64decode(audio[comma + 1:])
+                        if not audio_src and isinstance(j, dict):
+                            if isinstance(j.get('audio_url'), str):
+                                audio_src = j.get('audio_url')
+                            elif isinstance(j.get('url'), str):
+                                audio_src = j.get('url')
+                            elif isinstance(j.get('data'), list) and j.get('data'):
+                                first = j.get('data')[0] if isinstance(j.get('data')[0], dict) else {}
+                                if isinstance(first.get('url'), str):
+                                    audio_src = first.get('url')
+                    except Exception:
+                        pass
 
-                # If provider returns a file extension, trust it for content-type.
-                if isinstance(file_name, str) and '.' in file_name:
-                    ext = file_name.rsplit('.', 1)[-1].lower().strip()
-                    if ext in ('wav', 'mp3'):
-                        fmt = ext
+                    if data is None:
+                        if not audio_src or not isinstance(audio_src, str):
+                            raise HomeAssistantError('aimlapi response missing audio url')
 
-                # Step 2: download audio bytes
-                t_dl0 = time.monotonic()
-                async with session.get(audio_src, timeout=float(int(timeout_ms))/1000.0) as resp2:
-                    data = await resp2.read()
-                    t_dl_ms = int((time.monotonic()-t_dl0)*1000)
-                    if not (200 <= resp2.status < 300):
-                        raise HomeAssistantError(f'aimlapi audio fetch http {resp2.status} ({len(data)} bytes)')
+                        # If provider returns a file extension, trust it for content-type.
+                        if isinstance(file_name, str) and '.' in file_name:
+                            ext = file_name.rsplit('.', 1)[-1].lower().strip()
+                            if ext in ('wav', 'mp3'):
+                                fmt = ext
+
+                        # Step 2: download audio bytes
+                        t_dl0 = time.monotonic()
+                        async with session.get(audio_src, timeout=float(int(timeout_ms))/1000.0) as resp2:
+                            data = await resp2.read()
+                            t_dl_ms = int((time.monotonic()-t_dl0)*1000)
+                            if not (200 <= resp2.status < 300):
+                                raise HomeAssistantError(f'aimlapi audio fetch http {resp2.status} ({len(data)} bytes)')
 
                 if len(data) > 2_500_000:
                     raise HomeAssistantError('tts audio too large')
@@ -7995,7 +8046,10 @@ async def async_setup(hass, config):
         except Exception as e:
             _LOGGER.exception("tts_vibevoice failed")
             # Return structured error for panel UX (avoid leaking secrets)
-            msg = str(e)[:120] if e else 'failed'
+            base_msg = (str(e) if e is not None else '')
+            if not base_msg and e is not None:
+                base_msg = e.__class__.__name__
+            msg = (base_msg or 'failed')[:220]
             http_status = None
             if 'http ' in msg:
                 try:
@@ -8010,6 +8064,8 @@ async def async_setup(hass, config):
             elif http_status and http_status >= 500:
                 error_class = 'provider_error'
             m2 = msg.lower()
+            if 'maintenance' in m2 or 'under maintenance' in m2:
+                error_class = 'provider_maintenance'
             if 'verification' in m2:
                 error_class = 'verification_required'
             if 'out of credits' in m2 or 'billing' in m2 or 'top up' in m2:
