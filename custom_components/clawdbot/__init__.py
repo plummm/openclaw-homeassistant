@@ -186,7 +186,7 @@ CREATED_ENTITIES_STORE_VERSION = 1
 
 
 PANEL_BUILD_ID = "v0.2.20.179"
-INTEGRATION_BUILD_ID = "v0.2.32"
+INTEGRATION_BUILD_ID = "v0.2.33"
 
 PANEL_JS = r"""
 // Clawdbot panel JS (served by HA; avoids inline-script CSP issues)
@@ -7884,7 +7884,8 @@ async def async_setup(hass, config):
                 headers = {"Authorization": f"Bearer {api_key}"}
                 model_l = str(model).strip().lower()
                 vibe_mode = model_l.startswith('microsoft/vibevoice')
-                url = 'https://api.aimlapi.com/v1/tts' if vibe_mode else 'https://api.aimlapi.com/v1/audio/speech'
+                # AimlAPI currently exposes /v1/tts for these models; keep endpoint stable.
+                url = 'https://api.aimlapi.com/v1/tts'
 
                 if vibe_mode:
                     payload = {
@@ -7897,13 +7898,10 @@ async def async_setup(hass, config):
                         ],
                     }
                 else:
-                    # Compatibility fallback: OpenAI-style TTS endpoint/payload for non-Vibe models.
-                    voice = _opt('tts.vibevoice_voice', 'alloy')
+                    # Compatibility fallback: non-Vibe models use a simpler payload contract.
                     payload = {
                         "model": model,
-                        "input": script,
-                        "voice": voice,
-                        "response_format": fmt,
+                        "script": script,
                     }
 
                 # Step 1: request generation (JSON with audio URL, or direct audio bytes)
