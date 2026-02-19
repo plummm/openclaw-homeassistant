@@ -7396,7 +7396,7 @@ async def async_setup(hass, config):
         key = (key or "").strip()
         if not key or len(key) > 128:
             return False
-        allowed = ("ha.", "clawdbot.", "agent0.", "discord.", "stt.")
+        allowed = ("ha.", "clawdbot.", "agent0.", "discord.", "stt.", "tts.")
         return key.startswith(allowed)
 
     def _setup_mask_option(opt: dict) -> dict:
